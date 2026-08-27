@@ -17,8 +17,8 @@ import {
   updateStatus,
   type Status,
 } from "./db.ts";
-import { presentJob, searchJobs } from "./pipeline.ts";
-import { ALL_SOURCES, type SourceName } from "./sources.ts";
+import { presentJob, searchForProfile } from "./pipeline.ts";
+import { SEARCH_DEFAULTS, TARGET_QUERIES } from "./profile.ts";
 
 const PORT = Number(process.env["JOBHUNT_PORT"] ?? 4321);
 const HOST = "127.0.0.1";
@@ -137,6 +137,8 @@ const PAGE = /* html */ `<!doctype html>
   .btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
   .srcline { margin-top: 12px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
   .srcline .skip { color: var(--warn); }
+  .profileline { color: var(--muted); font-size: 12.5px; }
+  .profileline b { color: var(--text); font-weight: 600; }
   .srcline b { color: var(--text); font-weight: 600; }
 
   /* job cards */
@@ -227,21 +229,8 @@ const PAGE = /* html */ `<!doctype html>
   <div class="view" id="view-search" hidden>
     <section class="panel">
       <form class="searchform" id="searchform">
-        <input type="text" id="q" placeholder="senior react typescript" autocomplete="off">
-        <select id="seniority">
-          <option value="">any seniority</option>
-          <option>Entry-level</option>
-          <option>Mid-level</option>
-          <option>Senior</option>
-          <option>Manager</option>
-          <option>Director</option>
-          <option>Executive</option>
-        </select>
-        <input type="text" id="location" placeholder="Poland" autocomplete="off" size="14">
-        <input type="number" id="minSalary" placeholder="min salary" min="0" step="10000">
-        <label><input type="checkbox" id="remoteOnly" checked> remote only</label>
-        <label><input type="checkbox" id="worldwideOnly"> worldwide only</label>
-        <button class="btn" type="submit" id="searchbtn">Search</button>
+        <button class="btn" type="submit" id="searchbtn">↻ Обновить</button>
+        <span class="profileline" id="profileline"></span>
       </form>
       <div class="srcline" id="srcline">Jobs you can apply to from Poland. <code>low</code>-eligibility postings are filtered out.</div>
     </section>
@@ -263,6 +252,8 @@ let statusFilter = "";
 // URLs already in the funnel, so search cards can render as "already added".
 let trackedUrls = new Set();
 let searchResults = [];
+// Search only runs on demand, so remember whether the tab has loaded once.
+let searchLoaded = false;
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) =>
@@ -398,11 +389,22 @@ function renderSearch(payload) {
     r.skipped
       ? '<span class="skip">' + esc(r.source) + " skipped (" + esc(r.skipped) + ")</span>"
       : esc(r.source) + " " + r.count);
+  // Make the profile visible: a one-button feed should not be a black box.
+  const prof = payload.profile;
+  if (prof) {
+    $("profileline").innerHTML = "searching <b>" + (prof.queries || []).map(esc).join("</b> · <b>")
+      + "</b> in <b>" + esc(prof.location) + "</b>"
+      + (prof.remoteOnly ? ", remote only" : "")
+      + " · last " + Math.round((prof.hoursOld || 0) / 24) + "d"
+      + ' · <span class="meta">edit src/profile.ts to change</span>';
+  }
+
   const c = payload.counts || {};
   let line = parts.join(" &middot; ") + " &rarr; <b>" + (c.afterEligibility || 0) + " eligible</b>";
   if (c.deduped !== undefined && c.fetched !== undefined) {
     line += ' <span class="meta">(' + c.fetched + " fetched, " + (c.fetched - c.deduped) + " duplicates removed)</span>";
   }
+  if (c.hiddenForFit) line += ' <span class="meta">, ' + c.hiddenForFit + " dropped: wrong stack / junior</span>";
   if (c.hiddenForUnknownSalary) line += ' <span class="skip">' + c.hiddenForUnknownSalary + " hidden: no published salary</span>";
   $("srcline").innerHTML = line;
 
@@ -471,34 +473,29 @@ async function runSearch(event) {
   if (event) event.preventDefault();
   const button = $("searchbtn");
   button.disabled = true;
-  button.textContent = "Searching\\u2026";
-  $("srcline").textContent = "Querying live job feeds\\u2026";
+  button.textContent = "Ищу…";
+  $("srcline").textContent = "Опрашиваю вакансии…";
   try {
-    const params = new URLSearchParams();
-    const q = $("q").value.trim();
-    if (q) params.set("q", q);
-    if ($("seniority").value) params.set("seniority", $("seniority").value);
-    if ($("location").value.trim()) params.set("location", $("location").value.trim());
-    if ($("minSalary").value) params.set("minSalary", $("minSalary").value);
-    if ($("remoteOnly").checked) params.set("remoteOnly", "1");
-    if ($("worldwideOnly").checked) params.set("worldwideOnly", "1");
-
-    const response = await fetch("/api/search?" + params.toString());
+    // No query params: the search is fully profile-driven (see src/profile.ts).
+    const response = await fetch("/api/search");
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || response.statusText);
     renderSearch(payload);
+    searchLoaded = true;
   } catch (error) {
     $("srcline").textContent = "Search failed: " + error.message;
     toast("Search failed: " + error.message, true);
   } finally {
     button.disabled = false;
-    button.textContent = "Search";
+    button.textContent = "↻ Обновить";
   }
 }
 
 /* ---------------- tabs, filters, boot ---------------- */
 
 function showView(name) {
+  // First visit to Search runs the profile search; after that it is manual.
+  if (name === "search" && !searchLoaded) runSearch();
   $("view-tracker").hidden = name !== "tracker";
   $("view-search").hidden = name !== "search";
   document.querySelectorAll(".tab").forEach((tab) => {
@@ -624,36 +621,15 @@ const server = createServer(async (request, response) => {
      * Search runs SERVER-SIDE on purpose: some feeds send no CORS headers, and
      * this reuses the same rate-limit-safe pipeline the MCP tool uses.
      */
+    /**
+     * Profile-driven search. No query parameters by design: what to look for
+     * lives in src/profile.ts, so the UI is a single Refresh button.
+     *
+     * Runs SERVER-SIDE because some feeds send no CORS headers, and this reuses
+     * the same rate-limit-safe pipeline the MCP tool uses.
+     */
     if (request.method === "GET" && path === "/api/search") {
-      const query = url.searchParams.get("q")?.trim();
-      const seniority = url.searchParams.get("seniority")?.trim();
-      const minSalaryRaw = Number(url.searchParams.get("minSalary") ?? "");
-      const worldwideOnly = ["1", "true", "on", "yes"].includes(
-        (url.searchParams.get("worldwideOnly") ?? "").toLowerCase(),
-      );
-      const limitRaw = Number(url.searchParams.get("limit") ?? "");
-      const sourcesRaw = (url.searchParams.get("sources") ?? "")
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter((entry): entry is SourceName => (ALL_SOURCES as string[]).includes(entry));
-
-      const location = url.searchParams.get("location")?.trim();
-      const remoteOnly = ["1", "true", "on", "yes"].includes(
-        (url.searchParams.get("remoteOnly") ?? "").toLowerCase(),
-      );
-      const hoursOldRaw = Number(url.searchParams.get("hoursOld") ?? "");
-
-      const result = await searchJobs({
-        query: query && query.length > 0 ? query : undefined,
-        seniority: seniority && seniority.length > 0 ? seniority : undefined,
-        worldwideOnly,
-        minSalary: Number.isFinite(minSalaryRaw) && minSalaryRaw > 0 ? minSalaryRaw : undefined,
-        sources: sourcesRaw.length > 0 ? sourcesRaw : undefined,
-        location: location && location.length > 0 ? location : undefined,
-        remoteOnly,
-        hoursOld: Number.isFinite(hoursOldRaw) && hoursOldRaw > 0 ? hoursOldRaw : undefined,
-        limit: Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : 30,
-      });
+      const result = await searchForProfile();
 
       sendJson(response, 200, {
         jobs: result.jobs.map(presentJob),
@@ -661,6 +637,14 @@ const server = createServer(async (request, response) => {
         reports: result.reports,
         counts: result.counts,
         levelCounts: result.levelCounts,
+        // Echo the profile so the page can show what it searched for.
+        profile: {
+          queries: TARGET_QUERIES,
+          location: SEARCH_DEFAULTS.location,
+          remoteOnly: SEARCH_DEFAULTS.remoteOnly,
+          hoursOld: SEARCH_DEFAULTS.hoursOld,
+          sources: SEARCH_DEFAULTS.sources,
+        },
       });
       return;
     }

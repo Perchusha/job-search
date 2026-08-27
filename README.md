@@ -10,10 +10,15 @@ assistant or the browser.
 
 - **MCP server** — 7 tools your AI assistant can call (`find_jobs`, `log_found_jobs`,
   `log_application`, `update_status`, `add_note`, `list_applications`, `get_stats`).
-- **Dashboard** — two tabs at <http://localhost:4321>: **Search** (live job search with
-  one-click "add to funnel") and **Tracker** (funnel + sortable application table).
+- **Dashboard** — two tabs at <http://localhost:4321>: **Search** (one Refresh button, no
+  query to type) and **Tracker** (funnel + sortable application table).
 - **Eligibility scoring** — every job is tagged `high` / `medium` / `low` for whether a
   Poland-based candidate can apply, with a reason.
+
+**There is no search box.** What to look for lives in [src/profile.ts](src/profile.ts) —
+target searches, location, remote preference, and the stack weights that decide relevance.
+The stack does not change between runs, so the dashboard is a single **Refresh** button and
+`find_jobs` needs no arguments. Edit that one file to change what gets found.
 
 Search runs through **one** implementation, [src/pipeline.ts](src/pipeline.ts)'s
 `searchJobs()`, called by both the `find_jobs` tool and `GET /api/search`. The browser never
@@ -119,8 +124,8 @@ Add the same `mcpServers` block to `~/.cursor/mcp.json` (or `.cursor/mcp.json` i
 
 ## Example prompts
 
-- "Find senior react remote jobs I can apply to from Poland"
-- "Find fullstack typescript jobs, worldwide only, at least 120k"
+- **"Find me jobs"** — no arguments needed; `find_jobs` searches the saved profile
+- "Find fullstack typescript jobs, worldwide only, at least 120k" — a one-off override
 - **"Add all of those to my funnel"** — one `log_found_jobs` call, no field re-entry
 - "Log that I applied to Vercel — Senior Fullstack Engineer, `<url>`"
 - "Mark application 4 as interview"
@@ -244,7 +249,7 @@ applied to today is measured from today. Without this, it would report a 42-day
 | Route                                | Purpose                                                     |
 | ------------------------------------ | ----------------------------------------------------------- |
 | `GET /`                              | Self-contained HTML page (Search + Tracker tabs)            |
-| `GET /api/search`                    | `?q, seniority, worldwideOnly, minSalary, sources, limit` — runs `searchJobs()` server-side |
+| `GET /api/search`                    | No parameters — runs the profile search server-side and echoes the profile back |
 | `GET /api/stats`                     | Funnel counts + rates                                       |
 | `GET /api/applications`              | All rows, `ghosted` applied                                 |
 | `POST /api/applications`             | `{ url, title, company, source?, location?, salary?, status? }` → adds as `saved` |
@@ -258,15 +263,34 @@ Binds to `127.0.0.1` only. There is no auth by design — it is a single-user lo
 
 ## Using the Search tab
 
-1. Open <http://localhost:4321> and click **Search**.
-2. Type a query (optionally set seniority, a salary floor, or *worldwide only*) and submit.
-3. Cards show title, company, salary, source, the eligibility badge and its reason, plus a
-   link to the real posting. `low`-eligibility jobs are filtered out before you see them.
+1. Open <http://localhost:4321> and click **Search**. It runs automatically the first time.
+2. Press **↻ Обновить** whenever you want a fresh pass. There is nothing to type.
+3. Cards show title, company, salary, source, the eligibility badge with its reason, the
+   **fit** score, and a link to the real posting. Jobs are dropped before you see them if
+   they are `low` eligibility *or* a poor stack fit (wrong stack, junior, non-engineering).
 4. Click **В воронку** to add a job as `saved`. The button becomes **✓ В воронке** and
    disables. Jobs already in your funnel render that way from the start.
-5. The per-source line (`himalayas 60 · remoteok 14 · arbeitnow 36 → 21 eligible`) shows what
-   each feed contributed, so a feed returning nothing — or being rate-limited — is visible
-   rather than mysterious.
+5. Two lines above the cards keep it honest: the profile line shows what was searched
+   (`searching react · typescript · fullstack · node.js · ai engineer in Poland, remote only
+   · last 14d`), and the counts line shows what each source contributed and what was dropped
+   (`indeed 529 · himalayas 297 → 292 eligible (826 fetched, 309 duplicates removed), 114
+   dropped: wrong stack / junior`).
+
+Measured on a real run: 5 queries in ~2.5s, 826 postings fetched, 40 shown.
+
+## Tuning what gets found
+
+Everything personal is in [src/profile.ts](src/profile.ts):
+
+| What | Why you would change it |
+| --- | --- |
+| `TARGET_QUERIES` | The searches the Refresh button runs. Several, because one keyword cannot cover both "React" work and "AI/LLM" work |
+| `SEARCH_DEFAULTS` | Location, remote-only, how far back to look, which boards, how many results, and `maxFitTier` |
+| `STACK_WEIGHTS` | What counts as a good match. Taken from the CV; title matches count double |
+| `FOREIGN_STACK` | What sinks a posting: .NET, Java, Angular, plus non-engineering roles like recruiter or designer. A title match counts triple |
+| `JUNIOR_MARKERS` / `SENIOR_MARKERS` | Seniority detection, English and Polish |
+
+Nothing else in the codebase encodes any of it.
 
 In the **Tracker** tab, `saved` rows are dimmed and labelled "saved, not applied" to keep
 them distinct from real applications. Use the status dropdown on a row to move it to
@@ -285,6 +309,7 @@ ports as-is.
 
 ```
 src/
+  profile.ts      WHO I AM: target searches, location, stack weights. Edit this
   db.ts           SQLite open + schema + all data-access functions
   jobspy.ts       bridge to the Python JobSpy scraper (Indeed, LinkedIn, ...)
   sources.ts      fetch + normalize every source, dedupe

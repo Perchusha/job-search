@@ -12,7 +12,8 @@
  * Run `npm run sanity` to execute the checks at the bottom of this file.
  */
 
-import { fitTier, stackFit, type Job } from "./sources.ts";
+import { fitTier, stackFit } from "./profile.ts";
+import type { Job } from "./sources.ts";
 
 export type Level = "high" | "medium" | "low";
 

@@ -21,7 +21,8 @@ import {
   type Application,
   type Status,
 } from "./db.ts";
-import { presentJob, searchJobs } from "./pipeline.ts";
+import { presentJob, searchForProfile, searchJobs } from "./pipeline.ts";
+import { TARGET_QUERIES } from "./profile.ts";
 import { formatSourceReports } from "./sources.ts";
 
 const server = new McpServer({ name: "job-hunt", version: "1.0.0" });
@@ -89,7 +90,7 @@ const sourceEnum = z.enum([
 
 server.tool(
   "find_jobs",
-  "Search job boards (Indeed, LinkedIn via JobSpy; plus Himalayas/RemoteOK/Arbeitnow feeds) and score each result for whether a Poland-based candidate can actually apply. Returns an eligibility level and reason plus the apply URL. Scraped boards give volume and descriptions but no salary; Himalayas is the only source with published salaries.",
+  "Find jobs worth applying to. Called with NO arguments it searches the saved profile in src/profile.ts (my target searches, Poland, remote-only, wrong-stack and junior roles dropped) — that is the normal way to use it. Pass arguments only for a one-off, different search. Returns an eligibility level and reason plus the apply URL. Scraped boards give volume and descriptions but no salary; Himalayas is the only source with published salaries.",
   {
     query: z.string().optional().describe("Free-text search, e.g. 'senior react typescript'"),
     seniority: z
@@ -140,20 +141,30 @@ server.tool(
     onlyEligible,
     limit,
   }) => {
+    /**
+     * With no query at all, search the saved profile (src/profile.ts): my
+     * target searches, Poland, remote-only, wrong-stack roles dropped. The
+     * stack does not change between runs, so "find me jobs" needs no arguments.
+     */
+    const useProfile =
+      !query && !seniority && !location && minSalary === undefined && !sources?.length;
+
     let result;
     try {
-      result = await searchJobs({
-        query,
-        seniority,
-        worldwideOnly,
-        minSalary,
-        sources,
-        location,
-        remoteOnly,
-        hoursOld,
-        onlyEligible,
-        limit,
-      });
+      result = useProfile
+        ? await searchForProfile({ limit, onlyEligible, remoteOnly, hoursOld })
+        : await searchJobs({
+            query,
+            seniority,
+            worldwideOnly,
+            minSalary,
+            sources,
+            location,
+            remoteOnly,
+            hoursOld,
+            onlyEligible,
+            limit,
+          });
     } catch (error) {
       return replyError(
         `every source failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -163,12 +174,13 @@ server.tool(
     const { counts } = result;
     const lines = [
       `Found ${counts.returned} job(s) you can apply to from Poland` +
-        (query ? ` for "${query}"` : "") +
+        (counts.queries.length > 0 ? ` for ${counts.queries.map((q) => `"${q}"`).join(", ")}` : "") +
+        (useProfile ? " (saved profile)" : "") +
         ".",
       `Sources: ${formatSourceReports(result.reports)}`,
       `Pipeline: ${counts.fetched} fetched -> ${counts.deduped} after dedupe -> ${counts.afterEligibility} after eligibility${
-        minSalary === undefined ? "" : ` -> ${counts.afterSalary} after minSalary`
-      } -> ${counts.returned} returned.`,
+        counts.afterFit === counts.afterEligibility ? "" : ` -> ${counts.afterFit} after stack fit`
+      }${minSalary === undefined ? "" : ` -> ${counts.afterSalary} after minSalary`} -> ${counts.returned} returned.`,
       `Eligibility mix: ${
         Object.entries(result.levelCounts)
           .map(([level, count]) => `${level}=${count}`)
@@ -177,6 +189,11 @@ server.tool(
     ];
     if (onlyEligible ?? true) {
       lines.push("Jobs restricted away from Poland (level 'low') were excluded.");
+    }
+    if (counts.hiddenForFit > 0) {
+      lines.push(
+        `${counts.hiddenForFit} job(s) dropped as a poor stack fit (wrong stack, junior, or non-engineering).`,
+      );
     }
     if (counts.hiddenForUnknownSalary > 0) {
       lines.push(
