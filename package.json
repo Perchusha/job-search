@@ -8,10 +8,14 @@
   "scripts": {
     "mcp": "tsx src/index.ts",
     "dashboard": "tsx src/dashboard.ts",
+    "harvest": "tsx src/harvest.ts",
     "sanity": "tsx src/eligibility.ts",
     "setup:jobspy": "python -m venv .venv && .venv/Scripts/python.exe -m pip install -q -U python-jobspy",
     "setup:jobspy:unix": "python3 -m venv .venv && .venv/bin/python -m pip install -q -U python-jobspy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && npm run sanity && npm run test:mcp && npm run test:ui",
+    "test:mcp": "node tests/mcp.mjs",
+    "test:ui": "node tests/ui.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

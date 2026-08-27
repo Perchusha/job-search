@@ -64,6 +64,29 @@ export const SEARCH_DEFAULTS = {
 } as const;
 
 /**
+ * Settings for the unattended run (`npm run harvest`).
+ *
+ * Deliberately stricter than the interactive search. A live pass finds ~160
+ * eligible postings; auto-saving all of them would bury the funnel in a week
+ * and make `saved` meaningless. So the scheduled run only keeps the good
+ * matches, and caps how many it adds per run.
+ */
+export const HARVEST = {
+  /** Only auto-save clear (0) or partial (1) matches — never a neutral title. */
+  maxFitTier: 1,
+  /** Ceiling per run, so the funnel stays reviewable by a human. */
+  maxPerRun: 25,
+  /**
+   * Include LinkedIn. It costs ~25s (measured), which rules it out of the
+   * interactive search but is irrelevant for a nightly scheduled run — and it
+   * covers postings Indeed does not have.
+   */
+  includeLinkedin: true,
+  /** Flag applications sitting at `applied` this long with no reply. */
+  followUpAfterDays: 7,
+} as const;
+
+/**
  * Stack fit — the two lists that decide what ranks highly. Taken from the CV,
  * not guessed. This is the single place that encodes "what I actually do".
  *

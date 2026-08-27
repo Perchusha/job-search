@@ -72,7 +72,9 @@ npm run sanity     # 20/20 checks passed.
 
 ```bash
 npm run dashboard  # http://localhost:4321
+npm run harvest    # one unattended pass: find, save, report
 npm run mcp        # stdio MCP server (your AI client normally starts this for you)
+npm test           # typecheck + scorer checks + MCP + dashboard UI
 ```
 
 `npm run mcp` speaks the MCP protocol on stdin/stdout, so running it by hand just looks
@@ -284,6 +286,52 @@ is LLM *integration* into products, not model training, so "AI Engineer" is a ma
 "ML Engineer" is not. Backend is a positive signal inside a posting but a penalty in a title,
 since a "Senior Backend Engineer" opening is off target even though the skills are there.
 
+## Unattended runs — `npm run harvest`
+
+One pass with no browser and no assistant: searches the profile, saves the good matches as
+`saved`, and prints a digest of what was added, what needs a follow-up, and what has ghosted
+you. Idempotent (dedupe is by URL), so running it twice adds nothing the second time.
+
+```bash
+npm run harvest                 # normal run
+npm run harvest -- --dry-run    # find and report, write nothing
+npm run harvest -- --no-linkedin
+npm run harvest -- --limit=5
+```
+
+It is stricter than the interactive search, on purpose: a live pass finds ~100 good matches,
+and auto-saving all of them would bury the funnel and make `saved` meaningless. `HARVEST` in
+[src/profile.ts](src/profile.ts) caps it (`maxPerRun: 25`, `maxFitTier: 1`) and the digest
+always says how many were left for the next run — nothing is silently truncated. Each run
+works down the ranked backlog, so after a few days only genuinely new postings remain.
+
+LinkedIn **is** included here. Its ~25s cost rules it out of the interactive search but is
+irrelevant to a scheduled run.
+
+The digest also goes to `harvest.log` next to the database, because scheduled tasks discard
+stdout.
+
+### Scheduling it (Windows)
+
+Task Scheduler → Create Task:
+
+- **Trigger:** Daily, e.g. 08:00
+- **Action:** Start a program
+  - Program: `C:\Program Files
+odejs
+pm.cmd`
+  - Arguments: `run harvest`
+  - Start in: `D:\Projects\job-search`
+- **Settings:** tick "Run task as soon as possible after a scheduled start is missed"
+
+Or from an admin shell:
+
+```powershell
+schtasks /create /tn "job-hunt harvest" /tr "cmd /c cd /d D:\Projects\job-search && npm run harvest" /sc daily /st 08:00
+```
+
+On macOS/Linux use cron: `0 8 * * * cd /path/to/job-search && npm run harvest`
+
 ## Tuning what gets found
 
 Everything personal is in [src/profile.ts](src/profile.ts):
@@ -302,6 +350,25 @@ Nothing else in the codebase encodes any of it.
 In the **Tracker** tab, `saved` rows are dimmed and labelled "saved, not applied" to keep
 them distinct from real applications. Use the status dropdown on a row to move it to
 `applied` when you actually apply, or the Status filter to view one stage at a time.
+
+## Tests
+
+```bash
+npm test          # everything: typecheck, scorer checks, MCP, dashboard UI
+npm run sanity    # eligibility + stack-fit scoring (fast, offline)
+npm run test:mcp  # drives the real MCP server over stdio
+npm run test:ui   # runs the real dashboard page JS against a real server
+```
+
+`test:mcp` and `test:ui` each spawn their own process against a throwaway database in the
+temp directory — they never touch your real one. Both hit live job boards, so they need
+network and take a few seconds. `test:ui` uses port 4399 and refuses to run if something else
+holds it, rather than testing the wrong server (`TEST_PORT` overrides).
+
+**`test:ui` earns its keep.** The dashboard page is a template literal inside `dashboard.ts`,
+so a stray backtick or an unescaped `\"` is a syntax error that blanks the entire page and
+`tsc` says nothing. That harness has caught exactly that twice, plus a bug where optional
+arguments silently overwrote the search profile. Run it after touching `dashboard.ts`.
 
 ## Making it multi-device later
 
@@ -324,8 +391,12 @@ src/
   pipeline.ts     searchJobs(): the ONE search pipeline both callers use
   index.ts        MCP server: 7 tools over StdioServerTransport
   dashboard.ts    node:http server on :4321 (Search + Tracker)
+  harvest.ts      unattended run: find, save, digest. Schedule this
 scripts/
   jobspy_fetch.py the Python half of the JobSpy bridge
+tests/
+  mcp.mjs         drives the MCP server over stdio
+  ui.mjs          runs the real page JS against a real server
 ```
 
 `pipeline.ts` owns fetch → dedupe → score → filter → rank. `index.ts` and `dashboard.ts`
