@@ -70,7 +70,18 @@ function summarizeApplication(application: Application) {
 }
 
 const statusEnum = z.enum(STATUSES);
-const sourceEnum = z.enum(["himalayas", "remoteok", "arbeitnow"]);
+const sourceEnum = z.enum([
+  // scraped via JobSpy — volume + descriptions, no salary data
+  "indeed",
+  "linkedin",
+  "glassdoor",
+  "google",
+  "zip_recruiter",
+  // free public feeds — thinner, but Himalayas has salaries + real geo metadata
+  "himalayas",
+  "remoteok",
+  "arbeitnow",
+]);
 
 /* ------------------------------------------------------------------ */
 /* 1. find_jobs — a thin wrapper over searchJobs()                     */
@@ -78,7 +89,7 @@ const sourceEnum = z.enum(["himalayas", "remoteok", "arbeitnow"]);
 
 server.tool(
   "find_jobs",
-  "Search free remote-job feeds (Himalayas, RemoteOK, Arbeitnow) and score each result for whether a Poland-based (EU) candidate can actually apply. Returns an eligibility level and reason plus the apply URL for each job.",
+  "Search job boards (Indeed, LinkedIn via JobSpy; plus Himalayas/RemoteOK/Arbeitnow feeds) and score each result for whether a Poland-based candidate can actually apply. Returns an eligibility level and reason plus the apply URL. Scraped boards give volume and descriptions but no salary; Himalayas is the only source with published salaries.",
   {
     query: z.string().optional().describe("Free-text search, e.g. 'senior react typescript'"),
     seniority: z
@@ -96,14 +107,39 @@ server.tool(
     sources: z
       .array(sourceEnum)
       .optional()
-      .describe("Subset of sources to query. Defaults to all three"),
+      .describe("Which boards to query. Default: indeed + himalayas. Add 'linkedin' for more coverage — it is ~25s slower and its metadata is poor"),
+    location: z
+      .string()
+      .optional()
+      .describe("Scraped boards: where to search, default 'Poland'. Indeed is country-scoped, so a country or city works ('Berlin, Germany') but supranational values ('European Union') only work for linkedin"),
+    remoteOnly: z
+      .boolean()
+      .optional()
+      .describe("Scraped boards only: restrict to remote postings"),
+    hoursOld: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Scraped boards only: only postings newer than this many hours (default 336 = 14d)"),
     onlyEligible: z
       .boolean()
       .optional()
       .describe("Drop jobs scored 'low' (cannot apply from Poland). Default true"),
     limit: z.number().int().positive().max(100).optional().describe("Max jobs to return, default 20"),
   },
-  async ({ query, seniority, worldwideOnly, minSalary, sources, onlyEligible, limit }) => {
+  async ({
+    query,
+    seniority,
+    worldwideOnly,
+    minSalary,
+    sources,
+    location,
+    remoteOnly,
+    hoursOld,
+    onlyEligible,
+    limit,
+  }) => {
     let result;
     try {
       result = await searchJobs({
@@ -112,6 +148,9 @@ server.tool(
         worldwideOnly,
         minSalary,
         sources,
+        location,
+        remoteOnly,
+        hoursOld,
         onlyEligible,
         limit,
       });

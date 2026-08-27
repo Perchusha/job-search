@@ -13,10 +13,11 @@
 
 import { scoreEligibility, levelRank, type Eligibility } from "./eligibility.ts";
 import {
-  ALL_SOURCES,
+  DEFAULT_SOURCES,
   dedupeJobs,
   fetchAllSources,
   relevanceBoost,
+  seniorityBucket,
   type Job,
   type SourceName,
   type SourceReport,
@@ -34,6 +35,14 @@ export type SearchParams = {
   onlyEligible?: boolean;
   /** Max jobs returned. Default 20. */
   limit?: number;
+  /** Scraped sources: where to search. Defaults to Poland. */
+  location?: string;
+  /** Scraped sources: only remote postings. */
+  remoteOnly?: boolean;
+  /** Scraped sources: ignore postings older than this many hours. */
+  hoursOld?: number;
+  /** LinkedIn: also fetch descriptions (one extra request per job — slow). */
+  linkedinDescriptions?: boolean;
 };
 
 /** Where jobs were lost between fetching and returning — shown to the user. */
@@ -71,7 +80,7 @@ function oversample(limit: number): number {
 export async function searchJobs(params: SearchParams = {}): Promise<SearchResult> {
   const limit = params.limit ?? DEFAULT_SEARCH_LIMIT;
   const dropLow = params.onlyEligible ?? true;
-  const sources: SourceName[] = params.sources?.length ? params.sources : ALL_SOURCES;
+  const sources: SourceName[] = params.sources?.length ? params.sources : DEFAULT_SOURCES;
 
   const outcome = await fetchAllSources({
     query: params.query,
@@ -79,6 +88,10 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
     worldwideOnly: params.worldwideOnly,
     sources,
     limit: oversample(limit),
+    location: params.location,
+    remoteOnly: params.remoteOnly,
+    hoursOld: params.hoursOld,
+    linkedinDescriptions: params.linkedinDescriptions,
   });
 
   const deduped = dedupeJobs(outcome.jobs);
@@ -112,11 +125,15 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
     // 1. eligibility level, high before medium before low
     const byLevel = levelRank(a.eligibility.level) - levelRank(b.eligibility.level);
     if (byLevel !== 0) return byLevel;
-    // 2. most recently posted first (unknown dates last)
+    // 2. seniority bucket: senior first, internships last. Ahead of recency on
+    //    purpose — a fresh internship is still the wrong job.
+    const bySeniority = seniorityBucket(a) - seniorityBucket(b);
+    if (bySeniority !== 0) return bySeniority;
+    // 3. most recently posted first (unknown dates last)
     const aTime = a.postedAt ? Date.parse(a.postedAt) : 0;
     const bTime = b.postedAt ? Date.parse(b.postedAt) : 0;
     if (bTime !== aTime) return bTime - aTime;
-    // 3. small nudge for my stack
+    // 4. nudge for my stack
     return relevanceBoost(b) - relevanceBoost(a);
   });
 

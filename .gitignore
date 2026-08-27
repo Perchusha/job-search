@@ -2,3 +2,5 @@ node_modules/
 *.db
 *.db-wal
 *.db-shm
+.venv/
+__pycache__/

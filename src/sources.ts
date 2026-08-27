@@ -8,9 +8,62 @@
  * Field shapes below were verified against the live endpoints, not docs.
  */
 
-export type SourceName = "himalayas" | "remoteok" | "arbeitnow";
+import {
+  JobSpyUnavailable,
+  fetchJobSpy,
+  isJobSpyAvailable,
+  type JobSpySite,
+} from "./jobspy.ts";
 
-export const ALL_SOURCES: SourceName[] = ["himalayas", "remoteok", "arbeitnow"];
+/**
+ * Sources split in two families:
+ *   - scraped via JobSpy (Python, optional): indeed, linkedin, glassdoor, ...
+ *     Far more volume and real local-market coverage, but no salary data and no
+ *     per-country eligibility metadata.
+ *   - free public feeds (always available): himalayas, remoteok, arbeitnow.
+ *     Thinner, but Himalayas carries the only real `locationRestrictions` and
+ *     the only published salaries we get.
+ *
+ * Order matters: it decides who wins dedupe ties, so the richest record first.
+ * Indeed leads on volume + descriptions; Himalayas is kept high because its
+ * eligibility and salary metadata is worth more than a duplicate scrape.
+ */
+export type SourceName =
+  | "indeed"
+  | "linkedin"
+  | "glassdoor"
+  | "google"
+  | "zip_recruiter"
+  | "himalayas"
+  | "remoteok"
+  | "arbeitnow";
+
+/** Sources fetched through the JobSpy bridge. */
+export const JOBSPY_SOURCES: SourceName[] = [
+  "indeed",
+  "linkedin",
+  "glassdoor",
+  "google",
+  "zip_recruiter",
+];
+
+/** Free public feeds, no scraping, no extra runtime. */
+export const FEED_SOURCES: SourceName[] = ["himalayas", "remoteok", "arbeitnow"];
+
+export const ALL_SOURCES: SourceName[] = [...JOBSPY_SOURCES, ...FEED_SOURCES];
+
+/**
+ * Default search set — Indeed for volume, Himalayas for salary + worldwide.
+ *
+ * LinkedIn is deliberately NOT here. Measured on a real search: it took 25 of
+ * 28 total seconds (~0.5s/job vs Indeed's ~0.013s), and contributed 0 of the
+ * top 15 results, because it populates `is_remote` on roughly 1 job in 50 so
+ * everything scores `medium` and gets outranked. Ask for it explicitly when
+ * you want its coverage and can wait.
+ *
+ * glassdoor/zip_recruiter are US-centric; google needs its own query syntax.
+ */
+export const DEFAULT_SOURCES: SourceName[] = ["indeed", "himalayas"];
 
 export type Job = {
   source: SourceName;
@@ -30,6 +83,12 @@ export type Job = {
   tags: string[];
   postedAt: string | null; // ISO
   locationRestrictions: string[]; // Himalayas only; [] otherwise
+  /**
+   * Posting body, when the source provides one (JobSpy/Indeed does, LinkedIn
+   * only on request). Truncated at fetch time. Kept off tool responses on
+   * purpose — it is for drafting cover letters, not for filling context.
+   */
+  description?: string | null;
 };
 
 export type FetchOptions = {
@@ -40,6 +99,14 @@ export type FetchOptions = {
   sources?: SourceName[];
   /** How many results the caller ultimately wants; drives Himalayas paging. */
   limit?: number;
+  /** JobSpy only: free-text location for the scrape, e.g. "Poland". */
+  location?: string;
+  /** JobSpy only: restrict the scrape to remote postings. */
+  remoteOnly?: boolean;
+  /** JobSpy only: ignore postings older than this many hours (default 14 days). */
+  hoursOld?: number;
+  /** JobSpy/LinkedIn only: also fetch descriptions (one extra request per job). */
+  linkedinDescriptions?: boolean;
 };
 
 /**
@@ -435,12 +502,103 @@ export function dedupeJobs(jobs: Job[]): Job[] {
   return unique;
 }
 
-/** My stack — a small ranking nudge, never a filter. */
-const STACK_KEYWORDS = ["react", "next", "typescript", "fullstack", "frontend", "node"];
+/**
+ * My stack, taken from the CV rather than guessed — a ranking nudge, never a
+ * filter. Weighted: core day-to-day skills should outrank an incidental mention.
+ *
+ * Edit this to change what ranks highly. It is the single place that encodes
+ * "what I actually do".
+ */
+const STACK_WEIGHTS: Array<[pattern: string, weight: number]> = [
+  // core
+  ["typescript", 3],
+  ["react", 3],
+  ["next", 3],
+  ["node", 2],
+  ["fullstack", 2],
+  ["full-stack", 2],
+  ["full stack", 2],
+  ["frontend", 2],
+  ["front-end", 2],
+  // backend / data
+  ["nestjs", 2],
+  ["nest.js", 2],
+  ["graphql", 2],
+  ["express", 1],
+  ["postgres", 1],
+  ["mongodb", 1],
+  ["firestore", 1],
+  // tooling / infra
+  ["docker", 1],
+  ["ci/cd", 1],
+  ["github actions", 1],
+  ["websocket", 1],
+  ["socket.io", 1],
+  // state / ui
+  ["redux", 1],
+  ["zustand", 1],
+  ["tailwind", 1],
+  ["mui", 1],
+  ["vite", 1],
+  ["electron", 1],
+  // other real experience
+  ["symfony", 1],
+  ["twig", 1],
+  ["stimulus", 1],
+  ["openai", 1],
+];
+
+/**
+ * Coarse seniority bucket from the title: 0 = senior, 1 = unstated, 2 = junior.
+ * Lower sorts first.
+ *
+ * Scraped boards accept no seniority filter (only Himalayas does), so an
+ * "Internship – Full-stack Engineer" would otherwise rank alongside a staff
+ * role purely on recency. Includes Polish terms because Indeed PL is bilingual.
+ */
+const JUNIOR_MARKERS = [
+  "intern",
+  "internship",
+  "junior",
+  "jr.",
+  "trainee",
+  "graduate",
+  "entry level",
+  "entry-level",
+  "apprentice",
+  "praktyk", // praktykant / praktyki
+  "staż", // staż / stażysta
+  "młodszy", // "junior" in Polish
+];
+
+const SENIOR_MARKERS = [
+  "senior",
+  "sr.",
+  "lead",
+  "staff",
+  "principal",
+  "architect",
+  "head of",
+  "starszy", // "senior" in Polish
+];
+
+export function seniorityBucket(job: Job): number {
+  const title = job.title.toLowerCase();
+  // Junior wins ties: "Junior/Senior" listings are really junior openings.
+  if (JUNIOR_MARKERS.some((marker) => title.includes(marker))) return 2;
+  if (SENIOR_MARKERS.some((marker) => title.includes(marker))) return 0;
+  return 1;
+}
 
 export function relevanceBoost(job: Job): number {
-  const haystack = [job.title, ...job.tags].join(" ").toLowerCase();
-  return STACK_KEYWORDS.reduce((score, keyword) => (haystack.includes(keyword) ? score + 1 : score), 0);
+  // Title is the strongest signal, so it counts double.
+  const title = job.title.toLowerCase();
+  const rest = job.tags.join(" ").toLowerCase();
+  return STACK_WEIGHTS.reduce((score, [pattern, weight]) => {
+    if (title.includes(pattern)) return score + weight * 2;
+    if (rest.includes(pattern)) return score + weight;
+    return score;
+  }, 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -452,11 +610,32 @@ export function relevanceBoost(job: Job): number {
  * not an exception — one dead feed must not break the tool.
  */
 export async function fetchAllSources(options: FetchOptions = {}): Promise<FetchOutcome> {
-  const requested = options.sources?.length ? options.sources : ALL_SOURCES;
-  // Keep ALL_SOURCES order so Himalayas wins dedupe ties.
+  const requested = options.sources?.length ? options.sources : DEFAULT_SOURCES;
+  // Keep ALL_SOURCES order so the richest record wins dedupe ties.
   const ordered = ALL_SOURCES.filter((source) => requested.includes(source));
 
+  /** One JobSpy site, fetched through the Python bridge. */
+  const scrape = (site: SourceName) => async (opts: FetchOptions): Promise<Job[]> => {
+    if (!isJobSpyAvailable()) {
+      throw new JobSpyUnavailable("JobSpy not installed — run `npm run setup:jobspy`");
+    }
+    return fetchJobSpy({
+      sites: [site as JobSpySite],
+      query: opts.query,
+      location: opts.location ?? "Poland",
+      isRemote: opts.remoteOnly ?? false,
+      resultsWanted: Math.min(opts.limit ?? 50, 200),
+      hoursOld: opts.hoursOld,
+      linkedinFetchDescription: site === "linkedin" ? opts.linkedinDescriptions : false,
+    });
+  };
+
   const fetchers: Record<SourceName, (options: FetchOptions) => Promise<Job[]>> = {
+    indeed: scrape("indeed"),
+    linkedin: scrape("linkedin"),
+    glassdoor: scrape("glassdoor"),
+    google: scrape("google"),
+    zip_recruiter: scrape("zip_recruiter"),
     himalayas: fetchHimalayas,
     remoteok: fetchRemoteOk,
     arbeitnow: fetchArbeitnow,

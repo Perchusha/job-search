@@ -32,6 +32,10 @@ const FRIENDLY_TOKENS = [
   "emea",
   "poland",
   "pl",
+  // Polish-language listings (Indeed PL) say "zdalnie" for remote and
+  // "Polska" for the country. Scraped locations look like "zdalnie, PL".
+  "zdalnie",
+  "polska",
 ] as const;
 
 /** Tokens that, when they are the only geography mentioned, exclude Poland. */
@@ -174,6 +178,52 @@ function scoreArbeitnow(job: Job): Eligibility {
   };
 }
 
+/**
+ * JobSpy sources (Indeed, LinkedIn, ...) carry no per-country eligibility
+ * metadata — the search itself is scoped by location instead. So the location
+ * text is the signal, and because we scope scrapes to Poland, most results are
+ * genuinely reachable.
+ *
+ * Note the residence assumption really matters here: a Poland residence permit
+ * (e.g. Blue Card) is not EU-wide work authorisation, so an onsite role in
+ * another EU country is still `low` — it would need relocation and a new permit.
+ */
+function scoreScraped(job: Job): Eligibility {
+  const location = (job.location ?? "").trim();
+  const friendly = location.length > 0 ? firstFriendly(location) : null;
+
+  if (job.remote) {
+    // "Remote" on a national board usually means remote *within that country* —
+    // a Berlin remote role often requires German tax residency. Only a
+    // Poland-or-EU-wide location earns `high`; anything else needs checking.
+    return friendly !== null
+      ? { eligible: true, level: "high", reason: `Remote, listed for "${location}"` }
+      : {
+          eligible: true,
+          level: "medium",
+          reason: `Remote, but listed in "${location}" — confirm it is open to Poland-based candidates`,
+        };
+  }
+
+  if (friendly !== null) {
+    return {
+      eligible: true,
+      level: "medium",
+      reason: `Onsite/hybrid in "${location}" — you live in Poland, but it is not remote`,
+    };
+  }
+
+  if (location.length === 0) {
+    return { eligible: true, level: "medium", reason: "Location not stated — check the posting" };
+  }
+
+  return {
+    eligible: false,
+    level: "low",
+    reason: `Onsite in "${location}" — outside Poland, would need relocation and a new permit`,
+  };
+}
+
 /** Score one job for a Poland-based applicant. */
 export function scoreEligibility(job: Job): Eligibility {
   switch (job.source) {
@@ -183,6 +233,12 @@ export function scoreEligibility(job: Job): Eligibility {
       return scoreRemoteOk(job);
     case "arbeitnow":
       return scoreArbeitnow(job);
+    case "indeed":
+    case "linkedin":
+    case "glassdoor":
+    case "google":
+    case "zip_recruiter":
+      return scoreScraped(job);
     default:
       return { eligible: true, level: "medium", reason: "Unknown source — not assessed" };
   }
@@ -276,6 +332,47 @@ function runSanityChecks(): void {
     {
       label: "word boundary: 'Naples' must NOT match token 'pl' -> medium",
       job: stub({ source: "remoteok", location: "Naples" }),
+      expect: "medium",
+    },
+    // Scraped sources (JobSpy): location text is the only signal.
+    {
+      label: "indeed, remote 'zdalnie, PL' -> high",
+      job: stub({ source: "indeed", remote: true, location: "zdalnie, PL" }),
+      expect: "high",
+    },
+    {
+      label: "indeed, onsite 'Warszawa, MZ, PL' -> medium (you live there, not remote)",
+      job: stub({ source: "indeed", remote: false, location: "Warszawa, MZ, PL" }),
+      expect: "medium",
+    },
+    {
+      label: "linkedin, onsite 'Cracow, Małopolskie, Poland' -> medium",
+      job: stub({ source: "linkedin", remote: false, location: "Cracow, Małopolskie, Poland" }),
+      expect: "medium",
+    },
+    {
+      label: "indeed, onsite 'Berlin, Germany' -> low (permit is Poland-only)",
+      job: stub({ source: "indeed", remote: false, location: "Berlin, Germany" }),
+      expect: "low",
+    },
+    {
+      label: "linkedin, onsite 'Austin, TX' -> low",
+      job: stub({ source: "linkedin", remote: false, location: "Austin, TX" }),
+      expect: "low",
+    },
+    {
+      label: "indeed, no location stated -> medium",
+      job: stub({ source: "indeed", remote: false, location: "" }),
+      expect: "medium",
+    },
+    {
+      label: "indeed, REMOTE but listed 'Berlin, BE, DE' -> medium (may require DE residency)",
+      job: stub({ source: "indeed", remote: true, location: "Berlin, BE, DE" }),
+      expect: "medium",
+    },
+    {
+      label: "linkedin, remote 'Amsterdam, Netherlands' -> medium, not high",
+      job: stub({ source: "linkedin", remote: true, location: "Amsterdam, North Holland, Netherlands" }),
       expect: "medium",
     },
   ];

@@ -233,7 +233,9 @@ const PAGE = /* html */ `<!doctype html>
           <option>Director</option>
           <option>Executive</option>
         </select>
+        <input type="text" id="location" placeholder="Poland" autocomplete="off" size="14">
         <input type="number" id="minSalary" placeholder="min salary" min="0" step="10000">
+        <label><input type="checkbox" id="remoteOnly" checked> remote only</label>
         <label><input type="checkbox" id="worldwideOnly"> worldwide only</label>
         <button class="btn" type="submit" id="searchbtn">Search</button>
       </form>
@@ -466,7 +468,9 @@ async function runSearch(event) {
     const q = $("q").value.trim();
     if (q) params.set("q", q);
     if ($("seniority").value) params.set("seniority", $("seniority").value);
+    if ($("location").value.trim()) params.set("location", $("location").value.trim());
     if ($("minSalary").value) params.set("minSalary", $("minSalary").value);
+    if ($("remoteOnly").checked) params.set("remoteOnly", "1");
     if ($("worldwideOnly").checked) params.set("worldwideOnly", "1");
 
     const response = await fetch("/api/search?" + params.toString());
@@ -623,12 +627,21 @@ const server = createServer(async (request, response) => {
         .map((entry) => entry.trim())
         .filter((entry): entry is SourceName => (ALL_SOURCES as string[]).includes(entry));
 
+      const location = url.searchParams.get("location")?.trim();
+      const remoteOnly = ["1", "true", "on", "yes"].includes(
+        (url.searchParams.get("remoteOnly") ?? "").toLowerCase(),
+      );
+      const hoursOldRaw = Number(url.searchParams.get("hoursOld") ?? "");
+
       const result = await searchJobs({
         query: query && query.length > 0 ? query : undefined,
         seniority: seniority && seniority.length > 0 ? seniority : undefined,
         worldwideOnly,
         minSalary: Number.isFinite(minSalaryRaw) && minSalaryRaw > 0 ? minSalaryRaw : undefined,
         sources: sourcesRaw.length > 0 ? sourcesRaw : undefined,
+        location: location && location.length > 0 ? location : undefined,
+        remoteOnly,
+        hoursOld: Number.isFinite(hoursOldRaw) && hoursOldRaw > 0 ? hoursOldRaw : undefined,
         limit: Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : 30,
       });
 

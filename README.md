@@ -45,10 +45,22 @@ Both processes read and write the same SQLite file; WAL mode makes that safe.
 npm install
 ```
 
+Optional but recommended — the JobSpy scraper (Indeed/LinkedIn), which is where most of the
+volume comes from. It needs **Python 3.10+** and installs into a project-local `.venv`, so
+your global Python stays untouched:
+
+```bash
+npm run setup:jobspy        # Windows
+npm run setup:jobspy:unix   # macOS / Linux
+```
+
+Skip it and everything still works — the free feeds carry the search and JobSpy sources
+report themselves as skipped. `JOBHUNT_PYTHON` overrides the interpreter.
+
 Verify the eligibility scorer works:
 
 ```bash
-npm run sanity     # 12/12 checks passed.
+npm run sanity     # 20/20 checks passed.
 ```
 
 ## Run
@@ -128,7 +140,11 @@ to say "add them" twice.
 
 ## How eligibility scoring works
 
-Residence is assumed to be Poland (EU). These tokens are treated as EU/worldwide-friendly:
+Residence is assumed to be **Poland, on a residence permit rather than EU citizenship** —
+so a role onsite in another EU country still scores `low`: it would need relocation and a new
+permit, which "EU-eligible" wording elsewhere would wrongly imply is fine.
+
+ These tokens are treated as EU/worldwide-friendly:
 `worldwide`, `anywhere`, `europe`, `eu`, `european union`, `emea`, `poland`, `pl` — matched
 on **word boundaries**, so "Deutschland" does not match `eu` and "Naples" does not match `pl`.
 
@@ -137,6 +153,7 @@ on **word boundaries**, so "Deutschland" does not match `eu` and "Naples" does n
 | **Himalayas** | no `locationRestrictions`, or a friendly token   | —                                       | lists only non-EU countries          |
 | **RemoteOK**  | `location` has a friendly token                 | empty or unrecognized location          | US/Canada/Americas only              |
 | **Arbeitnow** | `remote === true` (EU, same timezone as Poland)  | onsite inside Poland                     | onsite outside Poland                |
+| **Indeed / LinkedIn / other scraped** | remote **and** a Poland/EU location | remote elsewhere (may require local tax residency), onsite in Poland, or no location stated | onsite outside Poland |
 
 `find_jobs` drops `low` by default (`onlyEligible=true`). `medium` is kept on purpose: a
 missing location field is not a rejection. Results are ranked `high` → `medium`, then most
@@ -149,14 +166,45 @@ situation.
 
 ## Job sources
 
-All free, no auth, fetched server-side and wrapped in `Promise.allSettled`, so one dead
-feed never breaks a search — it just shows up as a skip note in the response.
+Two families, all behind `Promise.allSettled` so one dead source never breaks a search —
+it shows up as a skip note instead.
 
-| Source                                              | Notes                                                               |
-| --------------------------------------------------- | ------------------------------------------------------------------- |
-| [Himalayas](https://himalayas.app)                  | Primary. Real `locationRestrictions` metadata; supports server-side `q`, `seniority`, `worldwide` |
-| [RemoteOK](https://remoteok.com)                    | High volume, filtered locally. First array element is legal metadata and is skipped |
-| [Arbeitnow](https://www.arbeitnow.com)              | EU/Germany focused, filtered locally                                |
+**Scraped via [JobSpy](https://github.com/speedyapply/JobSpy)** (Python, optional) — this is
+where the volume is:
+
+| Source | Notes |
+| --- | --- |
+| **Indeed** | Default. ~60 jobs in ~1s, full descriptions on every job, `is_remote` reliably set. Real local market: "Warszawa, MZ, PL", "zdalnie, PL". **Country-scoped** — see below |
+| **LinkedIn** | Opt-in. Measured at ~0.5s/job (25s for 50) and sets `is_remote` on ~1 job in 50, so results score `medium` and rank low. Worth it for EU-wide search, which Indeed cannot do |
+| glassdoor / zip_recruiter / google | Available, not default. US-centric; google needs its own query syntax |
+
+**Free public feeds** (no Python, always available):
+
+| Source | Notes |
+| --- | --- |
+| [Himalayas](https://himalayas.app) | Default. The **only** source with published salaries and real `locationRestrictions`; supports server-side `q`, `seniority`, `worldwide` |
+| [RemoteOK](https://remoteok.com) | Opt-in. First array element is legal metadata and is skipped. Content varies wildly |
+| [Arbeitnow](https://www.arbeitnow.com) | Opt-in. EU/Germany focused |
+
+Default set is **`indeed` + `himalayas`**: volume from one, salary and worldwide-remote from
+the other, ~1 second total.
+
+### JobSpy caveats worth knowing
+
+- **No salary data at all.** Measured: 0 of 200 Poland postings from Indeed and LinkedIn had
+  a salary, versus ~4 of 20 on Himalayas. That is why Himalayas stays in the default set.
+- **Indeed is country-scoped.** It searches a national domain, so `location: "European Union"`
+  returns zero. The country is derived from the location string
+  (`"Berlin, Germany"` → `de.indeed.com`); for genuinely EU-wide search, add `linkedin`.
+- **Boards block aggressively.** LinkedIn rate-limits around the 10th page from one IP, and
+  every board caps a search at ~1000 results. HTTP 429 is handled as a skip.
+- **Scrapers break** when sites change markup. This is not a stable API — if a source starts
+  returning nothing, check for a `python-jobspy` update first.
+- **Terms of service.** Scraping LinkedIn/Indeed is against their terms. This runs
+  unauthenticated at personal volume, so an account ban is unlikely and an IP block is the
+  realistic failure mode — but it is your call to make.
+- **Weaker eligibility signal.** No per-country metadata, so the location text is all the
+  scorer has (see the table above).
 
 Jobs are deduped across sources by normalized URL, then by case-insensitive
 `company + title`. That second key matters: Himalayas' offset pagination can return the
@@ -238,11 +286,14 @@ ports as-is.
 ```
 src/
   db.ts           SQLite open + schema + all data-access functions
-  sources.ts      fetch + normalize the three job feeds, dedupe
+  jobspy.ts       bridge to the Python JobSpy scraper (Indeed, LinkedIn, ...)
+  sources.ts      fetch + normalize every source, dedupe
   eligibility.ts  "can I apply from Poland?" scorer + sanity checks
   pipeline.ts     searchJobs(): the ONE search pipeline both callers use
   index.ts        MCP server: 7 tools over StdioServerTransport
   dashboard.ts    node:http server on :4321 (Search + Tracker)
+scripts/
+  jobspy_fetch.py the Python half of the JobSpy bridge
 ```
 
 `pipeline.ts` owns fetch → dedupe → score → filter → rank. `index.ts` and `dashboard.ts`
@@ -264,3 +315,13 @@ once and both surfaces follow.
   confirm on the posting itself before investing time in an application.
 - `find_jobs` deliberately over-fetches (3 Himalayas pages) because eligibility filtering
   removes roughly 90% of a text search's results.
+- **The JobSpy bridge passes results through a file, not stdout.** JobSpy and its HTTP stack
+  log to the console, and a stray log line would corrupt a stdout JSON stream.
+- **UTF-8 is forced on the Python child** (`PYTHONIOENCODING`, `PYTHONUTF8`). Without it,
+  Polish listings (ł, ę, ó) raise `UnicodeEncodeError` on the Windows cp1252 console — this
+  bit during development and looked like a scraper failure.
+- **Ranking demotes junior titles** ahead of recency, in English and Polish
+  (`intern`, `junior`, `praktyk`, `staż`, `młodszy`). Scraped boards accept no seniority
+  filter, so without this a fresh internship outranks a staff role.
+- **Stack keywords come from the CV**, weighted, in `sources.ts`. That list is the single
+  place that encodes "what I actually do" — edit it to change what ranks highly.
