@@ -12,7 +12,7 @@
  * Run `npm run sanity` to execute the checks at the bottom of this file.
  */
 
-import type { Job } from "./sources.ts";
+import { fitTier, stackFit, type Job } from "./sources.ts";
 
 export type Level = "high" | "medium" | "low";
 
@@ -386,7 +386,50 @@ function runSanityChecks(): void {
     console.log(`      -> ${got.level}: ${got.reason}`);
   }
 
-  console.log(`\n${cases.length - failed}/${cases.length} checks passed.`);
+  /**
+   * Ranking checks. These exist because a live "React" search once returned
+   * "Senior .NET Engineer (Full-Stack, Front-End, Cloud & AI)" as the TOP hit:
+   * it mentioned React in the body, matched on "Full-Stack", and recency
+   * outranked relevance. Tier 3 means "sinks to the bottom of the list".
+   */
+  const fitCases: Array<{ title: string; expect: number }> = [
+    // wrong stack -> tier 3, however senior or well-worded the title
+    { title: "Senior .NET Engineer (Full-Stack, Front-End, Cloud & AI)", expect: 3 },
+    { title: "Senior C# Azure Engineer", expect: 3 },
+    { title: "Senior Java Developer", expect: 3 },
+    { title: "Full-stack Technical Lead (Java+React)", expect: 3 },
+    { title: "Senior PHP Engineer", expect: 3 },
+    { title: "Senior Full Stack Engineer - Python, AWS with React", expect: 3 },
+    // not engineering at all
+    { title: "Senior Talent Acquisition Manager", expect: 3 },
+    { title: "Senior UI & UX / Graphic Designer", expect: 3 },
+    // junior openings are as poor a fit for a senior as a foreign stack
+    { title: "Internship - Full-stack Software Engineer", expect: 3 },
+    { title: "Junior React Developer", expect: 3 },
+    { title: "Praktykant Frontend Developer", expect: 3 },
+    // real matches
+    { title: "Senior React Developer (Next.js, TypeScript)", expect: 0 },
+    { title: "Senior TypeScript Engineer (NestJS, GraphQL)", expect: 0 },
+    { title: "Senior Full-stack Developer", expect: 1 },
+    { title: "Senior Frontend Developer", expect: 1 },
+    // Adjacent but not on the CV. The mild "react native" penalty exactly
+    // cancels the "react" boost, landing it neutral: still visible, never top.
+    { title: "Senior React Native Developer", expect: 2 },
+    // nothing recognised either way
+    { title: "Senior Software Engineer, Growth", expect: 2 },
+  ];
+
+  for (const { title, expect } of fitCases) {
+    const job = stub({ source: "indeed", title, remote: true, location: "zdalnie, PL" });
+    const tier = fitTier(job);
+    const ok = tier === expect;
+    if (!ok) failed++;
+    console.log(`${ok ? "PASS" : "FAIL"}  fit tier ${expect}: ${title}`);
+    if (!ok) console.log(`      -> got tier ${tier} (score ${stackFit(job)})`);
+  }
+
+  const total = cases.length + fitCases.length;
+  console.log(`\n${total - failed}/${total} checks passed.`);
   if (failed > 0) process.exitCode = 1;
 }
 

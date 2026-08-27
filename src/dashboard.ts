@@ -158,6 +158,10 @@ const PAGE = /* html */ `<!doctype html>
   .lvl.high { color: var(--good); border: 1px solid var(--good); }
   .lvl.medium { color: var(--warn); border: 1px solid var(--warn); }
   .src { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .fit { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+         padding: 1px 6px; border-radius: 4px; background: var(--panel-2); color: var(--muted); }
+  .fit.good { color: var(--good); }
+  .fit.bad { color: var(--bad); }
   .applylink { font-size: 12.5px; color: var(--accent); text-decoration: none; }
   .applylink:hover { text-decoration: underline; }
 
@@ -407,7 +411,13 @@ function renderSearch(payload) {
     const level = job.eligibility.level;
     return '<article class="jobcard lvl-' + esc(level) + '">'
       + '<div class="row"><span class="lvl ' + esc(level) + '">' + esc(level) + "</span>"
-      + '<span class="src">' + esc(job.source) + "</span></div>"
+      + '<span class="src">' + esc(job.source) + "</span>"
+      // Stack-fit score, so a surprising order is self-explanatory.
+      + (typeof job.fit === "number"
+          ? '<span class="fit ' + (job.fit >= 6 ? "good" : job.fit < 0 ? "bad" : "")
+            + '" title="stack fit from your CV: higher is a better match">fit '
+            + (job.fit > 0 ? "+" : "") + job.fit + "</span>"
+          : "") + "</div>"
       + '<h3><a href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener">' + esc(job.title) + "</a></h3>"
       + '<div class="co">' + esc(job.company) + "</div>"
       + (job.salary ? '<div class="sal">' + esc(job.salary) + "</div>" : "")

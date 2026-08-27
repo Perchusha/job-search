@@ -16,8 +16,10 @@ import {
   DEFAULT_SOURCES,
   dedupeJobs,
   fetchAllSources,
+  fitTier,
   relevanceBoost,
   seniorityBucket,
+  stackFit,
   type Job,
   type SourceName,
   type SourceReport,
@@ -125,15 +127,20 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
     // 1. eligibility level, high before medium before low
     const byLevel = levelRank(a.eligibility.level) - levelRank(b.eligibility.level);
     if (byLevel !== 0) return byLevel;
-    // 2. seniority bucket: senior first, internships last. Ahead of recency on
-    //    purpose — a fresh internship is still the wrong job.
+    // 2. stack fit tier, ahead of recency. Recency used to win here, which put
+    //    a fresh "Senior .NET Engineer" above every React role — it matched on
+    //    "Full-Stack" and mentioned React in the body. Wrong stack now sinks.
+    const byFit = fitTier(a) - fitTier(b);
+    if (byFit !== 0) return byFit;
+    // 3. seniority bucket: senior first, internships last. Also ahead of
+    //    recency — a fresh internship is still the wrong job.
     const bySeniority = seniorityBucket(a) - seniorityBucket(b);
     if (bySeniority !== 0) return bySeniority;
-    // 3. most recently posted first (unknown dates last)
+    // 4. most recently posted first (unknown dates last)
     const aTime = a.postedAt ? Date.parse(a.postedAt) : 0;
     const bTime = b.postedAt ? Date.parse(b.postedAt) : 0;
     if (bTime !== aTime) return bTime - aTime;
-    // 4. nudge for my stack
+    // 5. fine-grained fit score inside the tier
     return relevanceBoost(b) - relevanceBoost(a);
   });
 
@@ -174,6 +181,8 @@ export function presentJob(job: RankedJob) {
     salary: job.salary,
     postedAt: job.postedAt,
     tags: job.tags.slice(0, 8),
+    // Exposed so a surprising order can be explained without reading the code.
+    fit: stackFit(job),
     eligibility: {
       level: job.eligibility.level,
       reason: job.eligibility.reason,
