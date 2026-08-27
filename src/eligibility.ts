@@ -412,12 +412,23 @@ function runSanityChecks(): void {
     { title: "Senior React Developer (Next.js, TypeScript)", expect: 0 },
     { title: "Senior TypeScript Engineer (NestJS, GraphQL)", expect: 0 },
     { title: "Senior Full-stack Developer", expect: 1 },
-    { title: "Senior Frontend Developer", expect: 1 },
-    // Adjacent but not on the CV. The mild "react native" penalty exactly
-    // cancels the "react" boost, landing it neutral: still visible, never top.
-    { title: "Senior React Native Developer", expect: 2 },
+    // Frontend is a primary target, so a plain frontend title reaches the top
+    // tier on its own — fullstack does not.
+    { title: "Senior Frontend Developer", expect: 0 },
+    // Adjacent but not on the CV: the "react native" penalty cancels most of
+    // the "react" boost, so it stays visible but never near the top.
+    { title: "Senior React Native Developer", expect: 1 },
     // nothing recognised either way
     { title: "Senior Software Engineer, Growth", expect: 2 },
+    // Frontend + AI emphasis: both targets reach tier 0, backend-titled and
+    // ML roles do not. Changing the emphasis means changing profile.ts.
+    { title: "Senior AI Engineer (LLM, RAG)", expect: 0 },
+    { title: "LLM Engineer - Prompt Pipelines", expect: 0 },
+    { title: "Senior UI Engineer, Design System", expect: 0 },
+    { title: "Senior Backend Engineer (NestJS)", expect: 3 },
+    { title: "Senior ML Engineer (PyTorch)", expect: 3 },
+    { title: "Machine Learning Engineer - Computer Vision", expect: 3 },
+    { title: "Frontend Developer - Angular/TypeScript", expect: 3 },
   ];
 
   for (const { title, expect } of fitCases) {

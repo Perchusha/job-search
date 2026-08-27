@@ -11,6 +11,13 @@
  *   (OpenAI, Anthropic, MCP). Based in Warsaw on a Poland residence permit —
  *   not EU-wide work authorisation, which is why onsite roles in other EU
  *   countries score `low`.
+ *
+ * TARGET: frontend and AI/LLM roles.
+ *   Frontend and AI terms carry the highest weights; fullstack counts less;
+ *   backend is a positive signal *inside* a posting but a penalty in a title.
+ *   ML/data-science roles are penalised — I integrate LLMs into products, I do
+ *   not train models. To shift the emphasis, change the weights below; nothing
+ *   else in the codebase needs to know.
  */
 
 import type { Job, SourceName } from "./sources.ts";
@@ -23,11 +30,17 @@ import type { Job, SourceName } from "./sources.ts";
  * Results are merged and deduped, so overlap between queries is free.
  */
 export const TARGET_QUERIES: string[] = [
-  "react",
-  "typescript",
-  "fullstack",
-  "node.js",
+  // frontend
+  "frontend developer",
+  "react developer",
+  "next.js",
+  // AI / LLM product work (integration, not ML research)
   "ai engineer",
+  "llm engineer",
+  // Fullstack stays: plenty of frontend-heavy roles are titled "fullstack",
+  // and it is real CV experience. It just carries less weight than frontend
+  // in the scoring below.
+  "fullstack typescript",
 ];
 
 /** Fixed search settings — the things that do not change between runs. */
@@ -59,63 +72,72 @@ export const SEARCH_DEFAULTS = {
  * "Go-to-market".
  */
 const STACK_WEIGHTS: Array<[term: string, weight: number]> = [
-  // core day-to-day
+  // ---- frontend: the primary target, weighted highest ----
+  ["frontend", 4],
+  ["front-end", 4],
+  ["front end", 4],
+  ["react", 4],
+  ["next.js", 4],
+  ["nextjs", 4],
   ["typescript", 3],
   ["javascript", 2],
-  ["react", 3],
-  ["next.js", 3],
-  ["nextjs", 3],
-  ["node", 2],
-  ["node.js", 2],
-  ["nestjs", 2],
-  ["nest.js", 2],
+  ["ui engineer", 3],
+  ["web developer", 2],
+  // frontend craft
+  ["redux", 2],
+  ["zustand", 2],
+  ["tailwind", 2],
+  ["mui", 1],
+  ["storybook", 2],
+  ["vite", 1],
+  ["ssr", 2],
+  ["accessibility", 2],
+  ["design system", 2],
+  ["performance optimization", 2],
+  ["responsive", 1],
+
+  // ---- AI / LLM: the other primary target ----
+  ["ai", 3],
+  ["ai engineer", 4],
+  ["llm", 4],
+  ["genai", 3],
+  ["openai", 3],
+  ["anthropic", 3],
+  ["claude", 3],
+  ["prompt", 3],
+  ["agentic", 3],
+  ["rag", 2],
+  ["mcp", 2],
+  ["chatbot", 2],
+
+  // ---- fullstack: real experience, deliberately lighter than frontend ----
   ["fullstack", 2],
   ["full-stack", 2],
   ["full stack", 2],
-  ["frontend", 2],
-  ["front-end", 2],
-  ["front end", 2],
-  // APIs / realtime
+  ["electron", 2],
+
+  // ---- backend I can do, but it is not the target: low weight ----
+  ["node", 1],
+  ["node.js", 1],
+  ["nestjs", 1],
+  ["nest.js", 1],
   ["graphql", 2],
   ["rest api", 1],
-  ["websocket", 2],
-  ["socket.io", 1],
-  ["express", 1],
-  // data
+  ["websocket", 1],
   ["postgres", 1],
-  ["postgresql", 1],
-  ["mongodb", 1],
-  ["firestore", 1],
-  ["supabase", 2],
-  // AI / LLM — a real specialisation on the CV, not a buzzword
-  ["llm", 2],
-  ["openai", 2],
-  ["anthropic", 2],
-  ["claude", 2],
-  ["prompt engineering", 2],
-  ["ai engineer", 2],
-  ["mcp", 1],
-  // ui / state
-  ["redux", 1],
-  ["zustand", 1],
-  ["tailwind", 1],
-  ["mui", 1],
-  ["storybook", 1],
-  ["vite", 1],
-  ["ssr", 1],
-  ["accessibility", 1],
-  // desktop
-  ["electron", 2],
-  // infra / practice
+  ["supabase", 1],
+  ["microservices", 1],
+
+  // ---- practice / seniority signals ----
   ["docker", 1],
   ["ci/cd", 1],
   ["github actions", 1],
   ["vercel", 1],
   ["stripe", 1],
-  ["microservices", 1],
   ["system design", 1],
-  ["tech lead", 1],
-  // current job's stack — real experience, but not a target role on its own
+  ["tech lead", 2],
+
+  // current job's stack — real experience, not a target role on its own
   ["symfony", 1],
   ["twig", 1],
   ["stimulus", 1],
@@ -135,68 +157,90 @@ const STACK_WEIGHTS: Array<[term: string, weight: number]> = [
  * drop it here if that changes.
  */
 const FOREIGN_STACK: Array<[term: string, penalty: number]> = [
-  [".net", 6],
-  ["c#", 6],
-  ["asp.net", 6],
-  ["java", 6],
-  ["spring boot", 5],
-  ["kotlin", 4],
-  ["scala", 4],
-  ["python", 4],
-  ["django", 5],
-  ["ruby", 5],
-  ["rails", 5],
-  ["golang", 4],
-  ["rust", 4],
-  ["c++", 6],
-  ["php", 2],
-  ["laravel", 4],
-  ["wordpress", 4],
-  ["drupal", 4],
-  ["magento", 4],
-  ["salesforce", 6],
-  ["sap", 6],
-  ["abap", 6],
-  ["sharepoint", 5],
+  // Hard no: a different language or platform entirely.
+  [".net", 10],
+  ["c#", 10],
+  ["asp.net", 10],
+  ["java", 10],
+  ["c++", 10],
+  ["salesforce", 10],
+  ["sap", 10],
+  ["abap", 10],
+  ["sharepoint", 10],
+  ["netsuite", 10],
+  // Other backend languages.
+  ["python", 6],
+  ["django", 6],
+  ["ruby", 6],
+  ["rails", 6],
+  ["golang", 6],
+  ["rust", 6],
+  ["kotlin", 6],
+  ["scala", 6],
+  ["spring boot", 8],
+  ["laravel", 6],
+  ["wordpress", 6],
+  ["drupal", 6],
+  ["magento", 6],
+  // `php` stays mild: Symfony/Twig is my current day job, so PHP is not
+  // foreign — but "Senior PHP Engineer" is still not the role I want.
+  ["php", 3],
   // Other frontend frameworks. I have touched them (the DHTMLX widget library
   // had to work everywhere), but an Angular or Vue role is not a React role.
-  ["angular", 4],
-  ["vue", 3],
-  ["svelte", 3],
-  ["netsuite", 5],
-  ["android", 4],
-  ["ios", 4],
-  ["swift", 4],
+  ["angular", 6],
+  ["vue", 6],
+  ["svelte", 6],
+  // Mobile.
+  ["android", 6],
+  ["ios", 6],
+  ["swift", 6],
+  ["flutter", 6],
+  ["unity", 6],
+  ["unreal", 6],
+  ["embedded", 6],
   // React Native is not on the CV: React knowledge transfers, but mobile is a
-  // different job. Mild on purpose — enough to keep it out of the top, not
-  // enough to hide it. "react" alone scores +6 in a title, so this lands it
-  // near neutral rather than banned.
+  // different job. Mild on purpose — it lands near neutral, not banned.
   ["react native", 2],
-  ["flutter", 4],
-  ["unity", 4],
-  ["unreal", 4],
-  ["embedded", 4],
-  // adjacent engineering roles, not mine
-  ["qa engineer", 5],
-  ["tester", 5],
-  ["devops engineer", 3],
-  ["data engineer", 4],
-  ["data scientist", 4],
-  // not engineering at all — these really do come back from a "react" search
-  ["recruiter", 6],
-  ["talent acquisition", 6],
-  ["accountant", 6],
-  ["sales", 5],
-  ["marketing", 5],
-  ["user acquisition", 5],
-  ["designer", 5],
-  ["product manager", 5],
-  ["project manager", 5],
-  ["scrum master", 5],
-  ["business analyst", 5],
-  ["account manager", 5],
-  ["customer success", 5],
-  ["support specialist", 5],
+  /**
+   * Backend-only roles. I can do backend (Node, NestJS, Postgres) and it stays
+   * a positive signal inside a frontend or fullstack posting — but the target
+   * is frontend and AI, so a role whose TITLE is "Backend Developer" is off
+   * target. Mild, and title-weighted: a fullstack posting mentioning backend
+   * work in its tags is unaffected.
+   */
+  ["backend", 4],
+  ["back-end", 4],
+  ["back end", 4],
+  /**
+   * Adjacent to AI but a different profession: I integrate LLMs into products,
+   * I do not train models. "AI Engineer" is a match; "ML Engineer" is not.
+   */
+  ["machine learning", 6],
+  ["ml engineer", 8],
+  ["deep learning", 6],
+  ["computer vision", 5],
+  ["mlops", 6],
+  // Adjacent engineering roles, not mine.
+  ["qa engineer", 6],
+  ["tester", 6],
+  ["devops engineer", 4],
+  ["data engineer", 6],
+  ["data scientist", 6],
+  // Not engineering at all — these really do come back from a "react" search.
+  ["recruiter", 8],
+  ["talent acquisition", 8],
+  ["accountant", 8],
+  ["sales", 8],
+  ["marketing", 8],
+  ["user acquisition", 8],
+  ["designer", 8],
+  ["product manager", 8],
+  ["project manager", 8],
+  ["scrum master", 8],
+  ["business analyst", 8],
+  ["account manager", 8],
+  ["customer success", 8],
+  ["support specialist", 8],
 ];
 
 /**

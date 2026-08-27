@@ -276,7 +276,13 @@ Binds to `127.0.0.1` only. There is no auth by design — it is a single-user lo
    (`indeed 529 · himalayas 297 → 292 eligible (826 fetched, 309 duplicates removed), 114
    dropped: wrong stack / junior`).
 
-Measured on a real run: 5 queries in ~2.5s, 826 postings fetched, 40 shown.
+Measured on a real run: 6 queries in ~2.7s, 759 postings fetched, 112 dropped as a poor fit,
+40 shown — of which 24 were AI/LLM roles, 14 frontend, and none backend-titled.
+
+**The emphasis is frontend + AI.** ML and data-science roles are penalised on purpose: the CV
+is LLM *integration* into products, not model training, so "AI Engineer" is a match and
+"ML Engineer" is not. Backend is a positive signal inside a posting but a penalty in a title,
+since a "Senior Backend Engineer" opening is off target even though the skills are there.
 
 ## Tuning what gets found
 
@@ -285,9 +291,10 @@ Everything personal is in [src/profile.ts](src/profile.ts):
 | What | Why you would change it |
 | --- | --- |
 | `TARGET_QUERIES` | The searches the Refresh button runs. Several, because one keyword cannot cover both "React" work and "AI/LLM" work |
+| **The emphasis** | Currently **frontend + AI/LLM**. Frontend and AI terms carry the highest weights, fullstack counts less, and a backend-titled role is penalised. Shift it by editing the weights |
 | `SEARCH_DEFAULTS` | Location, remote-only, how far back to look, which boards, how many results, and `maxFitTier` |
 | `STACK_WEIGHTS` | What counts as a good match. Taken from the CV; title matches count double |
-| `FOREIGN_STACK` | What sinks a posting: .NET, Java, Angular, plus non-engineering roles like recruiter or designer. A title match counts triple |
+| `FOREIGN_STACK` | What sinks a posting: .NET, Java, Angular, ML/data-science, backend-only titles, plus non-engineering roles like recruiter or designer. A title match counts triple |
 | `JUNIOR_MARKERS` / `SENIOR_MARKERS` | Seniority detection, English and Polish |
 
 Nothing else in the codebase encodes any of it.
