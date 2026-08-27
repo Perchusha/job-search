@@ -13,6 +13,9 @@ import {
   DEFAULT_STALE_DAYS,
   STATUSES,
   addNote,
+  dismissJob,
+  listDismissed,
+  undismissJob,
   getStats,
   insertApplication,
   listApplications,
@@ -190,6 +193,9 @@ server.tool(
     if (onlyEligible ?? true) {
       lines.push("Jobs restricted away from Poland (level 'low') were excluded.");
     }
+    if (counts.hiddenForDismissed > 0) {
+      lines.push(`${counts.hiddenForDismissed} job(s) hidden by dismiss_job.`);
+    }
     if (counts.hiddenForFit > 0) {
       lines.push(
         `${counts.hiddenForFit} job(s) dropped as a poor stack fit (wrong stack, junior, or non-engineering).`,
@@ -278,6 +284,50 @@ server.tool(
       .join("\n");
 
     return reply(summary, { results });
+  },
+);
+
+/* ------------------------------------------------------------------ */
+/* 1c. dismiss_job — "stop showing me this"                            */
+/* ------------------------------------------------------------------ */
+
+server.tool(
+  "dismiss_job",
+  "Hide a job from every future search — the dashboard, find_jobs and the scheduled harvest all honour it. Use for roles I am not interested in. Pass restore:true to un-hide, or list:true to see what is hidden.",
+  {
+    url: z.string().optional().describe("Apply URL of the job to hide (or restore)"),
+    title: z.string().optional(),
+    company: z.string().optional(),
+    reason: z.string().optional().describe("Why, for your own reference later"),
+    restore: z.boolean().optional().describe("Un-hide this URL instead of hiding it"),
+    list: z.boolean().optional().describe("Return everything currently hidden"),
+  },
+  async ({ url, title, company, reason, restore, list }) => {
+    try {
+      if (list) {
+        const hidden = listDismissed();
+        return reply(`${hidden.length} job(s) hidden from search.`, { dismissed: hidden });
+      }
+      if (!url) return replyError("url is required (or pass list:true)");
+
+      if (restore) {
+        const restored = undismissJob(url);
+        return reply(
+          restored ? "Restored — it can show up in searches again." : "That URL was not hidden.",
+          { restored, url },
+        );
+      }
+
+      const { dismissed, alreadyHidden } = dismissJob({ url, title, company, reason });
+      return reply(
+        alreadyHidden
+          ? "Already hidden — nothing changed."
+          : `Hidden. It will not appear in search, find_jobs or harvest again.`,
+        { dismissed, result: alreadyHidden ? "already_hidden" : "hidden" },
+      );
+    } catch (error) {
+      return replyError(error instanceof Error ? error.message : String(error));
+    }
   },
 );
 

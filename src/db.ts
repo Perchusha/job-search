@@ -138,6 +138,22 @@ function migrate(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
     CREATE INDEX IF NOT EXISTS idx_applications_applied_at ON applications(applied_at);
+
+    /*
+     * Jobs hidden from search: "not interested, stop showing me this".
+     *
+     * A separate table rather than an applications status, on purpose. A
+     * dismissed job is not an application — putting it in the funnel would
+     * inflate the counts and pollute the tracker table with things you never
+     * applied to. Keeping it apart also means un-dismissing is a plain delete.
+     */
+    CREATE TABLE IF NOT EXISTS dismissed (
+      url          TEXT PRIMARY KEY,
+      company      TEXT,
+      title        TEXT,
+      reason       TEXT,
+      dismissed_at TEXT NOT NULL
+    );
   `);
 }
 
@@ -362,6 +378,74 @@ export function getStats(options: { staleDays?: number } = {}): Stats {
           ),
     staleDays,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Dismissed jobs — hidden from every search                           */
+/* ------------------------------------------------------------------ */
+
+export type DismissedJob = {
+  url: string;
+  company: string | null;
+  title: string | null;
+  reason: string | null;
+  dismissed_at: string;
+};
+
+export type NewDismissal = {
+  url: string;
+  company?: string | null;
+  title?: string | null;
+  reason?: string | null;
+};
+
+/**
+ * Hide a job from future searches. Idempotent: dismissing twice keeps the
+ * original timestamp rather than erroring, so a double click is harmless.
+ */
+export function dismissJob(input: NewDismissal): { dismissed: DismissedJob; alreadyHidden: boolean } {
+  const existing = getDb()
+    .prepare<[string], DismissedJob>("SELECT * FROM dismissed WHERE url = ?")
+    .get(input.url);
+  if (existing) return { dismissed: existing, alreadyHidden: true };
+
+  getDb()
+    .prepare(
+      `INSERT INTO dismissed (url, company, title, reason, dismissed_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.url,
+      input.company ?? null,
+      input.title ?? null,
+      input.reason ?? null,
+      nowIso(),
+    );
+
+  const dismissed = getDb()
+    .prepare<[string], DismissedJob>("SELECT * FROM dismissed WHERE url = ?")
+    .get(input.url);
+  if (!dismissed) throw new Error("dismissal was written but could not be read back");
+  return { dismissed, alreadyHidden: false };
+}
+
+/** Un-hide a job. Returns false when it was not hidden in the first place. */
+export function undismissJob(url: string): boolean {
+  return getDb().prepare("DELETE FROM dismissed WHERE url = ?").run(url).changes > 0;
+}
+
+/** Exact URLs, matching how the funnel dedupes — see findByUrl. */
+export function listDismissedUrls(): string[] {
+  return getDb()
+    .prepare<[], { url: string }>("SELECT url FROM dismissed")
+    .all()
+    .map((row) => row.url);
+}
+
+export function listDismissed(): DismissedJob[] {
+  return getDb()
+    .prepare<[], DismissedJob>("SELECT * FROM dismissed ORDER BY dismissed_at DESC")
+    .all();
 }
 
 /** Closes the handle. Only needed by scripts that want a clean exit. */

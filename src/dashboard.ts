@@ -10,10 +10,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import {
   DEFAULT_STALE_DAYS,
   STATUSES,
+  dismissJob,
   getStats,
   insertApplication,
   listApplications,
+  listDismissed,
   resolveDbPath,
+  undismissJob,
   updateStatus,
   type Status,
 } from "./db.ts";
@@ -165,6 +168,15 @@ const PAGE = /* html */ `<!doctype html>
   .fit.good { color: var(--good); }
   .fit.bad { color: var(--bad); }
   .applylink { font-size: 12.5px; color: var(--accent); text-decoration: none; }
+  .linkbtn { background: none; border: 0; color: var(--muted); font: inherit; font-size: 12.5px;
+             cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
+  .linkbtn:hover { color: var(--bad); }
+  .linkbtn.restore:hover { color: var(--good); }
+  .jobcard.is-dismissed { opacity: .5; }
+  .jobcard.is-applied { border-left-color: var(--accent); }
+  .searchfilters { display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+                   margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+  .searchfilters label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
   .applylink:hover { text-decoration: underline; }
 
   /* saved (pre-application) is visually quieter than a real application */
@@ -232,6 +244,10 @@ const PAGE = /* html */ `<!doctype html>
         <button class="btn" type="submit" id="searchbtn">↻ Обновить</button>
         <span class="profileline" id="profileline"></span>
       </form>
+      <div class="searchfilters">
+        <label><input type="checkbox" id="hideApplied"> скрыть те, что в воронке</label>
+        <label><input type="checkbox" id="showDismissed"> показать скрытые <span id="dismissedCount"></span></label>
+      </div>
       <div class="srcline" id="srcline">Jobs you can apply to from Poland. <code>low</code>-eligibility postings are filtered out.</div>
     </section>
 
@@ -254,6 +270,10 @@ let trackedUrls = new Set();
 let searchResults = [];
 // Search only runs on demand, so remember whether the tab has loaded once.
 let searchLoaded = false;
+let hideApplied = false;
+let showDismissed = false;
+// Kept so toggling a filter re-renders instead of re-running the search.
+let lastSearchPayload = { jobs: [] };
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) =>
@@ -303,7 +323,14 @@ function renderStats(stats) {
 function sortedApplications() {
   const dir = sort.dir === "asc" ? 1 : -1;
   const rank = (s) => { const i = FUNNEL_ORDER.indexOf(s); return i === -1 ? 99 : i; };
-  const base = statusFilter ? applications.filter((a) => a.status === statusFilter) : applications;
+  // "applied+" = everything except a bookmark; "open" = still alive.
+  const matches = (a) => {
+    if (!statusFilter) return true;
+    if (statusFilter === "applied+") return a.status !== "saved";
+    if (statusFilter === "open") return ["applied", "responded", "screening", "interview"].includes(a.status);
+    return a.status === statusFilter;
+  };
+  const base = applications.filter(matches);
   return base.slice().sort((a, b) => {
     switch (sort.key) {
       case "company": return dir * a.company.localeCompare(b.company);
@@ -380,15 +407,21 @@ function bindSorting() {
 /* ---------------- search view ---------------- */
 
 function renderSearch(payload) {
-  const jobs = payload.jobs || [];
-  searchResults = jobs;
-  $("searchempty").hidden = jobs.length > 0;
+  const all = payload.jobs || [];
+  searchResults = all;
 
-  // Per-source counts, so an empty or skipped feed is visible, not mysterious.
-  const parts = (payload.reports || []).map((r) =>
-    r.skipped
-      ? '<span class="skip">' + esc(r.source) + " skipped (" + esc(r.skipped) + ")</span>"
-      : esc(r.source) + " " + r.count);
+  // Local filters: applied-to jobs and (unless asked for) hidden ones.
+  const visible = all.filter((job) => {
+    if (job.dismissed && !showDismissed) return false;
+    if (hideApplied && trackedUrls.has(job.applyUrl)) return false;
+    return true;
+  });
+
+  $("searchempty").hidden = visible.length > 0;
+
+  const dismissedTotal = payload.dismissedCount || 0;
+  $("dismissedCount").textContent = dismissedTotal ? "(" + dismissedTotal + ")" : "";
+
   // Make the profile visible: a one-button feed should not be a black box.
   const prof = payload.profile;
   if (prof) {
@@ -399,34 +432,55 @@ function renderSearch(payload) {
       + ' · <span class="meta">edit src/profile.ts to change</span>';
   }
 
+  // Per-source counts, so an empty or skipped feed is visible, not mysterious.
+  const parts = (payload.reports || []).map((r) =>
+    r.skipped
+      ? '<span class="skip">' + esc(r.source) + " skipped (" + esc(r.skipped) + ")</span>"
+      : esc(r.source) + " " + r.count);
   const c = payload.counts || {};
   let line = parts.join(" &middot; ") + " &rarr; <b>" + (c.afterEligibility || 0) + " eligible</b>";
   if (c.deduped !== undefined && c.fetched !== undefined) {
     line += ' <span class="meta">(' + c.fetched + " fetched, " + (c.fetched - c.deduped) + " duplicates removed)</span>";
   }
   if (c.hiddenForFit) line += ' <span class="meta">, ' + c.hiddenForFit + " dropped: wrong stack / junior</span>";
+  if (c.hiddenForDismissed) line += ' <span class="meta">, ' + c.hiddenForDismissed + " hidden by you</span>";
   if (c.hiddenForUnknownSalary) line += ' <span class="skip">' + c.hiddenForUnknownSalary + " hidden: no published salary</span>";
+  if (visible.length !== all.length) {
+    line += ' <span class="meta">&middot; showing ' + visible.length + " of " + all.length + "</span>";
+  }
   $("srcline").innerHTML = line;
 
-  $("jobgrid").innerHTML = jobs.map((job, index) => {
+  $("jobgrid").innerHTML = visible.map((job) => {
+    const index = all.indexOf(job);
     const tracked = trackedUrls.has(job.applyUrl);
     const level = job.eligibility.level;
-    return '<article class="jobcard lvl-' + esc(level) + '">'
+    const classes = ["jobcard", "lvl-" + level];
+    if (job.dismissed) classes.push("is-dismissed");
+    if (tracked) classes.push("is-applied");
+
+    const fitBadge = typeof job.fit === "number"
+      ? '<span class="fit ' + (job.fit >= 6 ? "good" : job.fit < 0 ? "bad" : "")
+        + '" title="stack fit from your CV: higher is a better match">fit '
+        + (job.fit > 0 ? "+" : "") + job.fit + "</span>"
+      : "";
+
+    // A hidden card offers restore instead of add — you cannot funnel what you
+    // have already told the tool to stop showing.
+    const action = job.dismissed
+      ? '<button class="linkbtn restore" data-restore="' + index + '">вернуть</button>'
+      : '<button class="btn' + (tracked ? " ghost" : "") + '" data-add="' + index + '"'
+        + (tracked ? " disabled" : "") + ">"
+        + (tracked ? "✓ В воронке" : "В воронку") + "</button>"
+        + '<button class="linkbtn" data-hide="' + index + '" title="never show this job again">скрыть</button>';
+
+    return '<article class="' + classes.join(" ") + '">'
       + '<div class="row"><span class="lvl ' + esc(level) + '">' + esc(level) + "</span>"
-      + '<span class="src">' + esc(job.source) + "</span>"
-      // Stack-fit score, so a surprising order is self-explanatory.
-      + (typeof job.fit === "number"
-          ? '<span class="fit ' + (job.fit >= 6 ? "good" : job.fit < 0 ? "bad" : "")
-            + '" title="stack fit from your CV: higher is a better match">fit '
-            + (job.fit > 0 ? "+" : "") + job.fit + "</span>"
-          : "") + "</div>"
+      + '<span class="src">' + esc(job.source) + "</span>" + fitBadge + "</div>"
       + '<h3><a href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener">' + esc(job.title) + "</a></h3>"
       + '<div class="co">' + esc(job.company) + "</div>"
       + (job.salary ? '<div class="sal">' + esc(job.salary) + "</div>" : "")
       + '<div class="reason">' + esc(job.eligibility.reason) + "</div>"
-      + '<div class="actions">'
-      + '<button class="btn' + (tracked ? " ghost" : "") + '" data-add="' + index + '"'
-      + (tracked ? " disabled" : "") + ">" + (tracked ? "\\u2713 \\u0412 \\u0432\\u043e\\u0440\\u043e\\u043d\\u043a\\u0435" : "\\u0412 \\u0432\\u043e\\u0440\\u043e\\u043d\\u043a\\u0443") + "</button>"
+      + '<div class="actions">' + action
       + '<a class="applylink" href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener">open posting &rarr;</a>'
       + "</div></article>";
   }).join("");
@@ -434,6 +488,48 @@ function renderSearch(payload) {
   document.querySelectorAll("#jobgrid button[data-add]").forEach((button) => {
     button.addEventListener("click", () => addToFunnel(Number(button.dataset.add), button));
   });
+  document.querySelectorAll("#jobgrid button[data-hide]").forEach((button) => {
+    button.addEventListener("click", () => dismiss(Number(button.dataset.hide)));
+  });
+  document.querySelectorAll("#jobgrid button[data-restore]").forEach((button) => {
+    button.addEventListener("click", () => restore(Number(button.dataset.restore)));
+  });
+}
+
+async function dismiss(index) {
+  const job = searchResults[index];
+  if (!job) return;
+  try {
+    const response = await fetch("/api/dismissed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: job.applyUrl, title: job.title, company: job.company }),
+    });
+    if (!response.ok) throw new Error((await response.json()).error || response.statusText);
+    job.dismissed = true;
+    toast(job.company + " скрыта");
+    renderSearch(lastSearchPayload);
+  } catch (error) {
+    toast("Could not hide: " + error.message, true);
+  }
+}
+
+async function restore(index) {
+  const job = searchResults[index];
+  if (!job) return;
+  try {
+    const response = await fetch("/api/dismissed", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: job.applyUrl }),
+    });
+    if (!response.ok) throw new Error((await response.json()).error || response.statusText);
+    job.dismissed = false;
+    toast(job.company + " возвращена");
+    renderSearch(lastSearchPayload);
+  } catch (error) {
+    toast("Could not restore: " + error.message, true);
+  }
 }
 
 async function addToFunnel(index, button) {
@@ -477,9 +573,10 @@ async function runSearch(event) {
   $("srcline").textContent = "Опрашиваю вакансии…";
   try {
     // No query params: the search is fully profile-driven (see src/profile.ts).
-    const response = await fetch("/api/search");
+    const response = await fetch("/api/search" + (showDismissed ? "?includeDismissed=1" : ""));
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || response.statusText);
+    lastSearchPayload = payload;
     renderSearch(payload);
     searchLoaded = true;
   } catch (error) {
@@ -509,7 +606,26 @@ function bindChrome() {
   });
   $("searchform").addEventListener("submit", runSearch);
 
+  // Hiding applied-to jobs is a local filter — no need to hit the network.
+  $("hideApplied").addEventListener("change", (event) => {
+    hideApplied = event.target.checked;
+    renderSearch(lastSearchPayload);
+  });
+  // Showing hidden jobs changes what the server returns, so re-run the search.
+  $("showDismissed").addEventListener("change", (event) => {
+    showDismissed = event.target.checked;
+    if (searchLoaded) runSearch();
+  });
+
   const filter = $("statusfilter");
+  // Grouped shortcuts first: "applied+" is everything you actually sent, which
+  // is the question you ask most often and no single status answers.
+  for (const [value, label] of [["applied+", "applied+ (откликнулся)"], ["open", "open (в работе)"]]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    filter.appendChild(option);
+  }
   for (const status of STATUSES) {
     const option = document.createElement("option");
     option.value = status;
@@ -629,10 +745,21 @@ const server = createServer(async (request, response) => {
      * the same rate-limit-safe pipeline the MCP tool uses.
      */
     if (request.method === "GET" && path === "/api/search") {
-      const result = await searchForProfile();
+      // `includeDismissed` re-runs the same search without the "not interested"
+      // filter, so hidden jobs can be reviewed and restored.
+      const includeDismissed = ["1", "true", "on", "yes"].includes(
+        (url.searchParams.get("includeDismissed") ?? "").toLowerCase(),
+      );
+      const result = await searchForProfile(includeDismissed ? { excludeUrls: [] } : {});
+      const dismissedUrls = new Set(listDismissed().map((row) => row.url));
 
       sendJson(response, 200, {
-        jobs: result.jobs.map(presentJob),
+        // `dismissed` lets the page render a restore button on hidden cards.
+        jobs: result.jobs.map((job) => ({
+          ...presentJob(job),
+          dismissed: dismissedUrls.has(job.url),
+        })),
+        dismissedCount: dismissedUrls.size,
         sourceCounts: result.sourceCounts,
         reports: result.reports,
         counts: result.counts,
@@ -694,6 +821,63 @@ const server = createServer(async (request, response) => {
         application,
         result: alreadyExisted ? "already_tracked" : "inserted",
       });
+      return;
+    }
+
+    // Hide a job from every future search (dashboard, find_jobs and harvest).
+    if (request.method === "POST" && path === "/api/dismissed") {
+      const raw = await readBody(request);
+      let body: Record<string, unknown>;
+      try {
+        body = JSON.parse(raw || "{}") as Record<string, unknown>;
+      } catch {
+        sendJson(response, 400, { error: "body must be valid JSON" });
+        return;
+      }
+
+      const text = (value: unknown): string | null =>
+        typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+      const jobUrl = text(body["url"]);
+      if (!jobUrl) {
+        sendJson(response, 400, { error: "url is required" });
+        return;
+      }
+
+      const { dismissed, alreadyHidden } = dismissJob({
+        url: jobUrl,
+        company: text(body["company"]),
+        title: text(body["title"]),
+        reason: text(body["reason"]),
+      });
+      sendJson(response, alreadyHidden ? 200 : 201, {
+        dismissed,
+        result: alreadyHidden ? "already_hidden" : "hidden",
+      });
+      return;
+    }
+
+    // Restore a hidden job.
+    if (request.method === "DELETE" && path === "/api/dismissed") {
+      const raw = await readBody(request);
+      let body: Record<string, unknown>;
+      try {
+        body = JSON.parse(raw || "{}") as Record<string, unknown>;
+      } catch {
+        sendJson(response, 400, { error: "body must be valid JSON" });
+        return;
+      }
+      const jobUrl = typeof body["url"] === "string" ? body["url"].trim() : "";
+      if (jobUrl.length === 0) {
+        sendJson(response, 400, { error: "url is required" });
+        return;
+      }
+      sendJson(response, 200, { restored: undismissJob(jobUrl) });
+      return;
+    }
+
+    if (request.method === "GET" && path === "/api/dismissed") {
+      sendJson(response, 200, { dismissed: listDismissed() });
       return;
     }
 

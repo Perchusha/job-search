@@ -8,8 +8,9 @@ No cloud, no accounts, no API keys, no paid services. One SQLite file on your di
 The flow is **search → see eligible jobs → drop them into the funnel**, from either the
 assistant or the browser.
 
-- **MCP server** — 7 tools your AI assistant can call (`find_jobs`, `log_found_jobs`,
-  `log_application`, `update_status`, `add_note`, `list_applications`, `get_stats`).
+- **MCP server** — 8 tools your AI assistant can call (`find_jobs`, `log_found_jobs`,
+  `dismiss_job`, `log_application`, `update_status`, `add_note`, `list_applications`,
+  `get_stats`).
 - **Dashboard** — two tabs at <http://localhost:4321>: **Search** (one Refresh button, no
   query to type) and **Tracker** (funnel + sortable application table).
 - **Eligibility scoring** — every job is tagged `high` / `medium` / `low` for whether a
@@ -127,6 +128,8 @@ Add the same `mcpServers` block to `~/.cursor/mcp.json` (or `.cursor/mcp.json` i
 ## Example prompts
 
 - **"Find me jobs"** — no arguments needed; `find_jobs` searches the saved profile
+- "Hide that Angular one, I'm not interested" — `dismiss_job`; it never appears again
+- "What have I hidden?" / "Actually bring back the Callstack one"
 - "Find fullstack typescript jobs, worldwide only, at least 120k" — a one-off override
 - **"Add all of those to my funnel"** — one `log_found_jobs` call, no field re-entry
 - "Log that I applied to Vercel — Senior Fullstack Engineer, `<url>`"
@@ -228,6 +231,12 @@ Single table, `applications`. Statuses:
 
 Lifecycle: `saved → applied → responded → screening → interview → offer / rejected`.
 
+**Dismissed jobs live in their own table, not as a status.** A job you are not interested in
+is not an application: putting it in the funnel would inflate the counts and fill the tracker
+with things you never applied to. Keeping it separate also makes un-dismissing a plain
+delete. The filter is applied in `searchForProfile()`, so the dashboard, `find_jobs` and
+`harvest` all honour it without each having to remember.
+
 **`saved` is pre-application** — "found it, haven't applied yet". It is what jobs added from
 search get, from both the Search tab and `log_found_jobs`. Because finding a job is not
 applying to one, `saved` is **excluded from the response-rate and ghost-rate denominators**
@@ -251,7 +260,10 @@ applied to today is measured from today. Without this, it would report a 42-day
 | Route                                | Purpose                                                     |
 | ------------------------------------ | ----------------------------------------------------------- |
 | `GET /`                              | Self-contained HTML page (Search + Tracker tabs)            |
-| `GET /api/search`                    | No parameters — runs the profile search server-side and echoes the profile back |
+| `GET /api/search`                    | `?includeDismissed=1` optional — runs the profile search server-side and echoes the profile back |
+| `POST /api/dismissed`                | `{ url, title?, company?, reason? }` → hide a job from every search |
+| `DELETE /api/dismissed`              | `{ url }` → restore it |
+| `GET /api/dismissed`                 | Everything currently hidden |
 | `GET /api/stats`                     | Funnel counts + rates                                       |
 | `GET /api/applications`              | All rows, `ghosted` applied                                 |
 | `POST /api/applications`             | `{ url, title, company, source?, location?, salary?, status? }` → adds as `saved` |
@@ -272,7 +284,12 @@ Binds to `127.0.0.1` only. There is no auth by design — it is a single-user lo
    they are `low` eligibility *or* a poor stack fit (wrong stack, junior, non-engineering).
 4. Click **В воронку** to add a job as `saved`. The button becomes **✓ В воронке** and
    disables. Jobs already in your funnel render that way from the start.
-5. Two lines above the cards keep it honest: the profile line shows what was searched
+5. Click **скрыть** on a card you are not interested in. It disappears and never comes back —
+   not in the dashboard, not in `find_jobs`, not in `harvest`. Tick **показать скрытые** to
+   review them and **вернуть** any you hid by mistake.
+6. Tick **скрыть те, что в воронке** to drop cards you have already added, so only new
+   candidates remain on screen.
+7. Two lines above the cards keep it honest: the profile line shows what was searched
    (`searching react · typescript · fullstack · node.js · ai engineer in Poland, remote only
    · last 14d`), and the counts line shows what each source contributed and what was dropped
    (`indeed 529 · himalayas 297 → 292 eligible (826 fetched, 309 duplicates removed), 114
@@ -349,7 +366,13 @@ Nothing else in the codebase encodes any of it.
 
 In the **Tracker** tab, `saved` rows are dimmed and labelled "saved, not applied" to keep
 them distinct from real applications. Use the status dropdown on a row to move it to
-`applied` when you actually apply, or the Status filter to view one stage at a time.
+`applied` when you actually apply. The Status filter has two grouped shortcuts above the
+individual statuses:
+
+- **applied+ (откликнулся)** — everything you actually sent, i.e. every status except `saved`
+- **open (в работе)** — still alive: `applied`, `responded`, `screening`, `interview`
+
+Neither is answerable by a single status, which is why they are separate options.
 
 ## Tests
 

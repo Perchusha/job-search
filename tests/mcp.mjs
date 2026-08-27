@@ -58,7 +58,7 @@ async function main() {
 
   /* ---------------- tools ---------------- */
   const names = (await client.listTools()).tools.map((tool) => tool.name).sort();
-  check("all 7 tools registered", names.length === 7, names.join(", "));
+  check("all 8 tools registered", names.length === 8, names.join(", "));
   for (const expected of [
     "find_jobs",
     "log_found_jobs",
@@ -67,6 +67,7 @@ async function main() {
     "add_note",
     "list_applications",
     "get_stats",
+    "dismiss_job",
   ]) {
     check(`  ${expected}`, names.includes(expected));
   }
@@ -172,6 +173,53 @@ async function main() {
   })).application;
   check("add_note appends a timestamped line", noted.notes.split("\n").length >= 1);
   check("non-ASCII notes survive", noted.notes.includes("скрининг"));
+
+  /* ---------------- dismiss_job ---------------- */
+  const target = jobs[0].applyUrl;
+  const hidden = jsonOf(await client.callTool({
+    name: "dismiss_job",
+    arguments: { url: target, title: jobs[0].title, company: jobs[0].company, reason: "test" },
+  }));
+  check("dismiss_job hides a job", hidden.result === "hidden");
+  check("dismissing twice is a no-op",
+    jsonOf(await client.callTool({ name: "dismiss_job", arguments: { url: target } })).result
+      === "already_hidden");
+  check("list:true reports what is hidden",
+    jsonOf(await client.callTool({ name: "dismiss_job", arguments: { list: true } }))
+      .dismissed.some((row) => row.url === target));
+
+  const afterDismiss = await client.callTool({ name: "find_jobs", arguments: {} });
+  check("a dismissed job is gone from find_jobs",
+    !jsonOf(afterDismiss).jobs.some((job) => job.applyUrl === target));
+
+  /*
+   * The "hidden by dismiss_job" line only appears when the search actually ran
+   * into a dismissed job, and the boards are live — one hidden URL need not
+   * come back on the next call. Hiding the current top five makes an overlap
+   * effectively certain without pretending the data is stable.
+   */
+  const batch = jsonOf(afterDismiss).jobs.slice(0, 5).map((job) => job.applyUrl);
+  for (const jobUrl of batch) {
+    await client.callTool({ name: "dismiss_job", arguments: { url: jobUrl } });
+  }
+  const afterBatch = await client.callTool({ name: "find_jobs", arguments: {} });
+  check("find_jobs says how many it hid",
+    textOf(afterBatch).includes("hidden by dismiss_job"),
+    `hiddenForDismissed ${jsonOf(afterBatch).jobs.length} returned`);
+  check("no dismissed job is returned",
+    !jsonOf(afterBatch).jobs.some((job) => batch.includes(job.applyUrl)));
+
+  check("restore un-hides it",
+    jsonOf(await client.callTool({ name: "dismiss_job", arguments: { url: target, restore: true } }))
+      .restored === true);
+  for (const jobUrl of batch) {
+    await client.callTool({ name: "dismiss_job", arguments: { url: jobUrl, restore: true } });
+  }
+  check("nothing is hidden after restoring",
+    jsonOf(await client.callTool({ name: "dismiss_job", arguments: { list: true } }))
+      .dismissed.length === 0);
+  check("dismiss_job needs a url",
+    (await client.callTool({ name: "dismiss_job", arguments: {} })).isError === true);
 
   /* ---------------- validation ---------------- */
   for (const [label, args, tool] of [

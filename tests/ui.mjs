@@ -71,17 +71,20 @@ function buildDocument(registry) {
   // The shim cannot parse HTML, so buttons are synthesised from the generated
   // markup — and MEMOIZED, because querySelectorAll must return the same
   // objects each call or the handler the page attached is lost.
-  let buttons = [];
-  let buttonsKey = null;
-  const addButtons = () => {
+  const cache = new Map();
+  const addButtons = (attr = "data-add") => {
     const grid = registry.get("jobgrid").innerHTML;
-    if (grid === buttonsKey) return buttons;
-    buttonsKey = grid;
-    buttons = [...grid.matchAll(/data-add="(\d+)"/g)].map((match) => {
-      const el = makeEl(`add-${match[1]}`);
-      el.dataset.add = match[1];
+    const entry = cache.get(attr);
+    if (entry && entry.key === grid) return entry.buttons;
+    const key = attr.replace("data-", "");
+    // NOTE: \\d, not \d — inside a template literal \d is an invalid escape
+    // that collapses to "d", so the pattern would look for data-add="(d+)".
+    const buttons = [...grid.matchAll(new RegExp(`${attr}="(\\d+)"`, "g"))].map((match) => {
+      const el = makeEl(`${key}-${match[1]}`);
+      el.dataset[key] = match[1];
       return el;
     });
+    cache.set(attr, { key: grid, buttons });
     return buttons;
   };
 
@@ -91,7 +94,9 @@ function buildDocument(registry) {
       createElement: () => makeEl(),
       querySelectorAll: (selector) => {
         if (selector === ".tab") return tabs;
-        if (selector === "#jobgrid button[data-add]") return addButtons();
+        if (selector === "#jobgrid button[data-add]") return addButtons("data-add");
+        if (selector === "#jobgrid button[data-hide]") return addButtons("data-hide");
+        if (selector === "#jobgrid button[data-restore]") return addButtons("data-restore");
         return [];
       },
     },
@@ -238,6 +243,7 @@ async function main() {
     "dbinfo", "cards", "funnel", "rows", "empty", "toast",
     "view-tracker", "view-search", "searchform", "searchbtn",
     "srcline", "jobgrid", "searchempty", "statusfilter", "profileline",
+    "hideApplied", "showDismissed", "dismissedCount",
   ]) registry.set(id, makeEl(id));
 
   const { document, tabs, addButtons } = buildDocument(registry);
@@ -255,6 +261,9 @@ async function main() {
        get searchResults(){return searchResults},
        get trackedUrls(){return trackedUrls},
        setFilter(v){ statusFilter = v },
+       setHideApplied(v){ hideApplied = v },
+       renderSearchAgain(){ renderSearch(lastSearchPayload) },
+       dismiss, restore,
        setSort(k, d){ sort = { key: k, dir: d } },
        sortedApplications,
      };`,
@@ -267,8 +276,10 @@ async function main() {
   check("stat cards render", registry.get("cards").innerHTML.includes("Response rate"));
   check("funnel renders all 8 stages",
     (registry.get("funnel").innerHTML.match(/class="frow"/g) || []).length === 8);
+  // 8 statuses + the two grouped shortcuts ("applied+", "open").
   check("status filter is populated",
-    registry.get("statusfilter").children.length === 8);
+    registry.get("statusfilter").children.length === 10,
+    `${registry.get("statusfilter").children.length} options`);
 
   const rowsHtml = registry.get("rows").innerHTML;
   check("a row per application", (rowsHtml.match(/<tr/g) || []).length === 3);
@@ -324,7 +335,7 @@ async function main() {
   check("add button present", /данные|В воронк/.test(grid) || grid.includes("В воронк"));
 
   /* ---- add to funnel ---- */
-  const buttons = addButtons();
+  const buttons = addButtons("data-add");
   const index = page.searchResults.findIndex((job) => !page.trackedUrls.has(job.applyUrl));
   check("found an untracked card", index >= 0);
   const button = buttons.find((el) => Number(el.dataset.add) === index);
@@ -342,6 +353,101 @@ async function main() {
   const added = page.applications.find((row) => row.url === job.applyUrl);
   check("the new row is in the tracker", Boolean(added));
   check("added with status 'saved'", added?.status === "saved");
+
+  /* ---- hide a job from search ---- */
+  const hideButtons = addButtons("data-hide");
+  check("every visible card offers a hide button",
+    hideButtons.length > 0, `${hideButtons.length} buttons`);
+
+  // Deliberately NOT the card we just added: hiding that one would leave no
+  // tracked job on screen, and the "hide applied" check below would be vacuous.
+  const hideButton = hideButtons.find((el) => Number(el.dataset.hide) !== index) ?? hideButtons[0];
+  const hideIndex = Number(hideButton.dataset.hide);
+  const toHide = page.searchResults[hideIndex];
+  await hideButton._handlers.click();
+
+  check("hidden job disappears from the grid",
+    !registry.get("jobgrid").innerHTML.includes(toHide.applyUrl.slice(-24)),
+    toHide.company);
+  check("the dismissal was persisted",
+    (await (await fetch(`${BASE}/api/dismissed`)).json()).dismissed
+      .some((row) => row.url === toHide.applyUrl));
+
+  const afterHide = await (await fetch(`${BASE}/api/search`)).json();
+  check("a hidden job is gone from a fresh search",
+    !afterHide.jobs.some((row) => row.applyUrl === toHide.applyUrl));
+
+  /*
+   * The counter only counts dismissed jobs the search actually ran into, and
+   * the boards are live — one hidden job need not come back on the next call.
+   * Hiding the top five makes an overlap effectively certain without pretending
+   * the data is stable.
+   */
+  const batch = (afterHide.jobs || []).slice(0, 5).map((row) => row.applyUrl);
+  for (const jobUrl of batch) {
+    await fetch(`${BASE}/api/dismissed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: jobUrl }),
+    });
+  }
+  const afterBatch = await (await fetch(`${BASE}/api/search`)).json();
+  check("the search reports what it hid",
+    afterBatch.counts.hiddenForDismissed >= 1,
+    `hid ${afterBatch.counts.hiddenForDismissed} of ${batch.length} dismissed`);
+  check("none of the hidden batch is returned",
+    !afterBatch.jobs.some((row) => batch.includes(row.applyUrl)));
+  for (const jobUrl of batch) {
+    await fetch(`${BASE}/api/dismissed`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: jobUrl }),
+    });
+  }
+
+  const withHidden = await (await fetch(`${BASE}/api/search?includeDismissed=1`)).json();
+  check("includeDismissed turns the filter off",
+    withHidden.counts.hiddenForDismissed === 0,
+    `hiddenForDismissed ${withHidden.counts.hiddenForDismissed}`);
+  // The boards are live, so a second search need not return the very same job.
+  // Only assert the marking when it did come back.
+  const shown = withHidden.jobs.find((row) => row.applyUrl === toHide.applyUrl);
+  if (shown) check("a returned hidden job is marked dismissed", shown.dismissed === true);
+  else console.log("SKIP  hidden job absent from the second live search — cannot check its flag");
+
+  /* ---- restore it ---- */
+  await fetch(`${BASE}/api/dismissed`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: toHide.applyUrl }),
+  });
+  check("restoring clears the dismissal",
+    (await (await fetch(`${BASE}/api/dismissed`)).json()).dismissed.length === 0);
+
+  /* ---- "hide applied" filter ---- */
+  const beforeFilter = (registry.get("jobgrid").innerHTML.match(/class="jobcard/g) || []).length;
+  page.setHideApplied(true);
+  page.renderSearchAgain();
+  const afterFilter = (registry.get("jobgrid").innerHTML.match(/class="jobcard/g) || []).length;
+  check("hiding applied-to jobs shrinks the grid",
+    afterFilter < beforeFilter, `${beforeFilter} -> ${afterFilter}`);
+  page.setHideApplied(false);
+  page.renderSearchAgain();
+
+  /* ---- tracker: grouped "applied+" filter ---- */
+  await page.load();
+  page.setFilter("applied+");
+  page.renderRows();
+  const appliedPlus = (registry.get("rows").innerHTML.match(/<tr/g) || []).length;
+  const expected = page.applications.filter((row) => row.status !== "saved").length;
+  check("tracker filter 'applied+' shows every non-saved row",
+    appliedPlus === expected, `${appliedPlus} of ${page.applications.length}`);
+  page.setFilter("open");
+  page.renderRows();
+  const open = (registry.get("rows").innerHTML.match(/<tr/g) || []).length;
+  check("tracker filter 'open' excludes ghosted and rejected",
+    open <= appliedPlus, `open ${open} <= applied+ ${appliedPlus}`);
+  page.setFilter("");
 
   console.log(`\n${failures === 0 ? "UI TESTS PASSED" : `${failures} UI TEST(S) FAILED`}`);
   process.exit(failures === 0 ? 0 : 1);

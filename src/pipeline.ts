@@ -11,6 +11,7 @@
  * twice.
  */
 
+import { listDismissedUrls } from "./db.ts";
 import { scoreEligibility, levelRank, type Eligibility } from "./eligibility.ts";
 import {
   SEARCH_DEFAULTS,
@@ -41,6 +42,12 @@ export type SearchParams = {
   queries?: string[];
   /** Drop jobs above this fit tier (3 = wrong stack / junior / non-engineering). */
   maxFitTier?: number;
+  /**
+   * Exact URLs to drop — the "not interested" list. searchForProfile fills this
+   * from the database, so a job dismissed in the dashboard also disappears from
+   * `find_jobs` and from `harvest`. Pass [] to include dismissed jobs again.
+   */
+  excludeUrls?: string[];
   seniority?: string;
   worldwideOnly?: boolean;
   minSalary?: number;
@@ -72,6 +79,8 @@ export type SearchCounts = {
   hiddenForUnknownSalary: number;
   /** Excluded as a poor stack fit. */
   hiddenForFit: number;
+  /** Excluded because they were dismissed ("not interested"). */
+  hiddenForDismissed: number;
   /** The searches that produced this list. */
   queries: string[];
 };
@@ -142,7 +151,12 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
 
   const deduped = dedupeJobs(outcome.jobs);
 
-  const scored: RankedJob[] = deduped.map((job) => ({
+  // Dismissed jobs go first: no point scoring what will never be shown.
+  const excluded = new Set(params.excludeUrls ?? []);
+  const kept = excluded.size === 0 ? deduped : deduped.filter((job) => !excluded.has(job.url));
+  const hiddenForDismissed = deduped.length - kept.length;
+
+  const scored: RankedJob[] = kept.map((job) => ({
     ...job,
     eligibility: scoreEligibility(job),
   }));
@@ -232,6 +246,7 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
       returned: jobs.length,
       hiddenForUnknownSalary,
       hiddenForFit,
+      hiddenForDismissed,
       queries: queries.filter((query) => query.length > 0),
     },
   };
@@ -247,6 +262,10 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
  * Overrides are accepted for the rare one-off (a different city, a wider net).
  */
 export function searchForProfile(overrides: SearchParams = {}): Promise<SearchResult> {
+  // Read the "not interested" list here, so every caller of the profile search
+  // — dashboard, find_jobs, harvest — honours it without having to remember.
+  const dismissed = listDismissedUrls();
+
   // Strip undefined before spreading. A caller forwarding optional arguments
   // passes `{ limit: undefined, remoteOnly: undefined, ... }`, and a plain
   // spread of those would overwrite the profile defaults with undefined —
@@ -263,6 +282,7 @@ export function searchForProfile(overrides: SearchParams = {}): Promise<SearchRe
     sources: [...SEARCH_DEFAULTS.sources],
     maxFitTier: SEARCH_DEFAULTS.maxFitTier,
     limit: SEARCH_DEFAULTS.limit,
+    excludeUrls: dismissed,
     ...defined,
   });
 }
