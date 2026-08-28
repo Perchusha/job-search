@@ -73,7 +73,6 @@ npm run sanity     # 20/20 checks passed.
 
 ```bash
 npm run dashboard  # http://localhost:4321
-npm run harvest    # one unattended pass: find, save, report
 npm run mcp        # stdio MCP server (your AI client normally starts this for you)
 npm test           # typecheck + scorer checks + MCP + dashboard UI
 ```
@@ -85,10 +84,11 @@ There is no build step; `tsx` runs the TypeScript directly.
 
 ### Environment
 
-| Variable       | Default              | Purpose                        |
-| -------------- | -------------------- | ------------------------------ |
-| `JOBHUNT_DB`   | `~/.job-hunt/jobs.db` | SQLite file (dir auto-created) |
-| `JOBHUNT_PORT` | `4321`               | Dashboard port                 |
+| Variable                       | Default              | Purpose                                |
+| ------------------------------ | -------------------- | -------------------------------------- |
+| `JOBHUNT_DB`                   | `~/.job-hunt/jobs.db` | SQLite file (dir auto-created)         |
+| `JOBHUNT_PORT`                 | `4321`               | Dashboard port                         |
+| `JOBHUNT_SEARCH_CACHE_MINUTES` | `60`                 | Dashboard search cache TTL, in minutes |
 
 ## Connect an MCP client
 
@@ -143,7 +143,7 @@ The search → funnel flow in one exchange:
 > **You:** find senior typescript jobs I can apply to from Poland
 > **Assistant:** *(calls `find_jobs`)* — 7 eligible, mostly `high`…
 > **You:** add the first four to my funnel
-> **Assistant:** *(calls `log_found_jobs`)* — 4 added as `saved`, 0 already tracked.
+> **Assistant:** *(calls `log_found_jobs`)* — 4 added as `applied`, 0 already tracked.
 
 Re-running the same add reports `already_tracked` and creates no duplicates, so it is safe
 to say "add them" twice.
@@ -227,22 +227,22 @@ with a note rather than throwing.
 ## Data model
 
 Single table, `applications`. Statuses:
-`saved | applied | responded | screening | interview | offer | rejected | ghosted`.
+`applied | responded | screening | interview | offer | rejected | ghosted`.
 
-Lifecycle: `saved → applied → responded → screening → interview → offer / rejected`.
+Lifecycle: `applied → responded → screening → interview → offer / rejected`.
 
 **Dismissed jobs live in their own table, not as a status.** A job you are not interested in
 is not an application: putting it in the funnel would inflate the counts and fill the tracker
 with things you never applied to. Keeping it separate also makes un-dismissing a plain
-delete. The filter is applied in `searchForProfile()`, so the dashboard, `find_jobs` and
-`harvest` all honour it without each having to remember.
+delete. The filter is applied in `searchForProfile()`, so both the dashboard and `find_jobs`
+honour it without each having to remember.
 
-**`saved` is pre-application** — "found it, haven't applied yet". It is what jobs added from
-search get, from both the Search tab and `log_found_jobs`. Because finding a job is not
-applying to one, `saved` is **excluded from the response-rate and ghost-rate denominators**
-(`rate = responded+ / applied+`); adding 50 jobs from search will not dilute your response
-rate to 2%. To change that default, edit the one insert path — `status` in `log_found_jobs`
-and the `POST /api/applications` fallback.
+**There is no pre-application stage.** A row in the funnel means you applied — `В воронку`
+inserts straight as `applied`, and so does `log_found_jobs`. The old `saved` bookmark stage
+is gone: it meant "have I applied to this?" needed two lookups, and every rate had to carve
+it back out of the denominator. Every tracked row is now a real application, so
+`rate = responded+ / everything`. A database written before the change has its `saved` rows
+migrated to `applied` on open (see `migrate()` in [src/db.ts](src/db.ts)).
 
 **`ghosted` is derived, never stored.** On every read, a row still at `applied` with no
 `response_at`, applied more than `staleDays` ago (default 21), is presented as `ghosted`.
@@ -251,22 +251,19 @@ Change `staleDays` and the same data re-reads differently — nothing to migrate
 Moving an application to any status past `applied` auto-stamps `response_at` if it isn't
 already set, which is what feeds the response-rate and days-to-response stats.
 
-**Leaving `saved` re-stamps `applied_at` to now.** A job saved from search six weeks ago and
-applied to today is measured from today. Without this, it would report a 42-day
-`daysSinceApplied` and be derived as `ghosted` the instant it reached `applied`.
-
 ## Dashboard API
 
 | Route                                | Purpose                                                     |
 | ------------------------------------ | ----------------------------------------------------------- |
-| `GET /`                              | Self-contained HTML page (Search + Tracker tabs)            |
-| `GET /api/search`                    | `?includeDismissed=1` optional — runs the profile search server-side and echoes the profile back |
+| `GET /`                              | The HTML page (Search + Tracker tabs)                       |
+| `GET /pico.css`                      | Pico CSS, read from `node_modules` at boot — form controls for the toolbar |
+| `GET /api/search`                    | `?includeDismissed=1`, `?hoursOld=N` and `?sources=a,b` optional — runs the profile search server-side and echoes the profile it actually used |
 | `POST /api/dismissed`                | `{ url, title?, company?, reason? }` → hide a job from every search |
 | `DELETE /api/dismissed`              | `{ url }` → restore it |
 | `GET /api/dismissed`                 | Everything currently hidden |
 | `GET /api/stats`                     | Funnel counts + rates                                       |
 | `GET /api/applications`              | All rows, `ghosted` applied                                 |
-| `POST /api/applications`             | `{ url, title, company, source?, location?, salary?, status? }` → adds as `saved` |
+| `POST /api/applications`             | `{ url, title, company, source?, location?, salary?, status? }` → adds as `applied` |
 | `POST /api/applications/:id/status`  | `{ status, responseAt? }`                                   |
 
 `POST /api/applications` is idempotent on `url`: re-adding returns `200` with
@@ -274,80 +271,132 @@ applied to today is measured from today. Without this, it would report a 42-day
 a card as "✓ В воронке" rather than failing.
 
 Binds to `127.0.0.1` only. There is no auth by design — it is a single-user local tool.
+Nothing is fetched off the machine: the one stylesheet comes from `node_modules` over the
+same local server, so the dashboard works with the network down.
+
+### Why Pico, and only in the toolbar
+
+The search toolbar uses [Pico CSS](https://picocss.com) for its form controls — real
+`fieldset`/`legend` grouping, radio groups, and switches, rather than hand-rolled
+`div`s. It is the **conditional** build, whose rules only apply inside an element with
+class `.pico`, and that is deliberate: the cards, funnel bars, status table and job grid
+already have a complete design in `dashboard.ts`, and a classless framework would restyle
+all of it on the way past. Pico's `--pico-*` tokens are remapped to the page's own palette
+at the top of the stylesheet, so the toolbar reads as part of the page rather than as a
+widget dropped onto it.
+
+If the rest of the page should move onto Pico too, that is a separate pass — a bigger one,
+because it means giving up the current card and funnel styling, not adding to it.
 
 ## Using the Search tab
 
 1. Open <http://localhost:4321> and click **Search**. It runs automatically the first time.
 2. Press **↻ Обновить** whenever you want a fresh pass. There is nothing to type.
 3. Cards show title, company, salary, source, the eligibility badge with its reason, the
-   **fit** score, and a link to the real posting. Jobs are dropped before you see them if
-   they are `low` eligibility *or* a poor stack fit (wrong stack, junior, non-engineering).
-4. Click **В воронку** to add a job as `saved`. The button becomes **✓ В воронке** and
-   disables. Jobs already in your funnel render that way from the start.
+   **fit** score, how old the posting is, and a link to the real posting. Jobs are dropped
+   before you see them if they are `low` eligibility *or* a poor stack fit (wrong stack,
+   junior, non-engineering).
+4. Click **В воронку** to record an application. It goes in as `applied` — there is no
+   bookmark stage — and the card re-renders immediately, which means it **disappears on the
+   spot** when *скрыть те, что в воронке* is ticked. Jobs already in your funnel render as
+   **✓ Откликнулся** from the start.
 5. Click **скрыть** on a card you are not interested in. It disappears and never comes back —
-   not in the dashboard, not in `find_jobs`, not in `harvest`. Tick **показать скрытые** to
-   review them and **вернуть** any you hid by mistake.
-6. Tick **скрыть те, что в воронке** to drop cards you have already added, so only new
+   not in the dashboard, not in `find_jobs`. Tick **показать скрытые** to review them and
+   **вернуть** any you hid by mistake.
+6. Tick **скрыть те, что в воронке** to drop cards you have already applied to, so only new
    candidates remain on screen.
-7. Two lines above the cards keep it honest: the profile line shows what was searched
-   (`searching react · typescript · fullstack · node.js · ai engineer in Poland, remote only
+7. **Опубликовано: 24 часа / 3 дня / неделя / 2 недели / месяц** narrows by posting age.
+   A month is both the default and the ceiling — it is `SEARCH_DEFAULTS.hoursOld`, and the
+   server clamps anything wider back down to it, so a hand-edited URL cannot widen the
+   window either.
+
+   It is a search *parameter*, not a filter over what came back: choosing an option re-runs
+   the search with a smaller `hoursOld`. Filtering afterwards would be useless — the ranked
+   list is capped at 40 and recency is only the fourth sort key, so a fresh-only filter over
+   the top 40 usually returns nothing.
+
+   The window is then enforced a second time in the page, because `hoursOld` only reaches
+   the scraped boards and the free feeds ignore it — without that pass Himalayas alone would
+   put month-old rows in a "24 hours" list. Postings that publish no date at all are dropped
+   by that pass and counted in the line below the toolbar: a posting that will not say how
+   old it is cannot be shown to be inside the window.
+8. **The source pills** — one per board in `SEARCH_DEFAULTS.sources`, each
+   showing how many postings it returned last time. They are a search
+   parameter, so unticking one re-runs without it, and the server intersects
+   the list with the profile's own: a hand-written URL can narrow the search
+   but never make the dashboard scrape a board the profile never chose. At
+   least one has to stay on.
+
+   **LinkedIn is on by default and it is the slow one.** Measured on the same
+   pass: `indeed + himalayas` takes ~3s, adding LinkedIn takes ~80s for ~900
+   extra postings. Unticking it is how you get a fast search back. See *What
+   each board is worth* below.
+9. **The list loads lazily.** A search returns up to `SEARCH_DEFAULTS.limit`
+   (200) ranked matches, and the page draws 24 at a time, extending as you
+   reach the bottom — an `IntersectionObserver` on a sentinel below the grid,
+   with a **Показать ещё** button in the same sentinel as the fallback. The
+   sentinel also reads *показано N из M*, so a filtered-down list never just
+   looks empty.
+
+   The budget used to be 40, which was the actual bug: a pass keeps ~290 good
+   matches after ranking and the page then hides more of them again (already
+   applied to, dismissed, outside the date window), so you saw a dozen cards
+   out of eight hundred fetched postings. Raising it costs nothing — no board
+   comes close to the per-query cap, so nothing extra is fetched.
+10. Two lines above the cards keep it honest: the profile line shows what was searched
+   (`searching frontend developer · frontend engineer · react developer … in Poland, remote only
    · last 14d`), and the counts line shows what each source contributed and what was dropped
    (`indeed 529 · himalayas 297 → 292 eligible (826 fetched, 309 duplicates removed), 114
    dropped: wrong stack / junior`).
 
-Measured on a real run: 6 queries in ~2.7s, 759 postings fetched, 112 dropped as a poor fit,
-40 shown — of which 24 were AI/LLM roles, 14 frontend, and none backend-titled.
+**The emphasis is frontend.** AI/LLM terms still score, but only as a bonus on top of a
+frontend role — they used to be weighted as high as frontend itself and the feed filled up
+with "AI Engineer" postings, which is not the job being searched for. ML and data-science
+roles are penalised outright: the CV is LLM *integration* into products, not model training.
+Backend is a positive signal inside a posting but a penalty in a title, since a "Senior
+Backend Engineer" opening is off target even though the skills are there.
 
-**The emphasis is frontend + AI.** ML and data-science roles are penalised on purpose: the CV
-is LLM *integration* into products, not model training, so "AI Engineer" is a match and
-"ML Engineer" is not. Backend is a positive signal inside a posting but a penalty in a title,
-since a "Senior Backend Engineer" opening is off target even though the skills are there.
+### What each board is worth
 
-## Unattended runs — `npm run harvest`
+Measured against the live boards from Poland, not assumed. One profile pass,
+ten queries, month-wide window:
 
-One pass with no browser and no assistant: searches the profile, saves the good matches as
-`saved`, and prints a digest of what was added, what needs a follow-up, and what has ghosted
-you. Idempotent (dedupe is by URL), so running it twice adds nothing the second time.
+| Board | Postings | Cost |
+| --- | --- | --- |
+| **indeed** | 1214 | part of the ~3s baseline |
+| **himalayas** | 587 | part of the ~3s baseline |
+| **linkedin** | 910 | takes the pass from ~3s to ~80s on its own |
+| **glassdoor** | — | cannot be scoped to Poland at all. JobSpy throws `Glassdoor is not available for POLAND` in half a second |
+| **zip_recruiter** | — | zero rows for Poland, and zero for `New York, NY` too, so it is not a geography problem: the scraper is dead in this JobSpy version |
 
-```bash
-npm run harvest                 # normal run
-npm run harvest -- --dry-run    # find and report, write nothing
-npm run harvest -- --no-linkedin
-npm run harvest -- --limit=5
-```
+The last two are not in `SEARCH_DEFAULTS.sources` and cannot usefully be added —
+they would only ever produce a permanent "skipped" pill. `find_jobs` still
+accepts them for a one-off search somewhere Glassdoor does serve.
 
-It is stricter than the interactive search, on purpose: a live pass finds ~100 good matches,
-and auto-saving all of them would bury the funnel and make `saved` meaningless. `HARVEST` in
-[src/profile.ts](src/profile.ts) caps it (`maxPerRun: 25`, `maxFitTier: 1`) and the digest
-always says how many were left for the next run — nothing is silently truncated. Each run
-works down the ranked backlog, so after a few days only genuinely new postings remain.
+Two things to know about LinkedIn specifically:
 
-LinkedIn **is** included here. Its ~25s cost rules it out of the interactive search but is
-irrelevant to a scheduled run.
+- **Nothing about it is unbounded.** Each query asks for `min(limit × 4, 200)`
+  = 160 rows, and `hoursOld` reaches it exactly as it reaches Indeed (verified:
+  under a 14-day window nothing older than 11 days came back). The cost is the
+  ten entries in `TARGET_QUERIES` — LinkedIn answers at roughly 0.16s per job,
+  and it is its own slow scrape per query. Shortening `TARGET_QUERIES` or
+  lowering `SEARCH_DEFAULTS.limit` is what moves that number.
+- **It ignores `remoteOnly`,** so leaving it on puts onsite Warsaw/Kraków roles
+  in the feed. It also populates `is_remote` on essentially nothing (0 of 30
+  even when `is_remote=true` is requested), so its rows score `medium` as
+  "onsite/hybrid in Poland" and sort below everything `high`. The reason is
+  spelled out on each card, so they are easy to skip past.
 
-The digest also goes to `harvest.log` next to the database, because scheduled tasks discard
-stdout.
+`JOBHUNT_SOURCES=indeed,himalayas npm run dashboard` narrows the board list for
+one run without editing the profile. `tests/ui.mjs` uses it to keep the suite
+off the slow boards.
 
-### Scheduling it (Windows)
-
-Task Scheduler → Create Task:
-
-- **Trigger:** Daily, e.g. 08:00
-- **Action:** Start a program
-  - Program: `C:\Program Files
-odejs
-pm.cmd`
-  - Arguments: `run harvest`
-  - Start in: `D:\Projects\job-search`
-- **Settings:** tick "Run task as soon as possible after a scheduled start is missed"
-
-Or from an admin shell:
-
-```powershell
-schtasks /create /tn "job-hunt harvest" /tr "cmd /c cd /d D:\Projects\job-search && npm run harvest" /sc daily /st 08:00
-```
-
-On macOS/Linux use cron: `0 8 * * * cd /path/to/job-search && npm run harvest`
+**The MCP `find_jobs` tool leaves LinkedIn out**, listed in
+`SEARCH_DEFAULTS.slowSources`. That is a constraint, not a preference: MCP times
+a request out at 60s and a pass with LinkedIn takes ~80s, so including it would
+fail outright rather than answer slowly. The dashboard can afford it — it shows
+progress and the pill drops the board in one click. Name `sources` explicitly on
+`find_jobs` if you want LinkedIn from an assistant and can wait.
 
 ## Tuning what gets found
 
@@ -355,24 +404,24 @@ Everything personal is in [src/profile.ts](src/profile.ts):
 
 | What | Why you would change it |
 | --- | --- |
-| `TARGET_QUERIES` | The searches the Refresh button runs. Several, because one keyword cannot cover both "React" work and "AI/LLM" work |
-| **The emphasis** | Currently **frontend + AI/LLM**. Frontend and AI terms carry the highest weights, fullstack counts less, and a backend-titled role is penalised. Shift it by editing the weights |
+| `TARGET_QUERIES` | The searches the Refresh button runs. Nine, because no single keyword covers everything a frontend role gets titled — the same job is "Frontend Developer" at one company and "Web Engineer" at the next. Each line's measured marginal yield is in the comment above it; order is not a ranking signal |
+| **The emphasis** | Currently **frontend**, with AI/LLM as a bonus rather than a target. Frontend terms carry the highest weights, fullstack counts less, and a backend-titled role is penalised. Shift it by editing the weights |
 | `SEARCH_DEFAULTS` | Location, remote-only, how far back to look, which boards, how many results, and `maxFitTier` |
+| `SEARCH_DEFAULTS.sources` | Which boards to query — and, one-for-one, the source pills the Search tab offers. The filter can only narrow this list |
 | `STACK_WEIGHTS` | What counts as a good match. Taken from the CV; title matches count double |
 | `FOREIGN_STACK` | What sinks a posting: .NET, Java, Angular, ML/data-science, backend-only titles, plus non-engineering roles like recruiter or designer. A title match counts triple |
 | `JUNIOR_MARKERS` / `SENIOR_MARKERS` | Seniority detection, English and Polish |
 
 Nothing else in the codebase encodes any of it.
 
-In the **Tracker** tab, `saved` rows are dimmed and labelled "saved, not applied" to keep
-them distinct from real applications. Use the status dropdown on a row to move it to
-`applied` when you actually apply. The Status filter has two grouped shortcuts above the
-individual statuses:
+In the **Tracker** tab each row carries one status control — the coloured dropdown *is* the
+status display. There is no badge repeating the same word next to it, and no notes column:
+notes are still stored and still written by `add_note`, they are just not what the table is
+for. Above the individual statuses the Status filter offers one grouped shortcut:
 
-- **applied+ (откликнулся)** — everything you actually sent, i.e. every status except `saved`
 - **open (в работе)** — still alive: `applied`, `responded`, `screening`, `interview`
 
-Neither is answerable by a single status, which is why they are separate options.
+No single status answers that, which is why it is its own option.
 
 ## Tests
 
@@ -412,9 +461,8 @@ src/
   sources.ts      fetch + normalize every source, dedupe
   eligibility.ts  "can I apply from Poland?" scorer + sanity checks
   pipeline.ts     searchJobs(): the ONE search pipeline both callers use
-  index.ts        MCP server: 7 tools over StdioServerTransport
+  index.ts        MCP server: 8 tools over StdioServerTransport
   dashboard.ts    node:http server on :4321 (Search + Tracker)
-  harvest.ts      unattended run: find, save, digest. Schedule this
 scripts/
   jobspy_fetch.py the Python half of the JobSpy bridge
 tests/

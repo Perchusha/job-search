@@ -1,5 +1,5 @@
 /**
- * index.ts — the MCP server. Six tools over stdio.
+ * index.ts — the MCP server. Eight tools over stdio.
  *
  * IMPORTANT: stdout is the MCP transport. Never console.log here — diagnostics
  * go to stderr, or the client will fail to parse the protocol stream.
@@ -25,7 +25,7 @@ import {
   type Status,
 } from "./db.ts";
 import { presentJob, searchForProfile, searchJobs } from "./pipeline.ts";
-import { TARGET_QUERIES } from "./profile.ts";
+import { SEARCH_DEFAULTS, TARGET_QUERIES } from "./profile.ts";
 import { formatSourceReports } from "./sources.ts";
 
 const server = new McpServer({ name: "job-hunt", version: "1.0.0" });
@@ -93,7 +93,7 @@ const sourceEnum = z.enum([
 
 server.tool(
   "find_jobs",
-  "Find jobs worth applying to. Called with NO arguments it searches the saved profile in src/profile.ts (my target searches, Poland, remote-only, wrong-stack and junior roles dropped) — that is the normal way to use it. Pass arguments only for a one-off, different search. Returns an eligibility level and reason plus the apply URL. Scraped boards give volume and descriptions but no salary; Himalayas is the only source with published salaries.",
+  "Find jobs worth applying to. Called with NO arguments it searches the saved profile in src/profile.ts (my target searches, Poland, remote-only, wrong-stack and junior roles dropped) — that is the normal way to use it. The profile search skips LinkedIn: it takes ~80s on its own and would blow the request timeout. The dashboard queries it; this tool does not unless you name it in `sources`. Pass arguments only for a one-off, different search. Returns an eligibility level and reason plus the apply URL. Scraped boards give volume and descriptions but no salary; Himalayas is the only source with published salaries.",
   {
     query: z.string().optional().describe("Free-text search, e.g. 'senior react typescript'"),
     seniority: z
@@ -155,7 +155,17 @@ server.tool(
     let result;
     try {
       result = useProfile
-        ? await searchForProfile({ limit, onlyEligible, remoteOnly, hoursOld })
+        ? await searchForProfile({
+            limit,
+            onlyEligible,
+            remoteOnly,
+            hoursOld,
+            // Minus the boards that cannot answer inside the MCP request
+            // timeout — see SEARCH_DEFAULTS.slowSources for the measurement.
+            sources: SEARCH_DEFAULTS.sources.filter(
+              (source) => !SEARCH_DEFAULTS.slowSources.includes(source),
+            ),
+          })
         : await searchJobs({
             query,
             seniority,
@@ -206,7 +216,7 @@ server.tool(
         `${counts.hiddenForUnknownSalary} job(s) hidden because they publish no salary and minSalary was set.`,
       );
     }
-    lines.push("To track any of these, pass them to log_found_jobs (adds them as 'saved').");
+    lines.push("To track any of these, pass them to log_found_jobs — everything in the funnel counts as applied, so only pass the ones I actually applied to.");
 
     return reply(lines.join("\n"), { jobs: result.jobs.map(presentJob) });
   },
@@ -218,7 +228,7 @@ server.tool(
 
 server.tool(
   "log_found_jobs",
-  "Bulk-add jobs from find_jobs output straight into the funnel. Defaults to status 'saved' (found, not yet applied) so response rates stay honest. Idempotent per URL: an already-tracked URL is reported, never duplicated.",
+  "Bulk-add jobs from find_jobs output straight into the funnel as applications. There is no bookmark stage: a row in the funnel means I applied, so only pass jobs I really applied to. Idempotent per URL: an already-tracked URL is reported, never duplicated.",
   {
     jobs: z
       .array(
@@ -236,10 +246,10 @@ server.tool(
       .describe("Jobs to track. Pass find_jobs results through directly"),
     status: statusEnum
       .optional()
-      .describe("Status to insert with. Default 'saved' — use 'applied' only if you really applied"),
+      .describe("Status to insert with. Default 'applied' — pass a later stage only if it is already further along"),
   },
   async ({ jobs, status }) => {
-    const initialStatus = (status ?? "saved") as Status;
+    const initialStatus = (status ?? "applied") as Status;
 
     const results = jobs.map((job) => {
       try {
@@ -272,16 +282,9 @@ server.tool(
     const existing = results.filter((row) => row.result === "already_tracked").length;
     const failed = results.filter((row) => row.result === "error").length;
 
-    const summary = [
-      `${inserted} job(s) added to the funnel as "${initialStatus}", ${existing} already tracked${
-        failed > 0 ? `, ${failed} failed` : ""
-      }.`,
-      initialStatus === "saved"
-        ? "These count as found-not-applied: use update_status to move them to 'applied' when you actually apply (that also resets applied_at to the real application date)."
-        : "",
-    ]
-      .filter((line) => line.length > 0)
-      .join("\n");
+    const summary = `${inserted} job(s) added to the funnel as "${initialStatus}", ${existing} already tracked${
+      failed > 0 ? `, ${failed} failed` : ""
+    }.`;
 
     return reply(summary, { results });
   },
@@ -293,7 +296,7 @@ server.tool(
 
 server.tool(
   "dismiss_job",
-  "Hide a job from every future search — the dashboard, find_jobs and the scheduled harvest all honour it. Use for roles I am not interested in. Pass restore:true to un-hide, or list:true to see what is hidden.",
+  "Hide a job from every future search — both the dashboard and find_jobs honour it. Use for roles I am not interested in. Pass restore:true to un-hide, or list:true to see what is hidden.",
   {
     url: z.string().optional().describe("Apply URL of the job to hide (or restore)"),
     title: z.string().optional(),
@@ -322,7 +325,7 @@ server.tool(
       return reply(
         alreadyHidden
           ? "Already hidden — nothing changed."
-          : `Hidden. It will not appear in search, find_jobs or harvest again.`,
+          : `Hidden. It will not appear in search or find_jobs again.`,
         { dismissed, result: alreadyHidden ? "already_hidden" : "hidden" },
       );
     } catch (error) {
@@ -479,9 +482,9 @@ server.tool(
         .join(", ");
 
       const summary = [
-        `${stats.total} tracked, ${stats.totalApplied} actually applied (excludes 'saved').`,
+        `${stats.total} application(s) tracked.`,
         `Funnel: ${funnelLine || "empty"}.`,
-        `Response rate: ${percent(stats.responseRate)} (${stats.responded}/${stats.totalApplied}).`,
+        `Response rate: ${percent(stats.responseRate)} (${stats.responded}/${stats.total}).`,
         `Ghost rate: ${percent(stats.ghostRate)} at a ${stats.staleDays}-day threshold.`,
         `Average days to first response: ${stats.avgDaysToResponse ?? "n/a"}.`,
       ].join("\n");
@@ -502,7 +505,7 @@ async function main(): Promise<void> {
   console.error(`[job-hunt] database: ${resolveDbPath()}`);
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("[job-hunt] MCP server ready on stdio (6 tools).");
+  console.error("[job-hunt] MCP server ready on stdio (8 tools).");
 }
 
 main().catch((error) => {

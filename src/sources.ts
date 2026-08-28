@@ -55,13 +55,18 @@ export const ALL_SOURCES: SourceName[] = [...JOBSPY_SOURCES, ...FEED_SOURCES];
 /**
  * Default search set — Indeed for volume, Himalayas for salary + worldwide.
  *
- * LinkedIn is deliberately NOT here. Measured on a real search: it took 25 of
- * 28 total seconds (~0.5s/job vs Indeed's ~0.013s), and contributed 0 of the
- * top 15 results, because it populates `is_remote` on roughly 1 job in 50 so
- * everything scores `medium` and gets outranked. Ask for it explicitly when
- * you want its coverage and can wait.
+ * LinkedIn is deliberately NOT here — it is the cost, not the coverage. Timed
+ * on a full profile pass (5 queries, 160 requested per query):
+ *   indeed 227 jobs + himalayas 291 ......... ~4s
+ *   the same plus linkedin's 533 ............ 86s
+ * So LinkedIn is roughly 95% of the wall clock, for coverage that is real —
+ * ~900 postings Indeed does not have. The dashboard therefore ships it on but
+ * gives it its own pill in the toolbar, so one click buys the fast search back.
+ * This constant is only the fallback for callers that name no sources at all.
  *
- * glassdoor/zip_recruiter are US-centric; google needs its own query syntax.
+ * glassdoor/zip_recruiter cannot serve Poland at all — measured: Glassdoor
+ * throws "Glassdoor is not available for POLAND", and ZipRecruiter returns zero
+ * rows even for a US location. google needs its own query syntax.
  */
 export const DEFAULT_SOURCES: SourceName[] = ["indeed", "himalayas"];
 

@@ -21,16 +21,15 @@ import { dirname, join } from "node:path";
 /**
  * Full vocabulary, including the derived-only `ghosted`.
  *
- * Lifecycle: `saved` -> `applied` -> `responded` -> `screening` -> `interview`
+ * Lifecycle: `applied` -> `responded` -> `screening` -> `interview`
  * -> `offer` / `rejected`, with `ghosted` derived from a stale `applied`.
  *
- * `saved` is PRE-APPLICATION: "found it, haven't applied yet". It is the status
- * jobs added from search get, and it is excluded from the response-rate and
- * ghost-rate denominators in getStats — a job you never applied to cannot have
- * ghosted you.
+ * There is NO pre-application "saved" stage, on purpose: putting a job in the
+ * funnel means you applied to it. A bookmark you never sent would sit in the
+ * table diluting the response rate, and "have I applied to this?" would need
+ * two lookups instead of one.
  */
 export const STATUSES = [
-  "saved",
   "applied",
   "responded",
   "screening",
@@ -77,13 +76,12 @@ export type Application = ApplicationRow & {
 };
 
 export type Stats = {
+  /** Every tracked row is a real application — see STATUSES. */
   total: number;
-  /** Rows that represent a real application (everything except `saved`). */
-  totalApplied: number;
   funnel: Record<Status, number>;
   responded: number;
-  responseRate: number; // 0..1 of totalApplied
-  ghostRate: number; // 0..1 of totalApplied
+  responseRate: number; // 0..1 of total
+  ghostRate: number; // 0..1 of total
   avgDaysToResponse: number | null;
   staleDays: number;
 };
@@ -155,6 +153,13 @@ function migrate(database: Database.Database): void {
       dismissed_at TEXT NOT NULL
     );
   `);
+
+  /*
+   * Backfill for databases written before `saved` was removed. Left alone, such
+   * a row shows a status the dropdown cannot even select, and getStats counts
+   * it in a bucket that no longer exists.
+   */
+  database.exec("UPDATE applications SET status = 'applied' WHERE status = 'saved'");
 }
 
 /* ------------------------------------------------------------------ */
@@ -285,21 +290,11 @@ export function updateStatus(id: number, status: Status, responseAt?: string): A
   const nextResponseAt =
     responseAt ?? existing.response_at ?? (impliesResponse ? timestamp : null);
 
-  /**
-   * Leaving `saved` means "I just applied", so applied_at is re-stamped to now.
-   *
-   * Without this, a job saved from search weeks ago and applied to today would
-   * keep its save date as applied_at — reporting a huge days-since-applied and
-   * being derived as `ghosted` the moment it reached `applied`.
-   */
-  const leavingSaved = existing.status === "saved" && status !== "saved";
-  const nextAppliedAt = leavingSaved ? timestamp : existing.applied_at;
-
+  // applied_at is never re-stamped: it is set when the row is created, which is
+  // the moment you applied.
   getDb()
-    .prepare(
-      "UPDATE applications SET status = ?, response_at = ?, applied_at = ?, last_update = ? WHERE id = ?",
-    )
-    .run(status, nextResponseAt, nextAppliedAt, timestamp, id);
+    .prepare("UPDATE applications SET status = ?, response_at = ?, last_update = ? WHERE id = ?")
+    .run(status, nextResponseAt, timestamp, id);
 
   return getApplication(id);
 }
@@ -349,23 +344,19 @@ export function getStats(options: { staleDays?: number } = {}): Stats {
   >;
   for (const application of applications) funnel[application.status] += 1;
 
-  // `saved` is pre-application (found, not applied), so it is NOT part of the
-  // response-rate or ghost-rate denominator: rate = responded+ / applied+.
-  // Adding 50 jobs from search must not dilute the response rate to 2%.
-  const applied = applications.filter((application) => application.status !== "saved");
-  const responded = applied.filter((application) => hasResponded(application));
-  const ghosted = applied.filter((application) => application.ghosted);
+  // Every tracked row is an application, so the whole table is the denominator.
+  const responded = applications.filter((application) => hasResponded(application));
+  const ghosted = applications.filter((application) => application.ghosted);
 
   const responseDays = responded
     .map((application) => application.daysToResponse)
     .filter((days): days is number => days !== null);
 
   const rate = (count: number) =>
-    applied.length === 0 ? 0 : Number((count / applied.length).toFixed(4));
+    applications.length === 0 ? 0 : Number((count / applications.length).toFixed(4));
 
   return {
     total: applications.length,
-    totalApplied: applied.length,
     funnel,
     responded: responded.length,
     responseRate: rate(responded.length),

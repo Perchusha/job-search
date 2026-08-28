@@ -88,12 +88,51 @@ function buildDocument(registry) {
     return buttons;
   };
 
+  // The date radios are static markup, not generated, so the shim cannot derive
+  // them from innerHTML. Built once and returned by identity every call.
+  // Radio semantics are the browser's job, so the shim mimics them: checking
+  // one clears the rest of the group.
+  const chips = [1, 3, 7, 14, 30].map((days) => {
+    const el = makeEl(`age-${days}`);
+    el.value = String(days);
+    el.checked = days === 30;
+    el.check = () => {
+      for (const other of chips) other.checked = other === el;
+      return el._handlers.change?.();
+    };
+    return el;
+  });
+
+  // Source pills are generated, so derive them from the rendered markup the way
+  // the job-card buttons are — memoized, or the attached handler is lost.
+  let boxCache = { key: null, boxes: [] };
+  const sourceBoxes = () => {
+    const html = registry.get("sourcefilter").innerHTML;
+    if (boxCache.key === html) return boxCache.boxes;
+    const boxes = [...html.matchAll(/<input type="checkbox" value="([a-z_]+)"( checked)?>/g)].map(
+      (match) => {
+        const el = makeEl(`src-${match[1]}`);
+        el.value = match[1];
+        el.checked = Boolean(match[2]);
+        el.toggle = () => {
+          el.checked = !el.checked;
+          return el._handlers.change?.();
+        };
+        return el;
+      },
+    );
+    boxCache = { key: html, boxes };
+    return boxes;
+  };
+
   return {
     document: {
       getElementById: (id) => registry.get(id) ?? makeEl(id),
       createElement: () => makeEl(),
       querySelectorAll: (selector) => {
         if (selector === ".tab") return tabs;
+        if (selector === "#datefilter input[type=radio]") return chips;
+        if (selector === "#sourcefilter input[type=checkbox]") return sourceBoxes();
         if (selector === "#jobgrid button[data-add]") return addButtons("data-add");
         if (selector === "#jobgrid button[data-hide]") return addButtons("data-hide");
         if (selector === "#jobgrid button[data-restore]") return addButtons("data-restore");
@@ -101,6 +140,8 @@ function buildDocument(registry) {
       },
     },
     tabs,
+    chips,
+    sourceBoxes,
     addButtons,
   };
 }
@@ -121,7 +162,15 @@ function buildDocument(registry) {
 function startDashboard() {
   const tsxCli = join("node_modules", "tsx", "dist", "cli.mjs");
   const child = spawn(process.execPath, [tsxCli, "src/dashboard.ts"], {
-    env: { ...process.env, JOBHUNT_DB: DB, JOBHUNT_PORT: String(PORT) },
+    // LinkedIn is in the profile by default and is most of a search's wall
+    // clock; this suite runs several live searches, so it opts out. The filter
+    // logic under test is the same whichever boards are configured.
+    env: {
+      ...process.env,
+      JOBHUNT_DB: DB,
+      JOBHUNT_PORT: String(PORT),
+      JOBHUNT_SOURCES: "indeed,himalayas",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stderr?.on("data", (chunk) => {
@@ -210,7 +259,8 @@ async function main() {
       body: JSON.stringify(job),
     });
   }
-  // One applied-and-stale row so the ghosted styling has something to render.
+  // One stale row so the ghosted styling has something to render. The other two
+  // stay plain 'applied' — the funnel has no pre-application stage any more.
   const raw = new Database(DB);
   raw.prepare("UPDATE applications SET status='applied', applied_at=?, response_at=NULL WHERE url=?")
     .run(new Date(Date.now() - 40 * 86_400_000).toISOString(), "https://example.com/seed/3");
@@ -234,8 +284,14 @@ async function main() {
     process.exit(1);
   }
 
-  check("page is self-contained (no external assets)",
+  check("nothing is loaded from off this machine",
     !/(src|href)="https?:\/\//.test(html.replace(/fonts\.googleapis\.com/g, "")));
+  check("Pico is linked", html.includes('href="/pico.css"'));
+  const pico = await fetch(`${BASE}/pico.css`);
+  check("and served from node_modules",
+    pico.ok && pico.headers.get("content-type").startsWith("text/css"));
+  check("the served stylesheet is the conditional build",
+    (await pico.text()).includes(".pico "));
 
   /* ---- evaluate it against the shim ---- */
   const registry = new Map();
@@ -243,10 +299,11 @@ async function main() {
     "dbinfo", "cards", "funnel", "rows", "empty", "toast",
     "view-tracker", "view-search", "searchform", "searchbtn",
     "srcline", "jobgrid", "searchempty", "statusfilter", "profileline",
-    "hideApplied", "showDismissed", "dismissedCount",
+    "hideApplied", "showDismissed", "dismissedCount", "datefilter", "sourcefilter",
+    "loadmore",
   ]) registry.set(id, makeEl(id));
 
-  const { document, tabs, addButtons } = buildDocument(registry);
+  const { document, tabs, chips, sourceBoxes, addButtons } = buildDocument(registry);
   const nativeFetch = globalThis.fetch.bind(globalThis);
   globalThis.document = document;
   // NOTE: never overwrite globalThis timers here — undici's fetch needs them,
@@ -256,10 +313,13 @@ async function main() {
     "document", "fetch", "setInterval", "setTimeout", "clearTimeout",
     `${js}
      ; return {
-       load, runSearch, showView, renderRows,
+       load, runSearch, showView, renderRows, esc,
        get applications(){return applications},
        get searchResults(){return searchResults},
        get trackedUrls(){return trackedUrls},
+       get visibleCount(){return visibleCount},
+       get renderLimit(){return renderLimit},
+       showMore,
        setFilter(v){ statusFilter = v },
        setHideApplied(v){ hideApplied = v },
        renderSearchAgain(){ renderSearch(lastSearchPayload) },
@@ -273,23 +333,37 @@ async function main() {
   await page.load();
   check("tracker loads rows", page.applications.length === 3, `${page.applications.length} rows`);
   check("tracked URLs collected for the search tab", page.trackedUrls.size === 3);
-  check("stat cards render", registry.get("cards").innerHTML.includes("Response rate"));
-  check("funnel renders all 8 stages",
-    (registry.get("funnel").innerHTML.match(/class="frow"/g) || []).length === 8);
-  // 8 statuses + the two grouped shortcuts ("applied+", "open").
+  check("stat cards render", registry.get("cards").innerHTML.includes("Responded"));
+  check("the response rate sits on the Responded card, not in one of its own",
+    !registry.get("cards").innerHTML.includes("Response rate"));
+  check("funnel renders all 7 stages",
+    (registry.get("funnel").innerHTML.match(/class="frow"/g) || []).length === 7);
+  // 7 statuses + the grouped "open" shortcut. 'saved' is gone; so is 'applied+',
+  // which only ever meant "not saved".
   check("status filter is populated",
-    registry.get("statusfilter").children.length === 10,
+    registry.get("statusfilter").children.length === 8,
     `${registry.get("statusfilter").children.length} options`);
 
   const rowsHtml = registry.get("rows").innerHTML;
   check("a row per application", (rowsHtml.match(/<tr/g) || []).length === 3);
-  check("saved rows are visually distinguished", rowsHtml.includes("is-saved"));
-  check("saved rows say they are not applied", rowsHtml.includes("saved, not applied"));
   check("ghosted row is flagged", rowsHtml.includes("is-ghosted"));
-  check("status dropdown per row", (rowsHtml.match(/<select data-id=/g) || []).length === 3);
+  check("status dropdown per row",
+    (rowsHtml.match(/<select class="status"/g) || []).length === 3);
+  check("status is shown once, not as a badge AND a dropdown",
+    !rowsHtml.includes('class="badge'));
+  check("the dropdown carries its status for colouring", rowsHtml.includes('data-s="applied"'));
+  check("no notes column", !rowsHtml.includes('class="notes"'));
 
-  const escaped = new Function(`${js}; return esc('<img src=x onerror=alert(1)>')`)();
-  check("esc() neutralises HTML", escaped === "&lt;img src=x onerror=alert(1)&gt;");
+  /*
+   * Take esc() off the page object rather than evaluating the script a second
+   * time. A second instance re-runs bindChrome() against the same shim
+   * elements, and addEventListener keeps only the last handler per event — so
+   * every control silently ended up wired to a throwaway copy of the page whose
+   * searchLoaded was false and whose payload was empty. The date chips were the
+   * first control to actually depend on being wired to the live instance.
+   */
+  check("esc() neutralises HTML",
+    page.esc("<img src=x onerror=alert(1)>") === "&lt;img src=x onerror=alert(1)&gt;");
 
   /* ---- tabs ---- */
   page.showView("search");
@@ -300,10 +374,10 @@ async function main() {
   check("Tracker tab switches back", registry.get("view-tracker").hidden === false);
 
   /* ---- filter + sort ---- */
-  page.setFilter("saved");
+  page.setFilter("applied");
   page.renderRows();
-  const savedRows = (registry.get("rows").innerHTML.match(/<tr/g) || []).length;
-  check("status filter narrows the table", savedRows === 2, `${savedRows} of 3`);
+  const appliedRows = (registry.get("rows").innerHTML.match(/<tr/g) || []).length;
+  check("status filter narrows the table", appliedRows === 2, `${appliedRows} of 3`);
   page.setFilter("");
   page.renderRows();
 
@@ -317,22 +391,63 @@ async function main() {
   console.log("\n(running a live profile search through the page's own code path…)");
   await page.runSearch();
 
+  const cachedSearch = await (
+    await fetch(`${BASE}/api/search?sources=indeed,himalayas&hoursOld=720`)
+  ).json();
+  check("an identical search is served from the server cache", cachedSearch.cache?.hit === true);
+  check("the search cache defaults to one hour", cachedSearch.cache?.ttlSeconds === 3600);
+
   const grid = registry.get("jobgrid").innerHTML;
   check("cards render", page.searchResults.length > 0, `${page.searchResults.length} jobs`);
-  check("a card per result",
-    (grid.match(/class="jobcard/g) || []).length === page.searchResults.length);
+  const cardCount = () => (registry.get("jobgrid").innerHTML.match(/class="jobcard/g) || []).length;
+  check("only the first batch is drawn, not the whole result set",
+    cardCount() === Math.min(page.renderLimit, page.visibleCount)
+      && page.visibleCount > cardCount(),
+    `${cardCount()} of ${page.visibleCount} visible, ${page.searchResults.length} returned`);
+  check("the sentinel says how much is left",
+    registry.get("loadmore").hidden === false
+      && registry.get("loadmore").innerHTML.includes("из " + page.visibleCount));
+
   check("eligibility badge on cards", /<span class="lvl (high|medium)">/.test(grid));
   check("no 'low' badge", !grid.includes('class="lvl low"'));
   check("fit badge on cards", /class="fit/.test(grid));
   check("no wrong-stack results",
     page.searchResults.every((job) => job.fit >= 0),
     `min fit ${Math.min(...page.searchResults.map((job) => job.fit))}`);
-  check("apply link opens in a new tab", grid.includes('class="applylink"') && grid.includes('target="_blank"'));
+  // Against what is drawn, not against the whole result set: the grid renders
+  // one batch at a time now.
+  check("the whole card opens the posting in a new tab",
+    (grid.match(/class="cardlink"/g) || []).length
+      === (grid.match(/class="jobcard/g) || []).length
+      && grid.includes('target="_blank"'));
+  check("the title is no longer the posting link", !grid.includes("<h3><a"));
+  check("the redundant open-posting action is gone", !/open posting/i.test(grid));
   check("profile line says what was searched",
     registry.get("profileline").innerHTML.includes("Poland"));
-  check("per-source counts are shown",
-    /indeed \d+/.test(registry.get("srcline").innerHTML));
-  check("add button present", /данные|В воронк/.test(grid) || grid.includes("В воронк"));
+  // Per-source counts moved onto the pills; this line carries the pipeline.
+  check("the counts line still says what the pipeline dropped",
+    /\d+ fetched/.test(registry.get("srcline").innerHTML)
+      && /eligible/.test(registry.get("srcline").innerHTML),
+    registry.get("srcline").innerHTML.replace(/<[^>]+>/g, "").slice(0, 90));
+  check("add button present", grid.includes("В воронку"));
+  check("hide is a grey secondary button",
+    grid.includes('class="btn secondary" data-hide='));
+  check("cards say how old the posting is", grid.includes('class="when"'));
+
+  /* ---- lazy loading ----
+   * Kept below every check that reads the `grid` snapshot above: draining the
+   * list re-renders, and a stale snapshot compared against a live count is
+   * exactly the trap this block would otherwise set. */
+  const firstBatch = cardCount();
+  page.showMore();
+  check("reaching the bottom draws more", cardCount() > firstBatch,
+    `${firstBatch} -> ${cardCount()}`);
+  check("and it never overshoots what is visible", cardCount() <= page.visibleCount);
+  while (page.renderLimit < page.visibleCount) page.showMore();
+  check("draining the list hides the sentinel",
+    cardCount() === page.visibleCount && registry.get("loadmore").hidden === true,
+    `${cardCount()} of ${page.visibleCount}`);
+  check("showMore past the end is a no-op", (page.showMore(), cardCount()) === page.visibleCount);
 
   /* ---- add to funnel ---- */
   const buttons = addButtons("data-add");
@@ -345,14 +460,13 @@ async function main() {
   await button._handlers.click();
 
   const job = page.searchResults[index];
-  check("button flips to the added state", button.textContent.includes("воронк"),
-    JSON.stringify(button.textContent));
-  check("button is disabled after adding", button.disabled === true);
+  check("the card re-renders into the added state",
+    registry.get("jobgrid").innerHTML.includes("✓ Откликнулся"));
   check("row count grew by one", page.applications.length === before + 1,
     `${before} -> ${page.applications.length}`);
   const added = page.applications.find((row) => row.url === job.applyUrl);
   check("the new row is in the tracker", Boolean(added));
-  check("added with status 'saved'", added?.status === "saved");
+  check("added straight as 'applied' — no bookmark stage", added?.status === "applied");
 
   /* ---- hide a job from search ---- */
   const hideButtons = addButtons("data-hide");
@@ -425,28 +539,100 @@ async function main() {
     (await (await fetch(`${BASE}/api/dismissed`)).json()).dismissed.length === 0);
 
   /* ---- "hide applied" filter ---- */
-  const beforeFilter = (registry.get("jobgrid").innerHTML.match(/class="jobcard/g) || []).length;
+  // Counted on what the filter matched, not on what is drawn: with the render
+  // cap in play both numbers could be one batch and the check would be blind.
+  const beforeFilter = page.visibleCount;
   page.setHideApplied(true);
   page.renderSearchAgain();
-  const afterFilter = (registry.get("jobgrid").innerHTML.match(/class="jobcard/g) || []).length;
-  check("hiding applied-to jobs shrinks the grid",
-    afterFilter < beforeFilter, `${beforeFilter} -> ${afterFilter}`);
+  check("hiding applied-to jobs shrinks the list",
+    page.visibleCount < beforeFilter, `${beforeFilter} -> ${page.visibleCount}`);
+
+  // With that filter on, pressing "В воронку" has to make the card disappear
+  // then and there — not on the next refresh.
+  const liveButtons = addButtons("data-add");
+  const untracked = liveButtons
+    .map((el) => Number(el.dataset.add))
+    .find((i) => !page.trackedUrls.has(page.searchResults[i].applyUrl));
+  if (untracked === undefined) {
+    console.log("SKIP  every visible card is already tracked — nothing left to add");
+  } else {
+    const target = page.searchResults[untracked];
+    await liveButtons.find((el) => Number(el.dataset.add) === untracked)._handlers.click();
+    check("adding while 'скрыть те, что в воронке' is on removes the card at once",
+      !registry.get("jobgrid").innerHTML.includes(target.applyUrl.slice(-24)),
+      target.company);
+  }
+
   page.setHideApplied(false);
   page.renderSearchAgain();
 
-  /* ---- tracker: grouped "applied+" filter ---- */
+  /* ---- source filter ---- */
+  const boxes = sourceBoxes();
+  // Two here because of JOBHUNT_SOURCES above; the real profile ships three.
+  check("a pill per configured board", boxes.length === 2,
+    boxes.map((el) => el.value).join(", "));
+  check("every board starts switched on", boxes.every((el) => el.checked));
+  check("each pill carries its fetch count",
+    /<span class="n">\d+<\/span>/.test(registry.get("sourcefilter").innerHTML),
+    registry.get("sourcefilter").innerHTML.replace(/<[^>]+>/g, " ").trim());
+
+  // Narrowing is a search parameter, so the server must honour it.
+  const narrowed = await (await fetch(`${BASE}/api/search?sources=himalayas`)).json();
+  check("?sources narrows what is queried",
+    (narrowed.reports || []).every((row) => row.source === "himalayas"),
+    (narrowed.reports || []).map((row) => row.source).join(", "));
+  check("and the echoed profile says so",
+    JSON.stringify(narrowed.profile.sources) === JSON.stringify(["himalayas"]));
+
+  // It must never be able to widen it, whatever the URL says.
+  const forged = await (await fetch(`${BASE}/api/search?sources=glassdoor,zip_recruiter`)).json();
+  check("an unknown board in the URL falls back to the profile, not to nothing",
+    (forged.profile.sources || []).length === 2,
+    JSON.stringify(forged.profile.sources));
+
+  /* ---- posting-age radios (a search parameter, so each one re-runs the search) ---- */
+  console.log("\n(re-running the search through the 24h option…)");
+  const chipFor = (days) => chips.find((el) => el.value === String(days));
+  const wideCount = page.searchResults.length;
+  check("the widest option — a month — is the default",
+    chipFor(30).checked && chips.filter((el) => el.checked).length === 1);
+
+  await chipFor(1).check();
+  check("choosing one clears the rest",
+    chipFor(1).checked && chips.filter((el) => el.checked).length === 1);
+  /*
+   * Assert on the rendered grid, not on searchResults. hoursOld only reaches
+   * the scraped boards — Himalayas ignores it and happily returns month-old
+   * rows — so what the window really guarantees is what survives the
+   * client-side pass. Under 24h that leaves only "сегодня" and "вчера".
+   */
+  const fresh = page.searchResults;
+  const freshGrid = registry.get("jobgrid").innerHTML;
+  check("every card left standing under a 24h window is from today or yesterday",
+    !/\d+ дн\. назад/.test(freshGrid) && !freshGrid.includes(">без даты<"),
+    `${fresh.length} returned, ${(freshGrid.match(/class="jobcard/g) || []).length} shown`);
+  check("the profile line reports the narrowed window",
+    registry.get("profileline").innerHTML.includes("last 1d"),
+    registry.get("profileline").innerHTML.slice(-40));
+
+  await chipFor(30).check();
+  check("«месяц» widens the window again",
+    page.searchResults.length >= fresh.length,
+    `${fresh.length} (24h) -> ${page.searchResults.length} (month), was ${wideCount}`);
+  check("a month is the widest the UI can ask for",
+    (await (await fetch(`${BASE}/api/search?hoursOld=99999`)).json()).profile.hoursOld === 720,
+    "hoursOld is clamped to the profile window");
+
+  /* ---- tracker: grouped "open" filter ---- */
   await page.load();
-  page.setFilter("applied+");
-  page.renderRows();
-  const appliedPlus = (registry.get("rows").innerHTML.match(/<tr/g) || []).length;
-  const expected = page.applications.filter((row) => row.status !== "saved").length;
-  check("tracker filter 'applied+' shows every non-saved row",
-    appliedPlus === expected, `${appliedPlus} of ${page.applications.length}`);
   page.setFilter("open");
   page.renderRows();
   const open = (registry.get("rows").innerHTML.match(/<tr/g) || []).length;
-  check("tracker filter 'open' excludes ghosted and rejected",
-    open <= appliedPlus, `open ${open} <= applied+ ${appliedPlus}`);
+  const alive = page.applications.filter((row) =>
+    ["applied", "responded", "screening", "interview"].includes(row.status)).length;
+  check("tracker filter 'open' is exactly the still-alive rows",
+    open === alive, `${open} of ${page.applications.length}`);
+  check("'open' excludes the ghosted row", open < page.applications.length);
   page.setFilter("");
 
   console.log(`\n${failures === 0 ? "UI TESTS PASSED" : `${failures} UI TEST(S) FAILED`}`);

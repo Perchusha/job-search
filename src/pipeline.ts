@@ -45,7 +45,7 @@ export type SearchParams = {
   /**
    * Exact URLs to drop — the "not interested" list. searchForProfile fills this
    * from the database, so a job dismissed in the dashboard also disappears from
-   * `find_jobs` and from `harvest`. Pass [] to include dismissed jobs again.
+   * `find_jobs`. Pass [] to include dismissed jobs again.
    */
   excludeUrls?: string[];
   seniority?: string;
@@ -101,9 +101,16 @@ export const DEFAULT_SEARCH_LIMIT = 20;
  * alone removes ~90% of a text search's Himalayas results, so fetching just
  * `limit` rows returns almost nothing. Three pages costs two extra requests
  * and roughly triples the usable hits.
+ *
+ * Capped at 200 because that is the most fetchAllSources will pass on: asking
+ * for more inflates the number without fetching a single extra row, which
+ * matters now that `limit` is a display budget (200) rather than a page size.
+ * In practice no board even reaches the cap — a ten-query pass averages ~120
+ * rows per query from Indeed, ~90 from LinkedIn — so raising `limit` costs
+ * nothing.
  */
 function oversample(limit: number): number {
-  return Math.max(limit * 4, 60);
+  return Math.min(Math.max(limit * 4, 60), 200);
 }
 
 export async function searchJobs(params: SearchParams = {}): Promise<SearchResult> {
@@ -263,7 +270,7 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
  */
 export function searchForProfile(overrides: SearchParams = {}): Promise<SearchResult> {
   // Read the "not interested" list here, so every caller of the profile search
-  // — dashboard, find_jobs, harvest — honours it without having to remember.
+  // — dashboard and find_jobs — honours it without having to remember.
   const dismissed = listDismissedUrls();
 
   // Strip undefined before spreading. A caller forwarding optional arguments

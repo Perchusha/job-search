@@ -114,7 +114,8 @@ async function main() {
     arguments: { jobs: payload },
   })).results;
   check("bulk add inserts all 4", firstAdd.filter((row) => row.result === "inserted").length === 4);
-  check("inserted as 'saved'", firstAdd.every((row) => row.status === "saved"));
+  check("inserted as 'applied' — the funnel has no bookmark stage",
+    firstAdd.every((row) => row.status === "applied"));
 
   const secondAdd = jsonOf(await client.callTool({
     name: "log_found_jobs",
@@ -142,17 +143,17 @@ async function main() {
   check("duplicate URL returns the existing row",
     dup.alreadyExisted === true && dup.application.id === manual.id);
 
-  const savedId = firstAdd[0].id;
+  const trackedId = firstAdd[0].id;
   const applied = jsonOf(await client.callTool({
     name: "update_status",
-    arguments: { id: savedId, status: "applied" },
+    arguments: { id: trackedId, status: "applied" },
   })).application;
-  check("saved -> applied re-stamps applied_at to today", applied.daysSinceApplied === 0);
+  check("a bulk-added row is applied as of today", applied.daysSinceApplied === 0);
   check("'applied' does not imply a reply", !applied.responseAt);
 
   const interview = jsonOf(await client.callTool({
     name: "update_status",
-    arguments: { id: savedId, status: "interview" },
+    arguments: { id: trackedId, status: "interview" },
   })).application;
   check("moving past 'applied' stamps response_at", Boolean(interview.responseAt));
 
@@ -169,7 +170,7 @@ async function main() {
 
   const noted = jsonOf(await client.callTool({
     name: "add_note",
-    arguments: { id: savedId, note: "скрининг назначен" },
+    arguments: { id: trackedId, note: "скрининг назначен" },
   })).application;
   check("add_note appends a timestamped line", noted.notes.split("\n").length >= 1);
   check("non-ASCII notes survive", noted.notes.includes("скрининг"));
@@ -236,10 +237,10 @@ async function main() {
 
   /* ---------------- stats ---------------- */
   const stats = jsonOf(await client.callTool({ name: "get_stats", arguments: {} }));
-  const savedCount = stats.funnel.saved;
-  check("'saved' is excluded from the applied total",
-    stats.total === savedCount + stats.totalApplied,
-    `total ${stats.total} = saved ${savedCount} + applied ${stats.totalApplied}`);
+  check("'saved' is gone from the vocabulary", stats.funnel.saved === undefined);
+  check("the funnel accounts for every tracked row",
+    Object.values(stats.funnel).reduce((sum, n) => sum + n, 0) === stats.total,
+    `funnel ${JSON.stringify(stats.funnel)} vs total ${stats.total}`);
   check("avgDaysToResponse is never negative",
     stats.avgDaysToResponse === null || stats.avgDaysToResponse >= 0, String(stats.avgDaysToResponse));
 

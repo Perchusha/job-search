@@ -12,36 +12,74 @@
  *   not EU-wide work authorisation, which is why onsite roles in other EU
  *   countries score `low`.
  *
- * TARGET: frontend and AI/LLM roles.
- *   Frontend and AI terms carry the highest weights; fullstack counts less;
- *   backend is a positive signal *inside* a posting but a penalty in a title.
- *   ML/data-science roles are penalised — I integrate LLMs into products, I do
- *   not train models. To shift the emphasis, change the weights below; nothing
- *   else in the codebase needs to know.
+ * TARGET: frontend roles. AI/LLM is a bonus on top, not a target of its own.
+ *   Frontend terms carry the highest weights; fullstack counts less; backend is
+ *   a positive signal *inside* a posting but a penalty in a title. AI terms are
+ *   deliberately small — LLM work makes a frontend role more attractive, but
+ *   "AI Engineer" is not the job being searched for. ML/data-science roles are
+ *   penalised outright — I integrate LLMs into products, I do not train models.
+ *   To shift the emphasis, change the weights below; nothing else needs to know.
  */
 
 import type { Job, SourceName } from "./sources.ts";
 
 /**
  * The searches the "Refresh" button runs. Several complementary queries rather
- * than one, because a single keyword cannot cover both "React" work and
- * "AI/LLM" work, and boards match on keywords rather than meaning.
+ * than one, because boards match keywords rather than meaning: the same job is
+ * posted as "Frontend Developer" by one company and "Web Engineer" by the next.
  *
- * Results are merged and deduped, so overlap between queries is free.
+ * Results are merged and deduped, so overlap between queries is free. Order is
+ * NOT a ranking signal — every query is fetched in parallel and the merged list
+ * is sorted by eligibility, then fit tier, then recency (see pipeline.ts).
+ * Order only decides which copy of a duplicate survives dedupe. What actually
+ * keeps fullstack below frontend is its weight in STACK_WEIGHTS (2 vs 4).
+ *
+ * Each line earns its place — measured over indeed + himalayas, counting only
+ * jobs no earlier query had already found:
+ *
+ *   frontend developer     +25    web developer         +12
+ *   frontend engineer      +23    web engineer          +21
+ *   react developer        +20    next.js                +4
+ *   react engineer         +15    fullstack typescript   +4
+ *   javascript developer   +16    -------------------------
+ *   javascript engineer    +17    157 unique good-fit jobs
+ *
+ * Cost is linear in the number of queries, and mostly invisible (they run
+ * concurrently) — until the "+ LinkedIn" tick-box is on, where each query is
+ * its own slow scrape. Trim this list first if that pass gets too slow.
  */
 export const TARGET_QUERIES: string[] = [
-  // frontend
+  // frontend — the whole point of the feed. Both "developer" and "engineer":
+  // they are the same job and the boards treat them as different keywords.
   "frontend developer",
+  "frontend engineer",
   "react developer",
+  "react engineer",
+  "javascript developer",
+  "javascript engineer",
+  "web developer",
+  "web engineer",
+  // A framework name rather than a job title, so it mostly re-finds what the
+  // react queries already have — 4 jobs beyond them. Cheap enough to keep.
   "next.js",
-  // AI / LLM product work (integration, not ML research)
-  "ai engineer",
-  "llm engineer",
-  // Fullstack stays: plenty of frontend-heavy roles are titled "fullstack",
-  // and it is real CV experience. It just carries less weight than frontend
-  // in the scoring below.
+  // Fullstack last, and it shows: also only 4 the frontend queries missed.
+  // Kept because frontend-heavy roles do get titled "fullstack" and it is real
+  // CV experience — it just carries half the weight of frontend when scoring.
   "fullstack typescript",
 ];
+
+/**
+ * JOBHUNT_SOURCES overrides the board list for one run, e.g.
+ * `JOBHUNT_SOURCES=indeed,himalayas npm run dashboard` for a fast pass without
+ * editing this file. Unknown names are ignored; an empty result keeps the
+ * defaults, so a typo degrades to normal behaviour rather than to no search.
+ * tests/ui.mjs uses it to keep the suite off the slow boards.
+ */
+function resolveSources(defaults: SourceName[]): SourceName[] {
+  const raw = (process.env["JOBHUNT_SOURCES"] ?? "").split(",").map((name) => name.trim());
+  const picked = defaults.filter((source) => raw.includes(source));
+  return picked.length > 0 ? picked : defaults;
+}
 
 /** Fixed search settings — the things that do not change between runs. */
 export const SEARCH_DEFAULTS = {
@@ -49,41 +87,56 @@ export const SEARCH_DEFAULTS = {
   location: "Poland",
   /** Remote is the goal; onsite-in-Poland still surfaces at `medium`. */
   remoteOnly: true,
-  /** Ignore anything older than two weeks — stale postings are usually filled. */
-  hoursOld: 336,
-  /** Indeed for volume, Himalayas for salaries and worldwide-remote. */
-  sources: ["indeed", "himalayas"] as SourceName[],
+  /**
+   * The widest window the UI offers: one month. Older postings are usually
+   * filled. The date control narrows within this; it can never widen past it.
+   */
+  hoursOld: 720,
+  /**
+   * The boards the dashboard queries, and the source filter it offers: the
+   * Search tab shows one toggle per entry and can only narrow this list, never
+   * add to it. Indeed for volume, LinkedIn for the postings Indeed misses,
+   * Himalayas for salaries and worldwide-remote.
+   *
+   * LinkedIn is the slow one — it is most of the wall clock on a full pass, so
+   * switching it off in the toolbar is how you get a fast search back.
+   *
+   * glassdoor and zip_recruiter are absent and cannot be added — measured
+   * against the live boards from Poland:
+   *   glassdoor      JobSpy refuses outright: "Glassdoor is not available for
+   *                  POLAND". It cannot be scoped to Poland at all.
+   *   zip_recruiter  returns zero rows, and zero for a US location too, so it
+   *                  is not a geography problem — the scraper is simply dead.
+   */
+  sources: resolveSources(["indeed", "linkedin", "himalayas"]),
+  /**
+   * Boards the MCP `find_jobs` tool leaves out of a bare profile search.
+   *
+   * Not a preference — a hard constraint. The MCP protocol times a request out
+   * after 60s, and LinkedIn alone takes a pass from ~3s to ~80s, so a bare
+   * `find_jobs` including it fails outright rather than answering slowly. The
+   * dashboard is a different story: it shows progress, and its source pills let
+   * you drop the board in one click, so there it stays on.
+   */
+  slowSources: ["linkedin"] as SourceName[],
   /**
    * Drop tier 3 outright (wrong stack, junior, non-engineering). In a
    * one-button feed there is no reason to show a .NET role or an internship at
    * all — ranking them last was only useful while a human typed the query.
    */
   maxFitTier: 2,
-  /** How many matches to show. */
-  limit: 40,
-} as const;
-
-/**
- * Settings for the unattended run (`npm run harvest`).
- *
- * Deliberately stricter than the interactive search. A live pass finds ~160
- * eligible postings; auto-saving all of them would bury the funnel in a week
- * and make `saved` meaningless. So the scheduled run only keeps the good
- * matches, and caps how many it adds per run.
- */
-export const HARVEST = {
-  /** Only auto-save clear (0) or partial (1) matches — never a neutral title. */
-  maxFitTier: 1,
-  /** Ceiling per run, so the funnel stays reviewable by a human. */
-  maxPerRun: 25,
   /**
-   * Include LinkedIn. It costs ~25s (measured), which rules it out of the
-   * interactive search but is irrelevant for a nightly scheduled run — and it
-   * covers postings Indeed does not have.
+   * How many ranked matches the search returns. This is a budget for the page
+   * to draw from, not a page size — the Search tab renders a screenful at a
+   * time and extends as you scroll.
+   *
+   * It used to be 40, and that was the wrong number: a pass keeps ~290 good
+   * matches after ranking, then the page hides some of them again (already in
+   * the funnel, dismissed, outside the date window). Cutting to 40 first meant
+   * fetching eight hundred postings to show a dozen. Raising it costs nothing —
+   * the boards cap what they return long before this does.
    */
-  includeLinkedin: true,
-  /** Flag applications sitting at `applied` this long with no reply. */
-  followUpAfterDays: 7,
+  limit: 200,
 } as const;
 
 /**
@@ -119,19 +172,22 @@ const STACK_WEIGHTS: Array<[term: string, weight: number]> = [
   ["performance optimization", 2],
   ["responsive", 1],
 
-  // ---- AI / LLM: the other primary target ----
-  ["ai", 3],
-  ["ai engineer", 4],
-  ["llm", 4],
-  ["genai", 3],
-  ["openai", 3],
-  ["anthropic", 3],
-  ["claude", 3],
-  ["prompt", 3],
-  ["agentic", 3],
-  ["rag", 2],
-  ["mcp", 2],
-  ["chatbot", 2],
+  // ---- AI / LLM: a bonus, not a target ----
+  // These used to be weighted as high as frontend, and the feed filled up with
+  // AI roles. An LLM product is a nicer frontend job, so it still scores — just
+  // never enough to outrank an actual frontend posting.
+  ["ai", 1],
+  ["ai engineer", 1],
+  ["llm", 2],
+  ["genai", 1],
+  ["openai", 1],
+  ["anthropic", 1],
+  ["claude", 1],
+  ["prompt", 1],
+  ["agentic", 1],
+  ["rag", 1],
+  ["mcp", 1],
+  ["chatbot", 1],
 
   // ---- fullstack: real experience, deliberately lighter than frontend ----
   ["fullstack", 2],
