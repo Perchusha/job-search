@@ -141,6 +141,7 @@ const PAGE = /* html */ `<!doctype html>
 
   :root {
     color-scheme: light dark;
+    --font-sans: "Space Grotesk", "Plus Jakarta Sans", "Segoe UI", sans-serif;
     --bg: #0f1115;
     --panel: #171a21;
     --panel-2: #1e222b;
@@ -163,7 +164,7 @@ const PAGE = /* html */ `<!doctype html>
   body {
     margin: 0; padding: 28px 20px 60px; min-height: 100vh; min-height: 100dvh;
     background: var(--bg); color: var(--text);
-    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font: 14px/1.5 var(--font-sans);
   }
   .wrap { max-width: 1180px; margin: 0 auto; }
   header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 22px; }
@@ -185,6 +186,8 @@ const PAGE = /* html */ `<!doctype html>
   .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 5px; transition: width .25s; }
   .frow[data-s="offer"] .bar > i { background: var(--good); }
   .frow[data-s="rejected"] .bar > i, .frow[data-s="ghosted"] .bar > i { background: var(--bad); }
+  /* Walking away is not bad news from them — grey, not red. */
+  .frow[data-s="dropped"] .bar > i { background: var(--muted); }
   .frow .fcount { text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; }
   /* table */
   table { width: 100%; border-collapse: collapse; }
@@ -214,6 +217,7 @@ const PAGE = /* html */ `<!doctype html>
   select.status[data-s="interview"], select.status[data-s="screening"] { color: var(--accent); border-color: var(--accent); }
   select.status[data-s="responded"] { color: var(--warn); border-color: var(--warn); }
   select.status[data-s="rejected"], select.status[data-s="ghosted"] { color: var(--bad); border-color: var(--bad); }
+  select.status[data-s="dropped"] { color: var(--muted); border-style: dashed; }
   .empty { color: var(--muted); padding: 26px 0; text-align: center; }
   .toast { position: fixed; right: 16px; bottom: 16px; background: var(--panel); border: 1px solid var(--line);
            border-radius: 8px; padding: 9px 14px; font-size: 13px; opacity: 0; transform: translateY(6px);
@@ -449,7 +453,7 @@ const STATUSES = __STATUSES__;
 // Injected rather than hardcoded so the filter cannot drift from the profile.
 const SOURCES = __SOURCES__;
 // Funnel order: how an application actually progresses.
-const FUNNEL_ORDER = ["applied","responded","screening","interview","offer","rejected","ghosted"];
+const FUNNEL_ORDER = ["applied","responded","screening","interview","offer","rejected","dropped","ghosted"];
 
 let applications = [];
 let sort = { key: "applied", dir: "desc" };

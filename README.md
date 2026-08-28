@@ -227,9 +227,23 @@ with a note rather than throwing.
 ## Data model
 
 Single table, `applications`. Statuses:
-`applied | responded | screening | interview | offer | rejected | ghosted`.
+`applied | responded | screening | interview | offer | rejected | dropped | ghosted`.
 
-Lifecycle: `applied → responded → screening → interview → offer / rejected`.
+Lifecycle: `applied → responded → screening → interview → offer / rejected`, with
+`dropped` available as an exit from any of them.
+
+**Three ways an application ends, kept apart on purpose:**
+
+| | Meaning |
+| --- | --- |
+| `rejected` | they said no |
+| `ghosted` | nobody said anything — derived, never stored |
+| `dropped` | I walked away: lost interest, took something else, saw the salary |
+
+`dropped` is the only ending that is your own doing, which is why it is not folded into
+either of the other two. It also never stamps `response_at` — giving up is not a reply, and
+counting it as one would quietly inflate the response rate. If they *had* already replied
+before you dropped it, the timestamp is already set and still counts.
 
 **Dismissed jobs live in their own table, not as a status.** A job you are not interested in
 is not an application: putting it in the funnel would inflate the counts and fill the tracker
@@ -248,8 +262,9 @@ migrated to `applied` on open (see `migrate()` in [src/db.ts](src/db.ts)).
 `response_at`, applied more than `staleDays` ago (default 21), is presented as `ghosted`.
 Change `staleDays` and the same data re-reads differently — nothing to migrate.
 
-Moving an application to any status past `applied` auto-stamps `response_at` if it isn't
-already set, which is what feeds the response-rate and days-to-response stats.
+Moving an application to any status that means they replied — `responded`, `screening`,
+`interview`, `offer`, `rejected` — auto-stamps `response_at` if it isn't already set, which
+is what feeds the response-rate and days-to-response stats. `dropped` is the exception.
 
 ## Dashboard API
 

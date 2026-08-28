@@ -157,6 +157,24 @@ async function main() {
   })).application;
   check("moving past 'applied' stamps response_at", Boolean(interview.responseAt));
 
+  // Walking away is not a reply. Dropping a job nobody answered must not stamp
+  // response_at, or giving up would quietly inflate the response rate.
+  const droppedSilent = jsonOf(await client.callTool({
+    name: "update_status",
+    arguments: { id: firstAdd[1].id, status: "dropped" },
+  })).application;
+  check("'dropped' does not stamp a reply", !droppedSilent.responseAt);
+  check("a dropped row is never derived as ghosted",
+    droppedSilent.status === "dropped" && !droppedSilent.ghosted);
+
+  // A reply that already happened still counts, though.
+  const droppedAfterReply = jsonOf(await client.callTool({
+    name: "update_status",
+    arguments: { id: trackedId, status: "dropped" },
+  })).application;
+  check("dropping after they replied keeps the reply",
+    droppedAfterReply.responseAt === interview.responseAt);
+
   const explicit = jsonOf(await client.callTool({
     name: "update_status",
     arguments: { id: manual.id, status: "rejected", responseAt: "2026-08-20T10:00:00.000Z" },

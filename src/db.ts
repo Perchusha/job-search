@@ -23,6 +23,14 @@ import { dirname, join } from "node:path";
  *
  * Lifecycle: `applied` -> `responded` -> `screening` -> `interview`
  * -> `offer` / `rejected`, with `ghosted` derived from a stale `applied`.
+ * `dropped` is an exit you can take from any of them.
+ *
+ * Three ways an application ends, and they are deliberately separate:
+ *   `rejected`  they said no
+ *   `ghosted`   nobody said anything (derived, never stored)
+ *   `dropped`   I walked away — lost interest, took something else, saw the
+ *               salary. It is the only ending that is my doing, so it must not
+ *               be filed under either of the other two.
  *
  * There is NO pre-application "saved" stage, on purpose: putting a job in the
  * funnel means you applied to it. A bookmark you never sent would sit in the
@@ -36,12 +44,20 @@ export const STATUSES = [
   "interview",
   "offer",
   "rejected",
+  "dropped",
   "ghosted",
 ] as const;
 
 export type Status = (typeof STATUSES)[number];
 
-/** Statuses that mean "they got back to me" — used for the response rate. */
+/**
+ * Statuses that mean "they got back to me" — used for the response rate.
+ *
+ * `dropped` is NOT here. A rejection is a reply; me giving up is not, and
+ * dropping a job I never heard back from must not count as a response. If they
+ * had already replied, `response_at` is set and the row still counts — see
+ * hasResponded, which reads the timestamp first.
+ */
 const RESPONDED_STATUSES: Status[] = [
   "responded",
   "screening",

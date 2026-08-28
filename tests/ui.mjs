@@ -286,6 +286,8 @@ async function main() {
 
   check("nothing is loaded from off this machine",
     !/(src|href)="https?:\/\//.test(html.replace(/fonts\.googleapis\.com/g, "")));
+  check("the requested font stack is global",
+    html.includes('"Space Grotesk", "Plus Jakarta Sans", "Segoe UI", sans-serif'));
   check("Pico is linked", html.includes('href="/pico.css"'));
   const pico = await fetch(`${BASE}/pico.css`);
   check("and served from node_modules",
@@ -336,12 +338,12 @@ async function main() {
   check("stat cards render", registry.get("cards").innerHTML.includes("Responded"));
   check("the response rate sits on the Responded card, not in one of its own",
     !registry.get("cards").innerHTML.includes("Response rate"));
-  check("funnel renders all 7 stages",
-    (registry.get("funnel").innerHTML.match(/class="frow"/g) || []).length === 7);
-  // 7 statuses + the grouped "open" shortcut. 'saved' is gone; so is 'applied+',
+  check("funnel renders all 8 stages",
+    (registry.get("funnel").innerHTML.match(/class="frow"/g) || []).length === 8);
+  // 8 statuses + the grouped "open" shortcut. 'saved' is gone; so is 'applied+',
   // which only ever meant "not saved".
   check("status filter is populated",
-    registry.get("statusfilter").children.length === 8,
+    registry.get("statusfilter").children.length === 9,
     `${registry.get("statusfilter").children.length} options`);
 
   const rowsHtml = registry.get("rows").innerHTML;

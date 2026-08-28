@@ -379,7 +379,7 @@ server.tool(
 
 server.tool(
   "update_status",
-  "Move a tracked application to a new stage. Any status past 'applied' (responded/screening/interview/offer/rejected) stamps response_at automatically when it isn't already set.",
+  "Move a tracked application to a new stage. Any status that means they replied (responded/screening/interview/offer/rejected) stamps response_at automatically when it isn't already set. 'dropped' is the exception and means I walked away — it never stamps a reply, so use it instead of 'rejected' when the decision was mine.",
   {
     id: z.number().int().positive(),
     status: statusEnum,
