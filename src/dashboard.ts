@@ -14,6 +14,7 @@
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
 import {
   DEFAULT_STALE_DAYS,
@@ -88,10 +89,43 @@ async function cachedProfileSearch(
  * Read once at boot rather than per request. A missing file means a broken
  * install, and failing here says so plainly instead of serving an unstyled page.
  */
+const localRequire = createRequire(import.meta.url);
 const PICO_CSS = readFileSync(
-  createRequire(import.meta.url).resolve("@picocss/pico/css/pico.conditional.min.css"),
+  localRequire.resolve("@picocss/pico/css/pico.conditional.min.css"),
   "utf8",
 );
+
+const FONT_FILES = new Map<string, Buffer>();
+
+function loadFontPackageCss(
+  packageName: string,
+  packagedFamily: string,
+  publicFamily: string,
+): string {
+  const cssPath = localRequire.resolve(`${packageName}/index.css`);
+  const css = readFileSync(cssPath, "utf8");
+  for (const match of css.matchAll(/url\(\.\/files\/([^)]+)\)/g)) {
+    const filename = match[1];
+    if (!filename || FONT_FILES.has(filename)) continue;
+    FONT_FILES.set(filename, readFileSync(join(dirname(cssPath), "files", filename)));
+  }
+  return css
+    .replaceAll(packagedFamily, publicFamily)
+    .replaceAll("./files/", "/fonts/");
+}
+
+const FONT_CSS = [
+  loadFontPackageCss(
+    "@fontsource-variable/space-grotesk",
+    "Space Grotesk Variable",
+    "Space Grotesk",
+  ),
+  loadFontPackageCss(
+    "@fontsource-variable/plus-jakarta-sans",
+    "Plus Jakarta Sans Variable",
+    "Plus Jakarta Sans",
+  ),
+].join("\n");
 
 /* ------------------------------------------------------------------ */
 /* Page                                                                */
@@ -103,6 +137,7 @@ const PAGE = /* html */ `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Job Hunt</title>
+<link rel="stylesheet" href="/fonts.css">
 <link rel="stylesheet" href="/pico.css">
 <style>
   /*
@@ -1075,6 +1110,29 @@ const server = createServer(async (request, response) => {
       });
       response.end(PICO_CSS);
       return;
+    }
+
+    if (request.method === "GET" && path === "/fonts.css") {
+      response.writeHead(200, {
+        "Content-Type": "text/css; charset=utf-8",
+        "Content-Length": Buffer.byteLength(FONT_CSS),
+        "Cache-Control": "public, max-age=86400",
+      });
+      response.end(FONT_CSS);
+      return;
+    }
+
+    if (request.method === "GET" && path.startsWith("/fonts/")) {
+      const font = FONT_FILES.get(decodeURIComponent(path.slice("/fonts/".length)));
+      if (font) {
+        response.writeHead(200, {
+          "Content-Type": "font/woff2",
+          "Content-Length": font.length,
+          "Cache-Control": "public, max-age=31536000, immutable",
+        });
+        response.end(font);
+        return;
+      }
     }
 
     if (request.method === "GET" && path === "/api/stats") {

@@ -288,6 +288,16 @@ async function main() {
     !/(src|href)="https?:\/\//.test(html.replace(/fonts\.googleapis\.com/g, "")));
   check("the requested font stack is global",
     html.includes('"Space Grotesk", "Plus Jakarta Sans", "Segoe UI", sans-serif'));
+  check("the bundled fonts are linked locally", html.includes('href="/fonts.css"'));
+  const fonts = await fetch(`${BASE}/fonts.css`);
+  const fontCss = await fonts.text();
+  check("both bundled font families are served",
+    fonts.ok && fontCss.includes("font-family: 'Space Grotesk'")
+      && fontCss.includes("font-family: 'Plus Jakarta Sans'"));
+  const fontPath = fontCss.match(/url\((\/fonts\/[^)]+)\)/)?.[1];
+  const fontFile = fontPath ? await fetch(BASE + fontPath) : null;
+  check("font files are served as local woff2 assets",
+    fontFile?.ok === true && fontFile.headers.get("content-type") === "font/woff2");
   check("Pico is linked", html.includes('href="/pico.css"'));
   const pico = await fetch(`${BASE}/pico.css`);
   check("and served from node_modules",
