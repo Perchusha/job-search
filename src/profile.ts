@@ -30,7 +30,7 @@ import type { Job, SourceName } from "./sources.ts";
  *
  * Results are merged and deduped, so overlap between queries is free. Order is
  * NOT a ranking signal — every query is fetched in parallel and the merged list
- * is sorted by eligibility, then fit tier, then recency (see pipeline.ts).
+ * is sorted by professional fit, then eligibility and recency (see pipeline.ts).
  * Order only decides which copy of a duplicate survives dedupe. What actually
  * keeps fullstack below frontend is its weight in STACK_WEIGHTS (2 vs 4).
  *
@@ -120,11 +120,11 @@ export const SEARCH_DEFAULTS = {
    */
   slowSources: ["linkedin"] as SourceName[],
   /**
-   * Drop tier 3 outright (wrong stack, junior, non-engineering). In a
-   * one-button feed there is no reason to show a .NET role or an internship at
-   * all — ranking them last was only useful while a human typed the query.
+   * Keep only clear and partial matches. Neutral tier 2 postings have no target
+   * signal in either title or body; tier 3 is wrong stack, junior, or
+   * non-engineering. Broad board queries return many of both.
    */
-  maxFitTier: 2,
+  maxFitTier: 1,
   /**
    * How many ranked matches the search returns. This is a budget for the page
    * to draw from, not a page size — the Search tab renders a screenful at a
@@ -267,7 +267,10 @@ const FOREIGN_STACK: Array<[term: string, penalty: number]> = [
   // Other frontend frameworks. I have touched them (the DHTMLX widget library
   // had to work everywhere), but an Angular or Vue role is not a React role.
   ["angular", 6],
+  ["angularjs", 6],
   ["vue", 6],
+  ["vue.js", 6],
+  ["vuejs", 6],
   ["svelte", 6],
   // Mobile.
   ["android", 6],
@@ -277,9 +280,14 @@ const FOREIGN_STACK: Array<[term: string, penalty: number]> = [
   ["unity", 6],
   ["unreal", 6],
   ["embedded", 6],
-  // React Native is not on the CV: React knowledge transfers, but mobile is a
-  // different job. Mild on purpose — it lands near neutral, not banned.
-  ["react native", 2],
+  ["mobile developer", 8],
+  ["mobile engineer", 8],
+  ["mobile application engineer", 8],
+  ["power platform", 8],
+  // React Native is mobile work, not the web frontend target. The title-level
+  // penalty must remain strong even when a long description mentions React,
+  // TypeScript and other transferable skills.
+  ["react native", 6],
   /**
    * Backend-only roles. I can do backend (Node, NestJS, Postgres) and it stays
    * a positive signal inside a frontend or fullstack posting — but the target
@@ -380,7 +388,10 @@ export function seniorityBucket(job: Job): number {
  */
 export function stackFit(job: Job): number {
   const title = job.title.toLowerCase();
-  const rest = job.tags.join(" ").toLowerCase();
+  // JobSpy gives us the full Indeed description. It can rescue a generic title
+  // whose actual work is React, or reject one whose body requires Java/Vue.
+  // LinkedIn descriptions remain optional because fetching each one is slow.
+  const rest = [job.tags.join(" "), job.description ?? ""].join(" ").toLowerCase();
 
   let score = 0;
   for (const [term, weight] of STACK_WEIGHTS) {
@@ -412,6 +423,14 @@ export function fitTier(job: Job): number {
   if (score >= 6) return 0; // clear match
   if (score > 0) return 1; // partial match
   return 2; // nothing recognised either way
+}
+
+export type MatchLevel = "high" | "medium" | "low";
+
+/** User-facing professional match, separate from work eligibility. */
+export function matchLevel(job: Job): MatchLevel {
+  const tier = fitTier(job);
+  return tier === 0 ? "high" : tier === 1 ? "medium" : "low";
 }
 
 /** Fine-grained tiebreak inside a tier. */

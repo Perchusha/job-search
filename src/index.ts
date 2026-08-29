@@ -93,7 +93,7 @@ const sourceEnum = z.enum([
 
 server.tool(
   "find_jobs",
-  "Find jobs worth applying to. Called with NO arguments it searches the saved profile in src/profile.ts (my target searches, Poland, remote-only, wrong-stack and junior roles dropped) — that is the normal way to use it. The profile search skips LinkedIn: it takes ~80s on its own and would blow the request timeout. The dashboard queries it; this tool does not unless you name it in `sources`. Pass arguments only for a one-off, different search. Returns an eligibility level and reason plus the apply URL. Scraped boards give volume and descriptions but no salary; Himalayas is the only source with published salaries.",
+  "Find jobs worth applying to. Called with NO arguments it searches the saved profile in src/profile.ts (my target searches, Poland, remote-only, neutral/wrong-stack and junior roles dropped) — that is the normal way to use it. The profile search skips LinkedIn: it takes ~80s on its own and would blow the request timeout. The dashboard queries it; this tool does not unless you name it in `sources`. Pass arguments only for a one-off, different search. Returns separate professional-match and work-eligibility levels plus the apply URL. Scraped boards give volume and descriptions but no salary; Himalayas is the only source with published salaries.",
   {
     query: z.string().optional().describe("Free-text search, e.g. 'senior react typescript'"),
     seniority: z

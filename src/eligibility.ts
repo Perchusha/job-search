@@ -192,8 +192,12 @@ function scoreArbeitnow(job: Job): Eligibility {
 function scoreScraped(job: Job): Eligibility {
   const location = (job.location ?? "").trim();
   const friendly = location.length > 0 ? firstFriendly(location) : null;
+  // JobSpy occasionally loses `is_remote` even when the posting itself says
+  // "Remote" or the normalized location is literally "zdalnie, PL".
+  const explicitlyRemote =
+    job.remote || matchToken(location, "zdalnie") || matchToken(job.title, "remote");
 
-  if (job.remote) {
+  if (explicitlyRemote) {
     // "Remote" on a national board usually means remote *within that country* —
     // a Berlin remote role often requires German tax residency. Only a
     // Poland-or-EU-wide location earns `high`; anything else needs checking.
@@ -342,6 +346,11 @@ function runSanityChecks(): void {
       expect: "high",
     },
     {
+      label: "indeed, 'zdalnie, PL' with missing remote flag -> high",
+      job: stub({ source: "indeed", remote: false, location: "zdalnie, PL" }),
+      expect: "high",
+    },
+    {
       label: "indeed, onsite 'Warszawa, MZ, PL' -> medium (you live there, not remote)",
       job: stub({ source: "indeed", remote: false, location: "Warszawa, MZ, PL" }),
       expect: "medium",
@@ -400,6 +409,9 @@ function runSanityChecks(): void {
     { title: "Senior Java Developer", expect: 3 },
     { title: "Full-stack Technical Lead (Java+React)", expect: 3 },
     { title: "Senior PHP Engineer", expect: 3 },
+    { title: "Senior FrontEnd Developer (VueJS)", expect: 3 },
+    { title: "Senior Mobile Application Engineer", expect: 3 },
+    { title: "Power Platform Developer", expect: 3 },
     { title: "Senior Full Stack Engineer - Python, AWS with React", expect: 3 },
     // not engineering at all
     { title: "Senior Talent Acquisition Manager", expect: 3 },
@@ -415,9 +427,8 @@ function runSanityChecks(): void {
     // Frontend is a primary target, so a plain frontend title reaches the top
     // tier on its own — fullstack does not.
     { title: "Senior Frontend Developer", expect: 0 },
-    // Adjacent but not on the CV: the "react native" penalty cancels most of
-    // the "react" boost, so it stays visible but never near the top.
-    { title: "Senior React Native Developer", expect: 1 },
+    // React Native is mobile work, not the web frontend target.
+    { title: "Senior React Native Developer", expect: 3 },
     // nothing recognised either way
     { title: "Senior Software Engineer, Growth", expect: 2 },
     // Frontend + AI emphasis: both targets reach tier 0, backend-titled and
@@ -440,7 +451,28 @@ function runSanityChecks(): void {
     if (!ok) console.log(`      -> got tier ${tier} (score ${stackFit(job)})`);
   }
 
-  const total = cases.length + fitCases.length;
+  const descriptionCases: Array<{ title: string; description: string; expect: number }> = [
+    {
+      title: "Senior Software Engineer",
+      description: "Build a React frontend with TypeScript and Next.js.",
+      expect: 0,
+    },
+    {
+      title: "Senior Frontend Developer",
+      description: "Java and Spring Boot are required for day-to-day development.",
+      expect: 3,
+    },
+  ];
+  for (const { title, description, expect } of descriptionCases) {
+    const job = stub({ source: "indeed", title, description });
+    const tier = fitTier(job);
+    const ok = tier === expect;
+    if (!ok) failed++;
+    console.log(`${ok ? "PASS" : "FAIL"}  description fit tier ${expect}: ${title}`);
+    if (!ok) console.log(`      -> got tier ${tier} (score ${stackFit(job)})`);
+  }
+
+  const total = cases.length + fitCases.length + descriptionCases.length;
   console.log(`\n${total - failed}/${total} checks passed.`);
   if (failed > 0) process.exitCode = 1;
 }

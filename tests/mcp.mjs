@@ -81,6 +81,8 @@ async function main() {
   check("uses the saved profile", foundText.includes("saved profile"));
   check("every job has eligibility level + reason",
     jobs.every((job) => job.eligibility?.level && job.eligibility?.reason));
+  check("every job has a separate professional match level + reason",
+    jobs.every((job) => job.match?.level && job.match?.reason));
   check("every job has an http apply URL",
     jobs.every((job) => typeof job.applyUrl === "string" && job.applyUrl.startsWith("http")));
   check("no 'low' eligibility leaks through",

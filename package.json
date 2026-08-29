@@ -14,7 +14,8 @@
     "setup:jobspy": "python -m venv .venv && .venv/Scripts/python.exe -m pip install -q -U python-jobspy",
     "setup:jobspy:unix": "python3 -m venv .venv && .venv/bin/python -m pip install -q -U python-jobspy",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck && npm run sanity && npm run test:mcp && npm run test:ui",
+    "test": "npm run typecheck && npm run sanity && npm run test:ranking && npm run test:mcp && npm run test:ui",
+    "test:ranking": "node --import tsx tests/ranking.mjs",
     "test:mcp": "node tests/mcp.mjs",
     "test:ui": "node tests/ui.mjs"
   },

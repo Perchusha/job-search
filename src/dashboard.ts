@@ -1,8 +1,8 @@
 /**
  * dashboard.ts — local read/write view of the same SQLite file the MCP uses.
  *
- * node:http, no build step. Binds to localhost: this is a single-user tool with
- * no auth by design.
+ * node:http, no build step. Binds to localhost by default; JOBHUNT_HOST can
+ * expose it to the local network when launched by the Windows app.
  *
  * Form controls come from Pico CSS, served from node_modules at /pico.css — the
  * conditional build, so its rules only apply inside `.pico`. That keeps it to
@@ -33,7 +33,7 @@ import { presentJob, searchForProfile } from "./pipeline.ts";
 import { SEARCH_DEFAULTS, TARGET_QUERIES } from "./profile.ts";
 
 const PORT = Number(process.env["JOBHUNT_PORT"] ?? 4321);
-const HOST = "127.0.0.1";
+const HOST = process.env["JOBHUNT_HOST"]?.trim() || "127.0.0.1";
 const MAX_BODY_BYTES = 64 * 1024;
 const DEFAULT_SEARCH_CACHE_MINUTES = 60;
 const configuredSearchCacheMinutes = Number(
@@ -371,6 +371,10 @@ const PAGE = /* html */ `<!doctype html>
          padding: 1px 6px; border-radius: 4px; background: var(--panel-2); color: var(--muted); }
   .fit.good { color: var(--good); }
   .fit.bad { color: var(--bad); }
+  .geo { font-size: 11px; color: var(--muted); padding: 1px 6px; border-radius: 4px;
+         border: 1px solid var(--line); }
+  .geo.confirmed { color: var(--good); }
+  .geo.check { color: var(--warn); }
   .linkbtn { background: none; border: 0; color: var(--muted); font: inherit; font-size: 12.5px;
              cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
   .linkbtn:hover { color: var(--bad); }
@@ -792,7 +796,12 @@ function renderSearch(payload) {
   $("jobgrid").innerHTML = shown.map((job) => {
     const index = all.indexOf(job);
     const tracked = trackedUrls.has(job.applyUrl);
-    const level = job.eligibility.level;
+    // HIGH/MEDIUM is professional match. Eligibility is separate: incomplete
+    // LinkedIn metadata must not make a strong Senior React role look mediocre.
+    const level = job.match && job.match.level
+      ? job.match.level
+      : (job.fit >= 6 ? "high" : job.fit > 0 ? "medium" : "low");
+    const eligibilityLevel = job.eligibility.level;
     const classes = ["jobcard", "lvl-" + level];
     if (job.dismissed) classes.push("is-dismissed");
     if (tracked) classes.push("is-applied");
@@ -802,6 +811,10 @@ function renderSearch(payload) {
         + '" title="stack fit from your CV: higher is a better match">fit '
         + (job.fit > 0 ? "+" : "") + job.fit + "</span>"
       : "";
+    const eligibilityBadge = '<span class="geo '
+      + (eligibilityLevel === "high" ? "confirmed" : "check")
+      + '" title="work eligibility from Poland">'
+      + (eligibilityLevel === "high" ? "geo confirmed" : "geo check") + "</span>";
 
     // A hidden card offers restore instead of add — you cannot funnel what you
     // have already told the tool to stop showing.
@@ -817,12 +830,13 @@ function renderSearch(payload) {
       + '<a class="cardlink" href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener"'
       + ' aria-label="Открыть вакансию: ' + esc(job.title) + '"></a>'
       + '<div class="row"><span class="lvl ' + esc(level) + '">' + esc(level) + "</span>"
-      + '<span class="src">' + esc(job.source) + "</span>" + fitBadge
+      + '<span class="src">' + esc(job.source) + "</span>" + fitBadge + eligibilityBadge
       + '<span class="when">' + esc(ageLabel(job.postedAt)) + "</span></div>"
       + '<h3>' + esc(job.title) + "</h3>"
       + '<div class="co">' + esc(job.company) + "</div>"
       + (job.salary ? '<div class="sal">' + esc(job.salary) + "</div>" : "")
-      + '<div class="reason">' + esc(job.eligibility.reason) + "</div>"
+      + '<div class="reason">' + esc(job.match && job.match.reason ? job.match.reason + ". " : "")
+      + esc(job.eligibility.reason) + "</div>"
       + '<div class="actions">' + action + "</div></article>";
   }).join("");
 
@@ -1395,6 +1409,7 @@ const server = createServer(async (request, response) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`Job Hunt dashboard  →  http://localhost:${PORT}`);
+  console.log(`Listening on         →  ${HOST}:${PORT}`);
   console.log(`Reading database     →  ${resolveDbPath()}`);
 });
 

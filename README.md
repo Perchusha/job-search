@@ -13,8 +13,8 @@ assistant or the browser.
   `get_stats`).
 - **Dashboard** — two tabs at <http://localhost:4321>: **Search** (one Refresh button, no
   query to type) and **Tracker** (funnel + sortable application table).
-- **Eligibility scoring** — every job is tagged `high` / `medium` / `low` for whether a
-  Poland-based candidate can apply, with a reason.
+- **Two separate scores** — cards use `high` / `medium` for professional profile match,
+  while `geo confirmed` / `geo check` says whether a Poland-based candidate can apply.
 
 **There is no search box.** What to look for lives in [src/profile.ts](src/profile.ts) —
 target searches, location, remote preference, and the stack weights that decide relevance.
@@ -88,7 +88,20 @@ There is no build step; `tsx` runs the TypeScript directly.
 | ------------------------------ | -------------------- | -------------------------------------- |
 | `JOBHUNT_DB`                   | `~/.job-hunt/jobs.db` | SQLite file (dir auto-created)         |
 | `JOBHUNT_PORT`                 | `4321`               | Dashboard port                         |
+| `JOBHUNT_HOST`                 | `127.0.0.1`          | Bind address; use `0.0.0.0` for LAN   |
 | `JOBHUNT_SEARCH_CACHE_MINUTES` | `60`                 | Dashboard search cache TTL, in minutes |
+
+### Windows app
+
+Double-click **`Job Hunt.bat`**. It starts the dashboard, opens it in the
+default browser and prints an address that can be opened from another device
+on the same Wi-Fi. Close the black launcher window to stop the app. On the
+first launch Windows may ask whether Node.js can access private networks;
+allow **Private networks** if Wi-Fi access is wanted.
+
+There is deliberately no login screen. Anyone connected to the same network
+can therefore open the dashboard while the app is running, so use this mode
+only on a trusted home Wi-Fi.
 
 ## Connect an MCP client
 
@@ -165,10 +178,10 @@ on **word boundaries**, so "Deutschland" does not match `eu` and "Naples" does n
 | **Arbeitnow** | `remote === true` (EU, same timezone as Poland)  | onsite inside Poland                     | onsite outside Poland                |
 | **Indeed / LinkedIn / other scraped** | remote **and** a Poland/EU location | remote elsewhere (may require local tax residency), onsite in Poland, or no location stated | onsite outside Poland |
 
-`find_jobs` drops `low` by default (`onlyEligible=true`). `medium` is kept on purpose: a
-missing location field is not a rejection. Results are ranked `high` → `medium`, then most
-recently posted, then a small boost for `react` / `next` / `typescript` / `fullstack` /
-`frontend` / `node`.
+`find_jobs` drops eligibility `low` by default (`onlyEligible=true`). Eligibility `medium`
+is kept on purpose: a missing location field is not a rejection. Ranking starts with
+professional fit and seniority; confirmed geography is a tiebreaker after those signals.
+This prevents incomplete LinkedIn remote metadata from burying a strong Senior React role.
 
 Rules live in [src/eligibility.ts](src/eligibility.ts) with a `npm run sanity` check
 covering one `high`, `medium` and `low` per source. Tweak the tokens to match your own
@@ -185,7 +198,7 @@ where the volume is:
 | Source | Notes |
 | --- | --- |
 | **Indeed** | Default. ~60 jobs in ~1s, full descriptions on every job, `is_remote` reliably set. Real local market: "Warszawa, MZ, PL", "zdalnie, PL". **Country-scoped** — see below |
-| **LinkedIn** | Opt-in. Measured at ~0.5s/job (25s for 50) and sets `is_remote` on ~1 job in 50, so results score `medium` and rank low. Worth it for EU-wide search, which Indeed cannot do |
+| **LinkedIn** | Opt-in. Measured at ~0.5s/job (25s for 50) and often omits `is_remote`, so cards say `geo check`; professional matches still rank normally. Worth it for coverage Indeed misses |
 | glassdoor / zip_recruiter / google | Available, not default. US-centric; google needs its own query syntax |
 
 **Free public feeds** (no Python, always available):
@@ -307,10 +320,10 @@ because it means giving up the current card and funnel styling, not adding to it
 
 1. Open <http://localhost:4321> and click **Search**. It runs automatically the first time.
 2. Press **↻ Обновить** whenever you want a fresh pass. There is nothing to type.
-3. Cards show title, company, salary, source, the eligibility badge with its reason, the
-   **fit** score, how old the posting is, and a link to the real posting. Jobs are dropped
-   before you see them if they are `low` eligibility *or* a poor stack fit (wrong stack,
-   junior, non-engineering).
+3. Cards show title, company, salary, source, the professional match (`high` / `medium`),
+   numeric **fit**, a separate `geo confirmed` / `geo check` signal, age, and a link to the
+   real posting. Jobs are dropped before you see them if eligibility is `low` or the profile
+   fit is neutral/poor (no target signal, wrong stack, junior, or non-engineering).
 4. Click **В воронку** to record an application. It goes in as `applied` — there is no
    bookmark stage — and the card re-renders immediately, which means it **disappears on the
    spot** when *скрыть те, что в воронке* is ticked. Jobs already in your funnel render as
@@ -398,9 +411,9 @@ Two things to know about LinkedIn specifically:
   lowering `SEARCH_DEFAULTS.limit` is what moves that number.
 - **It ignores `remoteOnly`,** so leaving it on puts onsite Warsaw/Kraków roles
   in the feed. It also populates `is_remote` on essentially nothing (0 of 30
-  even when `is_remote=true` is requested), so its rows score `medium` as
-  "onsite/hybrid in Poland" and sort below everything `high`. The reason is
-  spelled out on each card, so they are easy to skip past.
+  even when `is_remote=true` is requested), so those cards show `geo check`.
+  That uncertainty no longer overrides professional fit in ranking; the reason
+  is still spelled out on each card.
 
 `JOBHUNT_SOURCES=indeed,himalayas npm run dashboard` narrows the board list for
 one run without editing the profile. `tests/ui.mjs` uses it to keep the suite
@@ -423,7 +436,7 @@ Everything personal is in [src/profile.ts](src/profile.ts):
 | **The emphasis** | Currently **frontend**, with AI/LLM as a bonus rather than a target. Frontend terms carry the highest weights, fullstack counts less, and a backend-titled role is penalised. Shift it by editing the weights |
 | `SEARCH_DEFAULTS` | Location, remote-only, how far back to look, which boards, how many results, and `maxFitTier` |
 | `SEARCH_DEFAULTS.sources` | Which boards to query — and, one-for-one, the source pills the Search tab offers. The filter can only narrow this list |
-| `STACK_WEIGHTS` | What counts as a good match. Taken from the CV; title matches count double |
+| `STACK_WEIGHTS` | What counts as a good match. Taken from the CV; title matches count double, and available posting descriptions supply additional evidence |
 | `FOREIGN_STACK` | What sinks a posting: .NET, Java, Angular, ML/data-science, backend-only titles, plus non-engineering roles like recruiter or designer. A title match counts triple |
 | `JUNIOR_MARKERS` / `SENIOR_MARKERS` | Seniority detection, English and Polish |
 
@@ -509,7 +522,8 @@ once and both surfaces follow.
 - **UTF-8 is forced on the Python child** (`PYTHONIOENCODING`, `PYTHONUTF8`). Without it,
   Polish listings (ł, ę, ó) raise `UnicodeEncodeError` on the Windows cp1252 console — this
   bit during development and looked like a scraper failure.
-- **Ranking demotes junior titles** ahead of recency, in English and Polish
+- **Ranking starts with stack fit and seniority**, then eligibility confidence and recency.
+  It demotes junior titles in English and Polish
   (`intern`, `junior`, `praktyk`, `staż`, `młodszy`). Scraped boards accept no seniority
   filter, so without this a fresh internship outranks a staff role.
 - **Stack keywords come from the CV**, weighted, in `sources.ts`. That list is the single

@@ -420,7 +420,8 @@ async function main() {
     registry.get("loadmore").hidden === false
       && registry.get("loadmore").innerHTML.includes("из " + page.visibleCount));
 
-  check("eligibility badge on cards", /<span class="lvl (high|medium)">/.test(grid));
+  check("professional match badge on cards", /<span class="lvl (high|medium)">/.test(grid));
+  check("separate geography badge on cards", /<span class="geo (confirmed|check)"/.test(grid));
   check("no 'low' badge", !grid.includes('class="lvl low"'));
   check("fit badge on cards", /class="fit/.test(grid));
   check("no wrong-stack results",

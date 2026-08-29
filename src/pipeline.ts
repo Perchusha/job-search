@@ -17,6 +17,7 @@ import {
   SEARCH_DEFAULTS,
   TARGET_QUERIES,
   fitTier,
+  matchLevel,
   relevanceBoost,
   seniorityBucket,
   stackFit,
@@ -40,7 +41,7 @@ export type SearchParams = {
    * meaning. Overlap is free — everything is deduped before scoring.
    */
   queries?: string[];
-  /** Drop jobs above this fit tier (3 = wrong stack / junior / non-engineering). */
+  /** Drop jobs above this fit tier (2 = neutral, 3 = wrong/junior/non-engineering). */
   maxFitTier?: number;
   /**
    * Exact URLs to drop — the "not interested" list. searchForProfile fills this
@@ -71,7 +72,7 @@ export type SearchCounts = {
   fetched: number;
   deduped: number;
   afterEligibility: number;
-  /** After the stack-fit filter (wrong stack / junior / non-engineering). */
+  /** After the stack-fit filter (neutral, wrong stack, junior, non-engineering). */
   afterFit: number;
   afterSalary: number;
   returned: number;
@@ -95,6 +96,32 @@ export type SearchResult = {
 };
 
 export const DEFAULT_SEARCH_LIMIT = 20;
+
+/** Rank by the job itself before uncertain source metadata. */
+export function rankJobs(jobs: RankedJob[]): RankedJob[] {
+  return jobs.slice().sort((a, b) => {
+    const byFit = fitTier(a) - fitTier(b);
+    if (byFit !== 0) return byFit;
+
+    const band = (job: RankedJob) => Math.floor(stackFit(job) / 8);
+    const byBand = band(b) - band(a);
+    if (byBand !== 0) return byBand;
+
+    const bySeniority = seniorityBucket(a) - seniorityBucket(b);
+    if (bySeniority !== 0) return bySeniority;
+
+    // Eligibility `medium` usually means missing LinkedIn metadata, not a weak
+    // professional match, so geography comes after fit and seniority.
+    const byLevel = levelRank(a.eligibility.level) - levelRank(b.eligibility.level);
+    if (byLevel !== 0) return byLevel;
+
+    const aTime = a.postedAt ? Date.parse(a.postedAt) : 0;
+    const bTime = b.postedAt ? Date.parse(b.postedAt) : 0;
+    if (bTime !== aTime) return bTime - aTime;
+
+    return relevanceBoost(b) - relevanceBoost(a);
+  });
+}
 
 /**
  * Oversample hard. Measured against the live feeds, the eligibility filter
@@ -202,32 +229,7 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
           return best >= minSalary;
         });
 
-  const ranked = afterSalary.slice().sort((a, b) => {
-    // 1. eligibility level, high before medium before low
-    const byLevel = levelRank(a.eligibility.level) - levelRank(b.eligibility.level);
-    if (byLevel !== 0) return byLevel;
-    // 2. stack fit tier, ahead of recency. Recency used to win here, which put
-    //    a fresh "Senior .NET Engineer" above every React role — it matched on
-    //    "Full-Stack" and mentioned React in the body. Wrong stack now sinks.
-    const byFit = fitTier(a) - fitTier(b);
-    if (byFit !== 0) return byFit;
-    // 2b. within a tier, compare fit in coarse bands so a much stronger match
-    //     beats a marginally fresher one, while recency still decides between
-    //     comparable jobs. Tier 0 spans 6..30+, which is too wide to ignore.
-    const band = (job: RankedJob) => Math.floor(stackFit(job) / 8);
-    const byBand = band(b) - band(a);
-    if (byBand !== 0) return byBand;
-    // 3. seniority bucket: senior first, internships last. Also ahead of
-    //    recency — a fresh internship is still the wrong job.
-    const bySeniority = seniorityBucket(a) - seniorityBucket(b);
-    if (bySeniority !== 0) return bySeniority;
-    // 4. most recently posted first (unknown dates last)
-    const aTime = a.postedAt ? Date.parse(a.postedAt) : 0;
-    const bTime = b.postedAt ? Date.parse(b.postedAt) : 0;
-    if (bTime !== aTime) return bTime - aTime;
-    // 5. fine-grained fit score inside the tier
-    return relevanceBoost(b) - relevanceBoost(a);
-  });
+  const ranked = rankJobs(afterSalary);
 
   const jobs = ranked.slice(0, limit);
 
@@ -296,6 +298,8 @@ export function searchForProfile(overrides: SearchParams = {}): Promise<SearchRe
 
 /** The wire/tool view of a ranked job: flat, no internal fields. */
 export function presentJob(job: RankedJob) {
+  const fit = stackFit(job);
+  const level = matchLevel(job);
   return {
     title: job.title,
     company: job.company,
@@ -306,7 +310,16 @@ export function presentJob(job: RankedJob) {
     postedAt: job.postedAt,
     tags: job.tags.slice(0, 8),
     // Exposed so a surprising order can be explained without reading the code.
-    fit: stackFit(job),
+    fit,
+    match: {
+      level,
+      reason:
+        level === "high"
+          ? `Strong profile match (fit ${fit >= 0 ? "+" : ""}${fit})`
+          : level === "medium"
+            ? `Partial profile match (fit ${fit >= 0 ? "+" : ""}${fit})`
+            : `Weak profile match (fit ${fit})`,
+    },
     eligibility: {
       level: job.eligibility.level,
       reason: job.eligibility.reason,
