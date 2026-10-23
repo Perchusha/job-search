@@ -71,6 +71,9 @@ for (const row of rows) {
     "--stack", (row.stack ?? []).join(","),
   ];
   if (row.location) args.push("--location", String(row.location));
+  // The posting's contract type, when the batch file carries it (Polish boards
+  // publish it): picks the gross UoP or the net B2B salary figure.
+  if (row.contract === "uop" || row.contract === "b2b") args.push("--contract", row.contract);
   if (row.salary?.[0]) args.push("--salary", String(row.salary[0]));
   if (flags["dry-run"]) args.push("--dry-run");
   const answersFile = flags.answers ? join(flags.answers, `${row.index}.json`) : null;

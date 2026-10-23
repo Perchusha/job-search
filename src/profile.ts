@@ -160,17 +160,19 @@ export const POLISH_BOARDS = {
 
 /**
  * What I am asking for, from .claude/skills/job-apply/profile.json: 25–30k PLN
- * net per month on B2B. Postings are compared in that unit — PLN per month,
- * B2B-equivalent — so an hourly rate, a UoP gross figure and a EUR salary can
- * be put side by side.
+ * net per month on B2B (27.5k target), or 34k PLN gross per month on UoP.
+ * Postings are compared in one unit — PLN per month, B2B-equivalent — so an
+ * hourly rate, a UoP gross figure and a EUR salary can be put side by side.
  *
- * uopToB2b: a UoP gross salary costs roughly 1.2× more on an invoice. The FX
- * rates are deliberately static and rough: they only decide whether a posting
- * sorts above or below the floor, never what a card displays.
+ * uopToB2b is my own equivalence, not a market rule of thumb: 34k gross on UoP
+ * is worth the same to me as 27.5k on B2B, so a UoP figure counts at ~0.81 of
+ * itself — the floor for a UoP posting is ~31k gross. The FX rates are
+ * deliberately static and rough: they only decide whether a posting sorts
+ * above or below the floor, never what a card displays.
  */
 export const SALARY = {
   floorB2bPlnMonth: 25_000,
-  uopToB2b: 1.2,
+  uopToB2b: 27_500 / 34_000,
   fxToPln: {
     PLN: 1, EUR: 4.25, USD: 3.9, GBP: 5.0, CHF: 4.5, CAD: 2.85, AUD: 2.55,
     SEK: 0.37, NOK: 0.36, DKK: 0.57, CZK: 0.17, INR: 0.046, BRL: 0.7, PHP: 0.067, UAH: 0.094,

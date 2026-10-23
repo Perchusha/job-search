@@ -109,7 +109,12 @@ check("justjoin: the older of the two publish stamps is the age", jj?.postedAt =
 const hourly = payB2bPlnMonth([{ contract: "b2b", min: 130, max: 150, currency: "PLN", unit: "hour", gross: false }]);
 check("pay: hourly B2B × 168 h", hourly?.min === 130 * 168 && hourly?.max === 150 * 168);
 const uop = payB2bPlnMonth([{ contract: "uop", min: 20000, max: 24000, currency: "PLN", unit: "month", gross: true }]);
-check("pay: UoP gross scaled to its B2B equivalent", uop?.max === 24000 * 1.2);
+check("pay: UoP gross scaled by my UoP↔B2B equivalence (34k gross = 27.5k B2B)",
+  Math.round(uop?.max ?? 0) === Math.round(24000 * (27500 / 34000)));
+check("pay: UoP 34k gross is exactly at my B2B target, so above the floor",
+  !belowSalaryFloor({ pay: [{ contract: "uop", min: 30000, max: 34000, currency: "PLN", unit: "month", gross: true }] }));
+check("pay: UoP 28k gross is under the floor (≈22.6k B2B)",
+  belowSalaryFloor({ pay: [{ contract: "uop", min: 24000, max: 28000, currency: "PLN", unit: "month", gross: true }] }));
 check("pay: below the floor", belowSalaryFloor({ pay: [{ contract: "b2b", min: 18000, max: 23000, currency: "PLN", unit: "month", gross: false }] }));
 check("pay: unknown pay is never below the floor", !belowSalaryFloor({ pay: [] }) && !belowSalaryFloor({}));
 check("pay: nothing published, nothing formatted", formatPay([]) === null);

@@ -6,6 +6,8 @@
  *
  *   node scripts/apply.mjs <applyUrl> --url <postingUrl> --company ".." --title ".." [--source indeed]
  *                          [--cover <file|text>] [--answers <json file>] [--dry-run] [--headed]
+ *                          [--contract uop|b2b]   the posting's contract type, when known: picks
+ *                                                 the gross UoP or the net B2B salary figure
  *   node scripts/apply.mjs --login            # opens a window on linkedin.com; log in, then close it
  *
  * Exit codes: 0 submitted (or dry run ok) · 2 required field has no answer
@@ -86,23 +88,59 @@ async function loadPriorApplications(company) {
 
 const NON_PL_COUNTRIES =/united states|\bus\b|u\.s\.|usa|united kingdom|\buk\b|britain|canada|germany|netherlands|france|spain|italy|sweden|denmark|norway|finland|ireland|switzerland|austria|belgium|portugal|australia|israel|india|uae|dubai|singapore|japan/i;
 
+/**
+ * Which contract a salary field is about: the field's own words first, then
+ * --contract (the posting's own contract type, when the caller knows it).
+ * null when neither says. A UoP field asks for a gross employment salary, a
+ * B2B one for a net invoice amount — the same number answers both wrongly.
+ */
+function contractFor(l) {
+  const b2b = /\bb2b\b|faktur|invoice|\bnet(to)?\b|contractor|self[- ]employ|działalnoś/.test(l);
+  const uop = /umow\w* o prac|\buop\b|employment contract|permanent|brutto|\bgross\b|etat/.test(l);
+  if (uop && !b2b) return "uop";
+  if (b2b && !uop) return "b2b";
+  if (flags.contract === "uop" || flags.contract === "b2b") return flags.contract;
+  return null;
+}
+
+const money = (amount) => Math.round(amount).toLocaleString("en-US");
+
 function salaryFor(label, type) {
   const l = label.toLowerCase();
   const hourly = /hour|\/h\b|hourly|stawka godz/.test(l);
   const yearly = /year|annual|yearly|rocz/.test(l);
   const usd = /usd|\$|dollar/.test(l);
   const eur = /eur|€/.test(l);
+  const contract = contractFor(l);
+  const uop = PROFILE.salary.uopGrossMonthly;
   // A question ("What compensation are you targeting?") gets a sentence in the currency it names;
   // a bare "Desired salary" box next to a currency/period select gets the number.
   if (type !== "number" && (type === "textarea" || /\?|describe|comment|explain|what |expectation/.test(l))) {
     if (/day rate|daily rate|per day|dzienn/.test(l)) {
+      // Day rates are a B2B thing.
       if (usd) return `$${Math.round(PROFILE.salary.usdMonthly / 21)} / day gross (B2B), ≈ $${PROFILE.salary.usdMonthly.toLocaleString("en-US")} / month; open to discussion`;
       if (eur) return `€${Math.round(PROFILE.salary.eurMonthly / 21)} / day gross (B2B), ≈ €${PROFILE.salary.eurMonthly.toLocaleString("en-US")} / month; open to discussion`;
       return `≈ ${Math.round(PROFILE.salary.plnMonthlyB2B / 21).toLocaleString("en-US")} PLN / day net (B2B), i.e. ${PROFILE.salary.plnMonthlyB2BRange}; open to discussion`;
     }
-    if (usd) return `$${PROFILE.salary.usdMonthly.toLocaleString("en-US")} / month gross (B2B), ≈ $${Math.round(PROFILE.salary.usdYearly / 1000)}k / year; open to discussion depending on scope`;
-    if (eur) return `€${PROFILE.salary.eurMonthly.toLocaleString("en-US")} / month gross (B2B), ≈ €${Math.round(PROFILE.salary.eurYearly / 1000)}k / year; open to discussion depending on scope`;
+    if (contract === "uop") {
+      if (usd) return `$${money(uop.USD)} / month gross on an employment contract (≈ $${Math.round((uop.USD * 12) / 1000)}k / year); open to discussion depending on scope`;
+      if (eur) return `€${money(uop.EUR)} / month gross on an employment contract (≈ €${Math.round((uop.EUR * 12) / 1000)}k / year); open to discussion depending on scope`;
+      return `${money(uop.PLN)} PLN gross / month on an employment contract (umowa o pracę); open to discussion depending on scope`;
+    }
+    if (contract === "b2b") {
+      if (usd) return `$${PROFILE.salary.usdMonthly.toLocaleString("en-US")} / month (B2B), ≈ $${Math.round(PROFILE.salary.usdYearly / 1000)}k / year; open to discussion depending on scope`;
+      if (eur) return `€${PROFILE.salary.eurMonthly.toLocaleString("en-US")} / month (B2B), ≈ €${Math.round(PROFILE.salary.eurYearly / 1000)}k / year; open to discussion depending on scope`;
+      return `${PROFILE.salary.plnMonthlyB2BRange}; open to discussion depending on scope`;
+    }
+    // Contract not stated: give both, so neither reading is wrong.
+    if (usd) return `$${PROFILE.salary.usdMonthly.toLocaleString("en-US")} / month on B2B, or $${money(uop.USD)} / month gross on an employment contract; open to discussion depending on scope`;
+    if (eur) return `€${PROFILE.salary.eurMonthly.toLocaleString("en-US")} / month on B2B, or €${money(uop.EUR)} / month gross on an employment contract; open to discussion depending on scope`;
     return PROFILE.salary.text;
+  }
+  // A bare number. Unstated contract keeps the B2B figure, as before.
+  if (contract === "uop") {
+    const monthly = usd ? uop.USD : eur ? uop.EUR : uop.PLN;
+    return String(hourly ? Math.round(monthly / 168) : yearly ? monthly * 12 : monthly);
   }
   if (usd) return String(hourly ? 45 : yearly ? PROFILE.salary.usdYearly : PROFILE.salary.usdMonthly);
   if (eur) return String(hourly ? 42 : yearly ? PROFILE.salary.eurYearly : PROFILE.salary.eurMonthly);
@@ -194,7 +232,9 @@ function answerFor(label, control, extra) {
     const opts = (control.options ?? []).join(" | ");
     if (isChoice && /dollar|euro|zloty|złoty|pln|usd/i.test(opts)) return { kind: "select", prefer: [/polish|pln|zł/i, /^us dollar|usd/i, /euro|eur/i] };
     if (isChoice && /monthly|yearly|hourly/i.test(opts)) return { kind: "select", prefer: [/monthly/i, /yearly|annual/i] };
-    return isChoice ? { kind: "select", prefer: [/25|27|28|30/i, /20/] } : { kind: "text", value: salaryFor(l, type) };
+    // Range options: a gross UoP range sits higher than the net B2B one.
+    const ranges = contractFor(l) === "uop" ? [/3[0-5]/, /2[89]/] : [/25|27|28|30/i, /20/];
+    return isChoice ? { kind: "select", prefer: ranges } : { kind: "text", value: salaryFor(l, type) };
   }
   if (/notice period|okres wypowiedzenia|availability|available (from|to start)|start date|earliest|when (can|could) you start|kiedy|how soon|how much notice|notice (you )?(must|need|have to)|dostępność/.test(l)) {
     if (type === "date") return { kind: "text", value: new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10) };

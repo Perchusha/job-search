@@ -51,9 +51,8 @@ const DAYS_PER_MONTH = 21;
 
 /**
  * One comparable number per range: PLN per month, B2B-equivalent. UoP is
- * quoted gross, so it is scaled up to what the same cost looks like on an
- * invoice (SALARY.uopToB2b). Used only to sort and filter; cards show the
- * original figures.
+ * quoted gross and scaled by my own UoP↔B2B equivalence (SALARY.uopToB2b).
+ * Used only to sort and filter; cards show the original figures.
  */
 export function payB2bPlnMonth(pay: PayRange[]): { min: number | null; max: number | null } | null {
   let min: number | null = null;

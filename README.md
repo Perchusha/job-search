@@ -557,7 +557,7 @@ once and both surfaces follow.
   Polish listings (ł, ę, ó) raise `UnicodeEncodeError` on the Windows cp1252 console — this
   bit during development and looked like a scraper failure.
 - **Ranking**: fit tier; then published pay under the floor (`SALARY` in profile.ts, 25k PLN
-  B2B-equivalent a month — hourly ×168, UoP gross ×1.2, static FX) to the end of its tier;
+  B2B-equivalent a month — hourly ×168, UoP gross ×0.81 — my own 34k UoP = 27.5k B2B, static FX) to the end of its tier;
   then fit band and seniority; then postings whose text asks for office days or fluent
   Polish; then eligibility confidence and recency. A junior title or a foreign stack in the
   title is tier 3 outright — a body full of React cannot lift it.
