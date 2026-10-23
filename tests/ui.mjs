@@ -15,14 +15,16 @@
 
 import Database from "better-sqlite3";
 import { spawn } from "node:child_process";
-import { rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const PORT = Number(process.env.TEST_PORT ?? 4399);
 const BASE = `http://127.0.0.1:${PORT}`;
 const DB = join(tmpdir(), `job-hunt-test-ui-${process.pid}.db`);
+// What the stand-in for `claude -p` was given, one JSON line per call.
+const CLAUDE_LOG = join(tmpdir(), `job-hunt-test-ui-${process.pid}-claude.jsonl`);
 
 let failures = 0;
 const check = (label, ok, detail = "") => {
@@ -138,6 +140,7 @@ function buildDocument(registry) {
         if (selector === "#jobgrid button[data-add]") return addButtons("data-add");
         if (selector === "#jobgrid button[data-hide]") return addButtons("data-hide");
         if (selector === "#jobgrid button[data-restore]") return addButtons("data-restore");
+        if (selector === "#jobgrid button[data-verdict]") return addButtons("data-verdict");
         return [];
       },
     },
@@ -172,6 +175,11 @@ function startDashboard() {
       JOBHUNT_DB: DB,
       JOBHUNT_PORT: String(PORT),
       JOBHUNT_SOURCES: "indeed,himalayas",
+      // Claude's verdicts: never the real one, and nothing in the background —
+      // a test run must not spend the subscription on live postings.
+      JOBHUNT_CLAUDE: join(process.cwd(), "tests", "fake-claude.mjs"),
+      JOBHUNT_CLAUDE_AUTO: "0",
+      FAKE_CLAUDE_LOG: CLAUDE_LOG,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -230,6 +238,7 @@ async function main() {
   const server = startDashboard();
   const cleanup = () => {
     server.kill();
+    rmSync(CLAUDE_LOG, { force: true });
     // Best effort only. On Windows the child still holds the database open for
     // a moment after kill(), and rm then fails with EPERM — a leftover temp
     // file must never fail an otherwise passing run.
@@ -354,6 +363,7 @@ async function main() {
     "view-tracker", "view-search", "searchform", "searchbtn",
     "searchprogress", "searchtimer", "jobgrid", "searchempty", "statusfilter",
     "hideApplied", "showDismissed", "dismissedCount", "showRuleHidden", "ruleHiddenCount", "needsyou", "applypanel",
+    "showClaudeHidden", "claudeHiddenCount", "claudeline",
     "datefilter", "sourcefilter",
     "loadmore", "appsearch", "applicationcount", "jobsearch", "matchfilter",
     "jobsort", "resultcount", "clearjobfilters", "searchemptynote",
@@ -395,7 +405,8 @@ async function main() {
        setFilter(v){ statusFilter = v },
        setHideApplied(v){ hideApplied = v },
        renderSearchAgain(){ renderSearch(lastSearchPayload) },
-       dismiss, restore,
+       dismiss, restore, pollVerdicts,
+       setSearchLoaded(v){ searchLoaded = v },
        setSort(k, d){ sort = { key: k, dir: d } },
        sortedApplications,
      };`,
@@ -560,6 +571,115 @@ async function main() {
   check("the toggle shows rule hits with their reason",
     registry.get("jobgrid").innerHTML.includes("правило: mid-level role, CV is senior"));
   registry.get("showRuleHidden")._handlers.change({ target: { checked: false } });
+
+  /* ---- Claude's verdict: asked from a card, made by the stand-in claude ---- */
+  const posting = (id, title, text) => ({
+    key: `example.com/claude-test/${id}`,
+    row: {
+      source: "indeed", externalId: `claude-test-${id}`, title, company: `Claudeco ${id}`,
+      url: `https://example.com/claude-test/${id}`, location: "Remote, Poland", remote: true,
+      salary: null, salaryMin: null, salaryMax: null, tags: [], postedAt: today, locationRestrictions: [],
+      description: text,
+    },
+  });
+  // Long enough to be used as stored: a short description sends the verdict to read the page instead.
+  const filler = " You will own features end to end, from design review to production.".repeat(12);
+  const fits = posting(1, "Senior React Engineer", "Fully remote. Senior React and TypeScript engineer." + filler);
+  const misfit = posting(2, "Senior Frontend Engineer", "Fully remote. Angular 17, RxJS, NgRx." + filler);
+  const store = new Database(DB);
+  for (const { key, row } of [fits, misfit]) {
+    store.prepare("INSERT INTO postings (source, job_key, data, posted_at, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(row.source, key, JSON.stringify(row), today, today, today);
+  }
+  store.close();
+
+  const unknownVerdict = await post("/api/verdict", { key: "example.com/not-in-the-store" });
+  check("a verdict for a job that is not stored is refused", unknownVerdict.status === 404,
+    String(unknownVerdict.status));
+
+  const card = (p) => ({ ...demoJob(p.row.company, p.row.title, "high", 9), key: p.key, applyUrl: p.row.url,
+    verdict: null, screen: { bucket: "apply", reason: "", flags: [] } });
+  page.renderSearchPayload({ jobs: [card(fits), card(misfit)], counts: {}, profile: { hoursOld: 720 } });
+  check("a card without a verdict offers to ask Claude",
+    registry.get("jobgrid").innerHTML.includes("спросить Claude"));
+  await addButtons("data-verdict").find((el) => el.dataset.verdict === "0")?._handlers.click();
+  const askedMisfit = await post("/api/verdict", { key: misfit.key });
+  check("asking for a stored job queues it", askedMisfit.status === 202, String(askedMisfit.status));
+
+  let made = {};
+  for (let waited = 0; waited < 20_000 && !(made[fits.key] && made[misfit.key]); waited += 250) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    made = (await (await fetch(`${BASE}/api/verdicts`)).json()).verdicts;
+  }
+  check("the card's button and the API both got a verdict made and stored",
+    Boolean(made[fits.key] && made[misfit.key]), Object.keys(made).join(", ") || "none");
+  check("a fitting posting is an apply, with its score",
+    made[fits.key]?.verdict === "apply" && made[fits.key]?.score === 90);
+  check("a skip carries a hide reason from the page's own list", made[misfit.key]?.hideReason === "не тот стек");
+  check("a verdict remembers its session, for «обсудить в Claude»", made[fits.key]?.session === true);
+
+  const calls = readFileSync(CLAUDE_LOG, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const call = calls.find((entry) => entry.prompt.includes("Senior React Engineer"));
+  const flag = (name) => call?.args[call.args.indexOf(name) + 1];
+  check("claude runs headless, with no tools, no MCP servers and nothing from disk",
+    Boolean(call) && call.args.includes("-p") && call.args.includes("--tools") && flag("--tools") === ""
+      && call.args.includes("--strict-mcp-config") && call.args.includes("--safe-mode"),
+    JSON.stringify(call?.args.slice(1, 13)));
+  check("the answer is held to the verdict schema",
+    (JSON.parse(flag("--json-schema") ?? "{}").required ?? []).includes("verdict"));
+  check("the posting goes in on stdin, with what the board says about it",
+    Boolean(call?.prompt.includes("Fully remote. Senior React")) && Boolean(call?.prompt.includes("Компания: Claudeco 1")));
+  check("all of it inside <posting>, the block the system prompt calls the employer's text",
+    /<posting>\n[\s\S]*Компания: Claudeco 1[\s\S]*Fully remote[\s\S]*\n<\/posting>$/.test(call?.prompt ?? ""));
+  // The sessions' folder is where "обсудить" opens a session with tools; nothing a run reads lives there.
+  const promptFile = String(flag("--system-prompt-file"));
+  check("the system prompt is written per run outside the sessions' folder, then removed",
+    dirname(promptFile) === join(dirname(DB), "verdicts-tmp") && !existsSync(promptFile), promptFile);
+
+  page.setSearchLoaded(true);
+  await page.pollVerdicts();
+  const verdictGrid = registry.get("jobgrid").innerHTML;
+  check("the card shows Claude's verdict, score and summary",
+    verdictGrid.includes("Claude ✓ 90") && verdictGrid.includes("Подходит: React"));
+  check("a skip is hidden by default and counted on its toggle",
+    !verdictGrid.includes("Claudeco 2") && registry.get("claudeHiddenCount").textContent === "(1)");
+  registry.get("showClaudeHidden")._handlers.change({ target: { checked: true } });
+  check("the toggle shows it, with a hide button carrying Claude's reason",
+    registry.get("jobgrid").innerHTML.includes("Claudeco 2")
+      && registry.get("jobgrid").innerHTML.includes("скрыть: не тот стек"));
+  registry.get("showClaudeHidden")._handlers.change({ target: { checked: false } });
+  // A skip I already hid belongs to «скрытые»: Claude's toggle must not hide it from there.
+  const misfitCard = { ...card(misfit), verdict: made[misfit.key], dismissed: true };
+  registry.get("showDismissed")._handlers.change({ target: { checked: true } });
+  page.renderSearchPayload({ jobs: [card(fits), misfitCard], counts: {}, profile: { hoursOld: 720 } });
+  check("a hidden job Claude skipped still shows under «скрытые», and is not counted twice",
+    registry.get("jobgrid").innerHTML.includes("Claudeco 2") && registry.get("claudeHiddenCount").textContent === "");
+  registry.get("showDismissed")._handlers.change({ target: { checked: false } });
+  page.setSearchLoaded(false);
+
+  // The stand-in's session id is not on disk, so this must stop before any window opens.
+  const reopen = await post("/api/verdict/open", { key: fits.key });
+  check("«обсудить» refuses a session that is not on disk", reopen.status === 410, String(reopen.status));
+  const noVerdict = await post("/api/verdict/open", { key: "example.com/not-in-the-store" });
+  check("«обсудить» without a verdict is a 404", noVerdict.status === 404, String(noVerdict.status));
+
+  // Last of the verdict checks: the limit pauses the queue for the rest of this run.
+  const limited = posting(3, "Senior Web Engineer", "Fully remote. LIMIT-TEST." + filler);
+  const limitStore = new Database(DB);
+  limitStore.prepare("INSERT INTO postings (source, job_key, data, posted_at, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(limited.row.source, limited.key, JSON.stringify(limited.row), today, today, today);
+  limitStore.close();
+  await post("/api/verdict", { key: limited.key });
+  let paused = null;
+  for (let waited = 0; waited < 20_000 && !paused?.pausedUntil; waited += 250) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    paused = (await (await fetch(`${BASE}/api/verdicts`)).json()).status;
+  }
+  check("the plan's usage limit pauses the whole queue until it resets",
+    Boolean(paused?.pausedUntil) && /^лимит Claude до \d\d:\d\d$/.test(paused?.pauseReason ?? ""),
+    JSON.stringify({ until: paused?.pausedUntil, reason: paused?.pauseReason }));
+  check("and is not held against the posting: it waits in the queue, with no failure",
+    (paused?.queued ?? []).includes(limited.key) && !(paused?.failures ?? {})[limited.key]);
 
   /* ---- profile search (live network) ---- */
   console.log("\n(running a live profile search through the page's own code path…)");

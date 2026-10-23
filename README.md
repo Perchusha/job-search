@@ -4,6 +4,8 @@ A personal, local-only MCP server + web dashboard for finding remote jobs you ca
 actually apply to **from Poland (EU)**, and tracking what happened to each application.
 
 No cloud, no accounts, no API keys, no paid services. One SQLite file on your disk.
+(The one exception is optional: Claude's verdict on a card runs on the Claude Code already
+logged in on this machine — see [Claude's verdict on a card](#claudes-verdict-on-a-card).)
 
 The flow is **search → see eligible jobs → drop them into the funnel**, from either the
 assistant or the browser.
@@ -92,6 +94,11 @@ There is no build step; `tsx` runs the TypeScript directly.
 | `JOBHUNT_HOST`                 | `127.0.0.1`          | Bind address; use `0.0.0.0` for LAN   |
 | `JOBHUNT_REFRESH_HOURS`        | `6`                  | How often the fast boards are re-fetched in the background (LinkedIn: daily) |
 | `JOBHUNT_BACKGROUND`           | on                   | `0` turns off the dashboard's background refresh; searches then fill the table on demand |
+| `JOBHUNT_CLAUDE_AUTO`          | on                   | `0` stops Claude judging the Search tab's cards in the background; the card button still works |
+| `JOBHUNT_CLAUDE_MODEL`         | `sonnet`             | Model for the verdicts (`opus` reads closer, counts heavier against the plan) |
+| `JOBHUNT_CLAUDE_EFFORT`        | `low`                | Effort for the verdicts (`low`…`max`); the user settings' `xhigh` is for coding sessions |
+| `JOBHUNT_CLAUDE_DAILY`         | `80`                 | Most verdicts the background queue makes in a day; manual ones are not counted |
+| `JOBHUNT_CLAUDE`               | `claude` on PATH     | Path to the Claude Code executable (a `.mjs` runs under Node — the tests' stand-in) |
 
 ### Desktop app (tray, autostart, notifications)
 
@@ -262,7 +269,7 @@ where the volume is:
 
 | Source | Notes |
 | --- | --- |
-| [Himalayas](https://himalayas.app) | Default. Some published salaries (any currency) and real `locationRestrictions`; supports server-side `q`, `seniority`, `worldwide` |
+| [Himalayas](https://himalayas.app) | Default. Some published salaries (any currency) and real `locationRestrictions`; supports server-side `q`, `seniority`, `worldwide`. The search API sends each posting's whole text, and it is stored: the posting pages answer even a real Chrome with Cloudflare's "Just a moment…", so this is the only copy Claude's verdict can read |
 | [RemoteOK](https://remoteok.com) | Opt-in. First array element is legal metadata and is skipped. Content varies wildly |
 | [Arbeitnow](https://www.arbeitnow.com) | Opt-in. EU/Germany focused |
 
@@ -353,6 +360,9 @@ is what feeds the response-rate and days-to-response stats. `dropped` is the exc
 | `GET /api/applications`              | All rows, `ghosted` applied                                 |
 | `POST /api/applications`             | `{ url, title, company, source?, location?, salary?, status? }` → adds as `applied` |
 | `POST /api/applications/:id/status`  | `{ status, responseAt? }`                                   |
+| `POST /api/verdict`                  | `{ key }` → queue Claude's verdict on a stored job (202)    |
+| `GET /api/verdicts`                  | `?since=<iso>` optional — verdicts made after it, and what the queue is doing |
+| `POST /api/verdict/open`             | `{ key }` → open that verdict's session in Claude Desktop; this computer only |
 
 `POST /api/applications` is idempotent on the job's key (below): re-adding returns `200` with
 `result: "already_tracked"` instead of an error, which is why the Search tab can safely show
@@ -397,7 +407,10 @@ for older rows; dedupe, the dismissed filter and "already applied" all use it.
 fetches each board on its own schedule into the `postings` table, and
 `/api/search` ranks what is stored: ~25 ms per search (~160 ms for the first one
 after a refresh), where asking the boards cost ~4 s, ~80 s with LinkedIn, after
-every restart, hide, date chip or source pill.
+every restart, hide, date chip or source pill. The ranked feed is kept until any
+board's refresh finishes — counted, not read off the highest run id: boards are
+fetched side by side and finish out of order, and a feed built between Himalayas
+finishing and Indeed finishing used to keep missing Indeed until the next pass.
 
 | Board | Refresh |
 | --- | --- |
@@ -539,6 +552,99 @@ leaves LinkedIn out (`SEARCH_DEFAULTS.slowSources`): MCP times a request out at
 it anyway. Every argument is an override of the profile search, so queries,
 remote-only, the fit filter, hidden jobs and the screening rules still apply.
 
+## Claude's verdict on a card
+
+The routine this replaces: open a posting from the Search tab, copy its whole text into
+Claude, ask "does this fit me?". Now every card the Search tab shows gets that answer by
+itself, in the background, within minutes of the posting appearing
+([src/verdict.ts](src/verdict.ts)):
+
+- **A chip in the card's top row** — `Claude ✓ 86` (apply), `Claude ? 64` (maybe: worth a
+  look, something is unclear), `Claude ✗ 12` (skip) — and **a block above the buttons** with
+  Claude's one-line summary and **почему**: the stop factors with a quote from the posting,
+  the doubts, what matches. A dashed chip was judged under criteria that have changed since;
+  the background queue redoes it (the card says so only where the queue will).
+- **"skip" hides the card**, behind its own **скрыто Claude** toggle — the same way a rule
+  hit sits behind **скрыто правилами**. Nothing is written to the hidden list: the toggle
+  shows them all again, with **скрыть: \<reason\>** to hide one for good with Claude's reason
+  (taken from the page's own one-click reasons, so it teaches the screening rules like a
+  hand-picked one). A job already hidden or applied to stays under its own toggle whatever
+  Claude said. **↻** asks again; a card without a verdict says **спросить Claude**.
+- **Pay under the floor is a doubt, not a stop factor** — "maybe", score at most 55 — the
+  same rule as the screening: such a card is flagged, never hidden, because some of those
+  were applied to on purpose.
+- **обсудить в Claude ↗** opens that verdict's own conversation in Claude Desktop, with the
+  posting and the verdict already in it — ask about the stack, the money, a cover letter. It
+  is the deep link `claude --desktop --resume` uses (`claude://resume?session=<id>`;
+  Desktop imports the CLI session and focuses it). Without Desktop, a console window runs
+  `claude --resume` with no tools. This computer only: that is where the window opens.
+- **Claude: лучшие сверху** in the sort menu orders by verdict, then score. The line next to
+  the match count says what the queue is doing (`· Claude оценивает 2, в очереди 30`, or why
+  it is paused).
+- The tray app's "N новых вакансий" leaves out postings Claude has called "skip" and names
+  the ones it liked first, marked `✓`. `/api/new-count` also says how many new postings
+  Claude is still judging (`pending`); a tray app built from this checkout waits for those,
+  up to 15 minutes, so a posting about to be skipped is not announced (`cd desktop && npm run
+  build`, then run the installer — the installed app carries its own copy of `main.mjs`).
+
+**How.** The posting text — stored with the posting (Indeed, the company watchlist,
+Himalayas), or read by `scripts/jobs-fetch.mjs` (LinkedIn's guest API, nofluffjobs,
+justjoin.it, any ATS page) — goes to **headless Claude Code**, `claude -p`, with
+[src/verdict-criteria.md](src/verdict-criteria.md) as the system prompt, and comes back as
+JSON held to a schema (`--json-schema`). Claude Code rather than the API because it runs on
+the Claude subscription already logged in on this machine: no API key, nothing billed per
+call, and each verdict is a real session on disk that Desktop can open.
+
+- **No tools, nothing from disk.** The posting is text from the web; the model only reads it
+  and fills in the schema (`--tools ""`, `--strict-mcp-config`), in safe mode (`--safe-mode`:
+  no CLAUDE.md, hooks, skills or settings from the folder it runs in). Everything the board
+  said sits inside `<posting>…</posting>`, which the system prompt calls the employer's
+  text, not instructions. The system prompt is written for each run outside the sessions'
+  folder and deleted after it.
+- **In Desktop the conversation has Desktop's usual tools** — the deep link cannot pass
+  flags — and the posting is in it. The system prompt the session keeps still says what
+  `<posting>` is; treat what the conversation suggests as you would any text from a job
+  board. The console fallback resumes with no tools at all.
+- **At most two `claude` processes and one page read at a time** (LinkedIn answers parallel
+  reads with 429). The background queue takes only the cards the Search tab shows by
+  default — default boards, month window, not hidden, not applied, not a rule hit — newest
+  first, at most `JOBHUNT_CLAUDE_DAILY` (80) **runs** a day, redone and failed ones
+  included. A queued card that gets hidden or applied to leaves the queue.
+- **What stops the whole queue stops it, not a posting**: the plan's limit (Claude Code
+  2.1.287 says `You've hit your session limit · resets 11pm` with `api_error_status` 429 —
+  the queue sleeps until then), a lost login, a missing `claude`, an unreadable criteria
+  file. The card that was running waits in the queue, and the line above the cards says
+  why. A failure of the posting itself (no text, a timeout) is tried once more half an
+  hour later; the card says what went wrong.
+- **Stored per job** in the `verdicts` table, with the version of the criteria it was made
+  under, the model, the session id, how much text Claude read and how long it took.
+- **The criteria file is the thing to edit**: who I am, what I want, the stop factors, the
+  fine print ("no salary in the text is normal — do not lower the verdict for it"). It is
+  re-read on change, and every verdict made under the old text goes stale and is redone.
+  The facts in it mirror `.claude/skills/job-apply/profile.json`; change both.
+- Sessions live in their own folder, `~/.job-hunt/verdicts`, so they are one project in
+  Claude Code's session list instead of hundreds of entries in this repo's. Claude Code
+  deletes sessions after 30 days (`cleanupPeriodDays`); **обсудить** on an older verdict
+  says so, and **↻** makes a new one.
+
+**Measured** on 2026-10-23 against 28 postings already decided by hand — 14 applied to, 14
+hidden — before pay under the floor became a doubt rather than a stop factor:
+
+| | Sonnet, effort low (default) | Opus, effort low |
+| --- | --- | --- |
+| Applied-to postings called "skip" | 1 of 14 (its board lists USD 1.5k a year, and 3+ years) | the same one |
+| Hidden postings called "skip" | 7 of 14 | 7 of 14 |
+| Time | ~7 s a posting; 28 in 139 s, two at a time | 28 in 127 s |
+| Usage, at API list price | $0.49 for the 28 | $0.92 |
+
+The hidden ones Claude did not call "skip" were mostly hidden for what the text does not
+carry — another role at the same company already applied to (the card's flag says so), or
+no text at all. Two things the first pass got wrong and the criteria now say: Polish above
+B1 as a requirement is a stop factor, and "do not invent checks the text is silent about"
+(it asked about citizenship and contracts that no posting mentioned). A page that answers
+with a bot check is now an error on the card ("не удалось прочитать вакансию"), not a
+verdict on 338 characters of Cloudflare.
+
 ## Tuning what gets found
 
 Everything personal is in [src/profile.ts](src/profile.ts):
@@ -604,11 +710,14 @@ src/
   pipeline.ts     searchJobs(): the ONE search pipeline both callers use
   index.ts        MCP server: 8 tools over StdioServerTransport
   dashboard.ts    node:http server on :4321 (Search + Tracker)
+  verdict.ts      Claude's verdict on a posting: `claude -p`, the queue, "обсудить в Claude"
+  verdict-criteria.md  WHAT I WANT, in words: the brief Claude judges postings by. Edit this
 scripts/
   jobspy_fetch.py the Python half of the JobSpy bridge
 tests/
   mcp.mjs         drives the MCP server over stdio
   ui.mjs          runs the real page JS against a real server
+  fake-claude.mjs stands in for `claude -p` in ui.mjs: offline, free
 ```
 
 `pipeline.ts` owns fetch → dedupe → score → filter → rank. `index.ts` and `dashboard.ts`

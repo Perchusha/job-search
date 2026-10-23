@@ -235,6 +235,34 @@ function migrate(database: Database.Database): void {
       screenshot TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_attempts_job_key ON attempts(job_key);
+
+    /*
+     * Claude's verdict on a posting (src/verdict.ts): apply / maybe / skip,
+     * with its reasons in details (the structured output, as JSON). One row
+     * per job, replaced on a re-run. criteria is the version of the criteria
+     * it was made under — an older one shows as stale. session_id is the
+     * Claude Code session it came from, which "обсудить в Claude" reopens.
+     * requested: 'auto' (the background queue) or 'manual' (a card asked).
+     */
+    CREATE TABLE IF NOT EXISTS verdicts (
+      job_key      TEXT PRIMARY KEY,
+      url          TEXT NOT NULL,
+      company      TEXT,
+      title        TEXT,
+      verdict      TEXT NOT NULL,
+      score        INTEGER,
+      summary      TEXT,
+      details      TEXT NOT NULL,
+      session_id   TEXT,
+      model        TEXT,
+      criteria     TEXT NOT NULL,
+      requested    TEXT NOT NULL,
+      text_chars   INTEGER,
+      cost_usd     REAL,
+      duration_ms  INTEGER,
+      evaluated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_verdicts_evaluated_at ON verdicts(evaluated_at);
   `);
 
   /*
@@ -730,12 +758,17 @@ export function finishFetchRun(id: number, rows: number, error: string | null): 
 /**
  * Changes whenever any board refresh finishes, in this process or another
  * (the scheduled `npm run refresh`). The dashboard rebuilds its feed on change.
+ *
+ * A count, not the highest finished id: boards are fetched side by side, and
+ * one that started first can finish last — Indeed after Himalayas — leaving
+ * the highest id where it was, so a feed built between the two kept missing
+ * the slower board's postings. Runs are never deleted, so the count only grows.
  */
 export function postingsVersion(): number {
   return (
     getDb()
-      .prepare<[], { id: number | null }>("SELECT MAX(id) AS id FROM fetch_runs WHERE finished_at IS NOT NULL")
-      .get()?.id ?? 0
+      .prepare<[], { n: number }>("SELECT COUNT(*) AS n FROM fetch_runs WHERE finished_at IS NOT NULL")
+      .get()?.n ?? 0
   );
 }
 
@@ -808,6 +841,81 @@ export function listOpenAttempts(): Attempt[] {
         ORDER BY a.id DESC`,
     )
     .all();
+}
+
+/* ------------------------------------------------------------------ */
+/* Verdicts — Claude's read of a posting (see src/verdict.ts)           */
+/* ------------------------------------------------------------------ */
+
+export type VerdictRow = {
+  job_key: string;
+  url: string;
+  company: string | null;
+  title: string | null;
+  verdict: "apply" | "maybe" | "skip";
+  score: number | null;
+  summary: string | null;
+  /** The structured output as JSON: reasons, work mode, salary, hide reason. */
+  details: string;
+  session_id: string | null;
+  model: string | null;
+  criteria: string;
+  requested: "auto" | "manual";
+  text_chars: number | null;
+  cost_usd: number | null;
+  duration_ms: number | null;
+  evaluated_at: string;
+};
+
+export type NewVerdict = Omit<VerdictRow, "job_key" | "evaluated_at">;
+
+/** Stores a verdict for the job, replacing an earlier one. */
+export function saveVerdict(input: NewVerdict): VerdictRow {
+  const row: VerdictRow = { ...input, job_key: jobKey(input.url), evaluated_at: nowIso() };
+  getDb()
+    .prepare(
+      `INSERT INTO verdicts (job_key, url, company, title, verdict, score, summary, details, session_id,
+                             model, criteria, requested, text_chars, cost_usd, duration_ms, evaluated_at)
+       VALUES (@job_key, @url, @company, @title, @verdict, @score, @summary, @details, @session_id,
+               @model, @criteria, @requested, @text_chars, @cost_usd, @duration_ms, @evaluated_at)
+       ON CONFLICT(job_key) DO UPDATE SET
+         url = excluded.url, company = excluded.company, title = excluded.title,
+         verdict = excluded.verdict, score = excluded.score, summary = excluded.summary,
+         details = excluded.details, session_id = excluded.session_id, model = excluded.model,
+         criteria = excluded.criteria, requested = excluded.requested, text_chars = excluded.text_chars,
+         cost_usd = excluded.cost_usd, duration_ms = excluded.duration_ms, evaluated_at = excluded.evaluated_at`,
+    )
+    .run(row);
+  return row;
+}
+
+export function getVerdict(key: string): VerdictRow | null {
+  return getDb().prepare<[string], VerdictRow>("SELECT * FROM verdicts WHERE job_key = ?").get(key) ?? null;
+}
+
+/**
+ * All of them, or those made at or after `since` (ISO). A few hundred rows at
+ * most. At, not after: a verdict saved in the same millisecond as the last
+ * read would otherwise fall between two reads for good.
+ */
+export function listVerdicts(since?: string): VerdictRow[] {
+  return since
+    ? getDb().prepare<[string], VerdictRow>("SELECT * FROM verdicts WHERE evaluated_at >= ?").all(since)
+    : getDb().prepare<[], VerdictRow>("SELECT * FROM verdicts").all();
+}
+
+/** Every stored copy of a job: one per board that stored the same link. */
+export function findPostings(key: string): StoredJob[] {
+  return getDb()
+    .prepare<[string], { data: string; first_seen: string; last_seen: string }>(
+      "SELECT data, first_seen, last_seen FROM postings WHERE job_key = ?",
+    )
+    .all(key)
+    .map((row) => ({
+      ...(JSON.parse(row.data) as Job),
+      firstSeenAt: row.first_seen,
+      lastSeenAt: row.last_seen,
+    }));
 }
 
 /** Closes the handle. Only needed by scripts that want a clean exit. */

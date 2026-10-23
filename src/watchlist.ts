@@ -32,8 +32,8 @@ const str = (value: unknown): string | null =>
 const num = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 
-/** Plain text from an HTML body (Greenhouse sends it entity-escaped). */
-function htmlToText(html: string): string {
+/** Plain text from an HTML body (Greenhouse sends it entity-escaped). Himalayas uses it too. */
+export function htmlToText(html: string): string {
   return html
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")

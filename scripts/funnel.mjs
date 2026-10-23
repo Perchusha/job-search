@@ -127,6 +127,9 @@ function line(index, job, extra = "") {
     `${job.match.level}/${String(job.fit).padStart(3)}`,
     geo,
     (age === null ? "?" : age + "d").padStart(4),
+    // Claude's verdict (src/verdict.ts), when the dashboard has one: a hint
+    // for the skills, read with its reasons on the card. The rules ignore it.
+    job.verdict ? `claude:${job.verdict.verdict}/${job.verdict.score}` : "",
     `${job.company} — ${job.title}`,
     job.location ? `[${job.location}]` : "",
     job.salary ? `{${job.salary}}` : "",
@@ -144,9 +147,11 @@ async function cmdSearch(flags) {
     console.log(JSON.stringify(result, null, 2));
     return;
   }
+  // Searches read stored postings now; there is no cache to report (it was
+  // read here after it went away, and the command died on it).
   console.log(
-    `${result.jobs.length} jobs · cache ${result.cache.hit ? "hit" : "miss"} (${result.cache.ageSeconds}s) · ` +
-      Object.entries(result.sourceCounts).map(([k, v]) => `${k} ${v}`).join(" · "),
+    `${result.jobs.length} jobs · ` +
+      Object.entries(result.sourceCounts ?? {}).map(([k, v]) => `${k} ${v}`).join(" · "),
   );
   result.jobs.forEach((job, index) => {
     const flag = job.dismissed ? "DISMISSED" : applied.has(job.key) ? "APPLIED" : "";
@@ -190,6 +195,7 @@ async function cmdScreen(flags) {
       fit: job.fit,
       match: job.match.level,
       eligibility: job.eligibility,
+      verdict: job.verdict ?? null,
     }));
     writeFileSync(flags.json, JSON.stringify(out, null, 2));
     console.log(`\nwrote ${out.length} decisions to ${flags.json}`);

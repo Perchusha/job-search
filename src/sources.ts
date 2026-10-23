@@ -10,7 +10,7 @@
 
 import { fetchJustJoin, fetchNoFluffJobs } from "./boards-pl.ts";
 import { jobKey } from "./jobkey.ts";
-import { fetchWatchlist } from "./watchlist.ts";
+import { fetchWatchlist, htmlToText } from "./watchlist.ts";
 import {
   JobSpyUnavailable,
   fetchJobSpy,
@@ -376,6 +376,10 @@ function normalizeHimalayas(raw: unknown): Job | null {
     tags: [...new Set(tags)],
     postedAt: toIsoDate(job["pubDate"]),
     locationRestrictions: asStringArray(job["locationRestrictions"]),
+    // The search API sends the whole body; the posting's page sits behind
+    // Cloudflare, so this is the only copy of the text there is (Claude's
+    // verdict reads it, src/verdict.ts). Cut like every other board's.
+    description: htmlToText(asString(job["description"]) ?? "").slice(0, 8000) || null,
   };
 }
 

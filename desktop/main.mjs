@@ -346,7 +346,11 @@ async function checkNew() {
         saveState();
       } else if (!inQuietHours(now)) {
         const fresh = await newSince(state.lastNotifiedAt);
-        if (fresh.count >= Math.max(1, settings.notifyMin)) {
+        // Claude is still judging some of them (src/verdict.ts): wait, so a
+        // posting it is about to hide is not announced — 15 minutes at most,
+        // and without moving lastNotifiedAt, so nothing waiting is skipped.
+        const judging = fresh.pending > 0 && now - Date.parse(fresh.pendingSince) < 15 * 60_000;
+        if (!judging && fresh.count >= Math.max(1, settings.notifyMin)) {
           notify(`${fresh.count} ${plural(fresh.count)}`, fresh.top.join("\n"));
           state.lastNotifiedAt = now.toISOString();
           saveState();

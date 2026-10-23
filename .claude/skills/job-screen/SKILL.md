@@ -25,6 +25,11 @@ age company — title [location] {salary} <reason> url`.
 | `dismiss` | rule hit: junior/mid, management, wrong stack, backend-only, another language, onsite per Indeed, stale, same role hidden before (by the user — rule-written hides do not count), company hidden for 2+ different roles by hand or marked "не интересна компания", second posting of a role already in this search | review, then commit |
 | `skip` | already in the funnel or already hidden | nothing |
 
+`claude:skip/12` (or `apply/86`, `maybe/60`) is Claude's verdict, made by the
+dashboard from the full posting text against `src/verdict-criteria.md`
+(src/verdict.ts). The rules do not act on it; treat a `skip` as a strong hint
+and read its reason on the card (or in `--json`, field `verdict`) before hiding.
+
 `!…` after a line is a flag, not a verdict: an earlier application at the same
 company, or a role that looks like one already applied to. Same-role
 applications are flagged rather than dismissed because different levels at one

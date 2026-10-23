@@ -21,7 +21,9 @@ import {
   DEFAULT_STALE_DAYS,
   STATUSES,
   dismissJob,
+  findPostings,
   getStats,
+  getVerdict,
   insertApplication,
   listApplications,
   listDismissed,
@@ -44,6 +46,16 @@ import { currentRefresh, describe, refreshDue, refreshing } from "./refresh.ts";
 import type { SourceName } from "./sources.ts";
 import { buildContext, screenAll } from "./screening.ts";
 import { SEARCH_DEFAULTS, TARGET_QUERIES } from "./profile.ts";
+import {
+  dropQueued,
+  openSession,
+  queueShown,
+  requestVerdict,
+  SessionGone,
+  verdictPending,
+  verdictStatus,
+  verdictViews,
+} from "./verdict.ts";
 
 const PORT = Number(process.env["JOBHUNT_PORT"] ?? 4321);
 const HOST = process.env["JOBHUNT_HOST"]?.trim() || "127.0.0.1";
@@ -501,6 +513,38 @@ const PAGE = /* html */ `<!doctype html>
   .linkbtn.restore:hover { color: var(--good); }
   .jobcard.is-dismissed { opacity: .5; }
   .jobcard.is-rulehidden { opacity: .62; }
+  /*
+   * Claude's verdict (src/verdict.ts): a chip in the top row, the summary and
+   * reasons in a block above the actions. The block sits over the card's
+   * full-size link, like the actions, so its buttons and "почему" are clickable.
+   */
+  .cv { font-size: 11px; font-weight: 650; padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+        border: 1px solid var(--line); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .cv.apply { color: var(--good); border-color: color-mix(in srgb, var(--good) 50%, transparent); }
+  .cv.maybe { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+  .cv.skip { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, transparent); }
+  .cv.stale { border-style: dashed; }
+  .cv.busy { animation: cv-pulse 1.4s ease-in-out infinite; }
+  @keyframes cv-pulse { 50% { opacity: .4; } }
+  .jobcard .verdict { position: relative; z-index: 2; padding: 9px 10px; border-radius: 8px;
+                      border: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5;
+                      background: color-mix(in srgb, var(--panel-2) 40%, transparent); }
+  .jobcard .verdict.v-apply { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); }
+  .jobcard .verdict.v-maybe { border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
+  .jobcard .verdict.v-skip { border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
+  .jobcard .verdict p { margin: 0; color: var(--text); }
+  .jobcard .verdict summary { width: fit-content; margin-top: 4px; cursor: pointer; }
+  .jobcard .verdict ul { margin: 5px 0 0; padding: 0; list-style: none; display: grid; gap: 3px; }
+  .jobcard .verdict li.no { color: var(--bad); }
+  .jobcard .verdict li.ok { color: var(--good); }
+  .jobcard .verdict .vmeta { margin-top: 5px; font-size: 11px; }
+  .jobcard .verdict .vactions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; }
+  .jobcard .verdict .linkbtn { font-size: 12px; }
+  .jobcard .verdict .linkbtn:hover { color: var(--accent); }
+  .jobcard .verdict .linkbtn.hide:hover { color: var(--bad); }
+  .jobcard .verdict .warn { color: var(--warn); }
+  .jobcard.is-claudehidden { opacity: .62; }
+  .resulttitle #claudeline:empty { display: none; }
   .applypanel { position: fixed; right: 18px; bottom: 18px; z-index: 20; width: min(440px, calc(100vw - 32px));
                 max-height: 70vh; overflow: auto; padding: 14px 16px; border-radius: 12px; font-size: 13px;
                 background: var(--panel); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.35); }
@@ -629,6 +673,7 @@ const PAGE = /* html */ `<!doctype html>
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
     .search-progress-bar { width: 100%; animation: none; opacity: .7; }
+    .cv.busy { animation: none; }
   }
 </style>
 </head>
@@ -757,6 +802,7 @@ const PAGE = /* html */ `<!doctype html>
           <label><input type="checkbox" role="switch" id="hideApplied" checked> скрыть отклики</label>
           <label><input type="checkbox" role="switch" id="showDismissed"> скрытые <span id="dismissedCount"></span></label>
           <label title="вакансии, которые отсеяли твои правила скрининга (src/screening.ts) — с причиной на карточке"><input type="checkbox" role="switch" id="showRuleHidden"> скрыто правилами <span id="ruleHiddenCount"></span></label>
+          <label title="вакансии, которые Claude счёл неподходящими (src/verdict.ts) — с причиной на карточке"><input type="checkbox" role="switch" id="showClaudeHidden"> скрыто Claude <span id="claudeHiddenCount"></span></label>
         </fieldset>
       </form>
       <div class="search-progress" id="searchprogress" role="status" hidden
@@ -773,6 +819,8 @@ const PAGE = /* html */ `<!doctype html>
       <div class="resulttitle">
         <h2>Matches</h2>
         <span id="resultcount">Waiting for search</span>
+        <!-- What Claude's verdict queue is doing: "Claude оценивает 2, в очереди 30". -->
+        <span id="claudeline"></span>
       </div>
       <div class="resultfilters">
         <label class="searchbox jobsearchbox">
@@ -787,6 +835,7 @@ const PAGE = /* html */ `<!doctype html>
         <label class="filterlabel" for="jobsort">Sort results</label>
         <select id="jobsort" aria-label="Sort results">
           <option value="match">Best match</option>
+          <option value="claude">Claude: лучшие сверху</option>
           <option value="newest">Newest first</option>
           <option value="company">Company A–Z</option>
         </select>
@@ -832,6 +881,20 @@ let showDismissed = false;
 // Rule hits come with the search (job.screen) and are filtered here, so the
 // toggle is instant and the reason is on the card when it is on.
 let showRuleHidden = false;
+// Claude's verdicts come with the search too (job.verdict); a "skip" waits
+// behind its own toggle, the same way a rule hit does.
+let showClaudeHidden = false;
+// The server's verdict queue (src/verdict.ts): running, queued, failed.
+let claudeStatus = { running: [], queued: [], failures: {}, pausedUntil: null };
+// Server time of the last verdict read: the next poll asks only for newer ones.
+let verdictsSince = null;
+let verdictPoll = null;
+// "почему" lists and "скрыть ▾" menus left open survive the re-render a
+// finished verdict causes. By job key.
+const openWhy = new Set();
+const openHide = new Set();
+// The cards the last render drew, by job key.
+let drawnKeys = new Set();
 let jobQuery = "";
 let jobSort = "match";
 let matchFilter = "";
@@ -1136,6 +1199,136 @@ function isRuleHidden(job) {
 }
 
 /*
+ * A card Claude judged "skip" (src/verdict.ts) that is still mine to decide
+ * on: shown under its toggle, like a rule hit. Not one I already hid or
+ * applied to — those have toggles of their own — and not a rule hit, which
+ * the rules' toggle covers.
+ */
+function isClaudeHidden(job) {
+  return Boolean(job.verdict && job.verdict.verdict === "skip")
+    && !job.dismissed && !trackedUrls.has(job.key) && !isRuleHidden(job);
+}
+
+/** Claude's line next to the match count: what the verdict queue is doing. */
+function renderClaudeLine() {
+  const running = (claudeStatus.running || []).length;
+  const queued = (claudeStatus.queued || []).length;
+  $("claudeline").textContent = claudeStatus.pausedUntil
+    ? "· " + (claudeStatus.pauseReason || "Claude на паузе") + (running || queued ? ", в очереди " + (running + queued) : "")
+    : running || queued
+      ? "· Claude оценивает " + running + (queued ? ", в очереди " + queued : "")
+      : "";
+}
+
+/*
+ * What a verdict poll compares to decide on a redraw: every card's verdict
+ * (a new one can hide a card or change a count), and for the cards on screen
+ * where the queue is with them. The queue moving through cards that are not
+ * drawn changes nothing here — a redraw closes any open hide menu.
+ */
+function verdictSignature() {
+  return (lastSearchPayload.jobs || []).map((job) => job.key + "=" + (job.verdict ? job.verdict.at : "")
+    + (drawnKeys.has(job.key)
+      ? "/" + (verdictState(job) || "") + "/" + ((claudeStatus.failures || {})[job.key] || "")
+      : "")).join("|");
+}
+
+/** "queued" / "reading" / "thinking" while the server works on this card, else null. */
+function verdictState(job) {
+  const run = (claudeStatus.running || []).find((entry) => entry.key === job.key);
+  if (run) return run.state;
+  return (claudeStatus.queued || []).includes(job.key) ? "queued" : null;
+}
+
+function claudeBusy() {
+  return (claudeStatus.running || []).length > 0 || (claudeStatus.queued || []).length > 0;
+}
+
+const VERDICT_WORD = { apply: "подходит", maybe: "стоит проверить", skip: "не подходит" };
+const VERDICT_MARK = { apply: "✓", maybe: "?", skip: "✗" };
+const STATE_WORD = { queued: "в очереди", reading: "читает вакансию…", thinking: "думает…" };
+const WORKMODE_WORD = { remote: "удалённо", hybrid: "гибрид", onsite: "офис", unclear: "формат не ясен" };
+
+/** "claude-sonnet-5-5" -> "Sonnet 5.5" */
+function modelName(model) {
+  const match = /claude-([a-z]+)-(\\d+)-(\\d+)/.exec(model || "");
+  return match ? match[1][0].toUpperCase() + match[1].slice(1) + " " + match[2] + "." + match[3] : (model || "Claude");
+}
+
+/** The chip in a card's top row: the verdict and its score, or what is happening. */
+function verdictChip(job) {
+  const state = verdictState(job);
+  const verdict = job.verdict;
+  if (state && !verdict) return '<span class="cv busy" title="Claude ' + esc(STATE_WORD[state]) + '">Claude…</span>';
+  if (!verdict) {
+    const failure = (claudeStatus.failures || {})[job.key];
+    return failure ? '<span class="cv" title="' + esc(failure) + '">Claude ⚠</span>' : "";
+  }
+  const failure = (claudeStatus.failures || {})[job.key];
+  return '<span class="cv ' + esc(verdict.verdict) + (verdict.stale ? " stale" : "") + (state ? " busy" : "")
+    + '" title="Claude: ' + esc(VERDICT_WORD[verdict.verdict]) + ", " + verdict.score + " из 100"
+    + (verdict.stale ? " · по старым критериям" : "")
+    + (failure ? " · не удалось пересчитать: " + esc(failure) : "") + '">Claude ' + VERDICT_MARK[verdict.verdict] + " "
+    + verdict.score + (failure ? " ⚠" : "") + "</span>";
+}
+
+/** A card the background queue takes (src/dashboard.ts queueVerdicts): shown, not hidden, not applied to. */
+function queueTakes(job) {
+  return Boolean(claudeStatus.auto) && !job.dismissed && !trackedUrls.has(job.key) && !isRuleHidden(job)
+    && !(claudeStatus.failures || {})[job.key];
+}
+
+/*
+ * The verdict itself: Claude's summary, "почему" with the reasons, and what to
+ * do about it — hide with Claude's reason, talk it over in Claude, ask again.
+ * Without a verdict: where it is in the queue, or a button to ask.
+ */
+function verdictBlock(job, index) {
+  const verdict = job.verdict;
+  const state = verdictState(job);
+  const failure = (claudeStatus.failures || {})[job.key];
+  if (!verdict) {
+    if (state) return '<div class="verdict">Claude ' + esc(STATE_WORD[state]) + "</div>";
+    return '<div class="verdict">'
+      + (failure ? '<span class="warn">' + esc(failure) + "</span> " : "")
+      + '<button type="button" class="linkbtn" data-verdict="' + index + '"'
+      + ' title="Claude прочитает вакансию и скажет, подходит ли она — секунд 10–20">'
+      + (failure ? "ещё раз" : "спросить Claude") + "</button></div>";
+  }
+  const items = []
+    .concat(verdict.dealbreakers.map((text) => '<li class="no">✗ ' + esc(text) + "</li>"))
+    .concat(verdict.concerns.map((text) => "<li>• " + esc(text) + "</li>"))
+    .concat(verdict.matches.map((text) => '<li class="ok">✓ ' + esc(text) + "</li>"));
+  if (verdict.workModeQuote) {
+    items.push("<li>" + esc(WORKMODE_WORD[verdict.workMode] || verdict.workMode) + ": «" + esc(verdict.workModeQuote) + "»</li>");
+  }
+  if (verdict.salary) items.push("<li>Вилка: " + esc(verdict.salary) + "</li>");
+  // "пересчитаю" only where the background queue will: elsewhere it is ↻'s job.
+  const meta = modelName(verdict.model) + " · " + ageLabel(verdict.at)
+    + (verdict.stale ? (queueTakes(job) ? " · по старым критериям, пересчитаю" : " · по старым критериям — ↻ пересчитать") : "");
+  return '<div class="verdict v-' + esc(verdict.verdict) + '">'
+    + "<p>" + esc(verdict.summary) + "</p>"
+    + (failure && !state ? '<div class="warn">не удалось пересчитать: ' + esc(failure) + "</div>" : "")
+    + (items.length
+      ? '<details class="why" data-why="' + esc(job.key) + '"' + (openWhy.has(job.key) ? " open" : "") + ">"
+        + "<summary>почему</summary><ul>" + items.join("") + '</ul><div class="vmeta">' + esc(meta) + "</div></details>"
+      : "")
+    + '<div class="vactions">'
+    + (verdict.verdict === "skip" && verdict.hideReason && !job.dismissed
+      ? '<button type="button" class="linkbtn hide" data-hide-reason="' + index + '" data-reason="'
+        + esc(verdict.hideReason) + '">скрыть: ' + esc(verdict.hideReason) + "</button>"
+      : "")
+    + (verdict.session
+      ? '<button type="button" class="linkbtn" data-discuss="' + index + '"'
+        + ' title="открыть этот разговор в Claude Desktop — вакансия и оценка уже там">обсудить в Claude ↗</button>'
+      : "")
+    + (state
+      ? "<span>пересчитываю…</span>"
+      : '<button type="button" class="linkbtn" data-verdict="' + index + '" title="спросить Claude заново">↻</button>')
+    + "</div></div>";
+}
+
+/*
  * One-click reasons for "скрыть". A reason teaches the screening rules: role
  * reasons hide reposts of that role, and "не интересна компания" — the same
  * string as COMPANY_REASON in src/screening.ts — hides the whole company. A
@@ -1153,6 +1346,7 @@ function renderSearch(payload) {
   let visible = all.filter((job) => {
     if (job.dismissed && !showDismissed) return false;
     if (isRuleHidden(job) && !showRuleHidden) return false;
+    if (isClaudeHidden(job) && !showClaudeHidden) return false;
     if (hideApplied && trackedUrls.has(job.key)) return false;
     if (matchFilter && professionalLevel(job) !== matchFilter) return false;
     if (jobQuery) {
@@ -1176,6 +1370,11 @@ function renderSearch(payload) {
   } else if (jobSort === "company") {
     visible = visible.slice().sort((a, b) =>
       String(a.company || "").localeCompare(String(b.company || "")));
+  } else if (jobSort === "claude") {
+    // Claude's "apply" first, then "maybe", the unjudged, "skip"; by score within.
+    const rank = (job) => (job.verdict ? { apply: 0, maybe: 1, skip: 3 }[job.verdict.verdict] : 2);
+    visible = visible.slice().sort((a, b) => rank(a) - rank(b)
+      || (b.verdict ? b.verdict.score : 0) - (a.verdict ? a.verdict.score : 0));
   }
 
   $("searchempty").hidden = visible.length > 0;
@@ -1191,11 +1390,15 @@ function renderSearch(payload) {
   // Never draw fewer cards than are already on screen — a re-render triggered
   // by adding a job must not collapse a list you have scrolled through.
   const shown = visible.slice(0, renderLimit);
+  drawnKeys = new Set(shown.map((job) => job.key));
 
   const dismissedTotal = payload.dismissedCount || 0;
   $("dismissedCount").textContent = dismissedTotal ? "(" + dismissedTotal + ")" : "";
   const ruleHiddenTotal = all.filter((job) => !job.dismissed && isRuleHidden(job)).length;
   $("ruleHiddenCount").textContent = ruleHiddenTotal ? "(" + ruleHiddenTotal + ")" : "";
+  const claudeHiddenTotal = all.filter(isClaudeHidden).length;
+  $("claudeHiddenCount").textContent = claudeHiddenTotal ? "(" + claudeHiddenTotal + ")" : "";
+  renderClaudeLine();
 
   const remaining = visible.length - shown.length;
   $("loadmore").hidden = remaining <= 0;
@@ -1217,6 +1420,7 @@ function renderSearch(payload) {
     const classes = ["jobcard", "lvl-" + level];
     if (job.dismissed) classes.push("is-dismissed");
     if (isRuleHidden(job)) classes.push("is-rulehidden");
+    else if (isClaudeHidden(job)) classes.push("is-claudehidden");
     if (tracked) classes.push("is-applied");
 
     const fitBadge = typeof job.fit === "number"
@@ -1240,7 +1444,8 @@ function renderSearch(payload) {
         + (tracked ? "" : '<button class="btn secondary" data-apply="' + index + '"'
           + ' title="заполнить форму через apply.mjs — сначала без отправки, потом по кнопке">Подать</button>')
         + '<button class="btn secondary" data-hide="' + index + '" title="never show this job again">скрыть</button>'
-        + '<details class="hidewhy"><summary title="скрыть с причиной — причины учатся правилами">▾</summary><div>'
+        + '<details class="hidewhy" data-hide-menu="' + esc(job.key) + '"' + (openHide.has(job.key) ? " open" : "")
+        + '><summary title="скрыть с причиной — причины учатся правилами">▾</summary><div>'
         + HIDE_REASONS.map((reason) => '<button type="button" class="linkbtn" data-hide-reason="' + index
           + '" data-reason="' + esc(reason) + '">' + esc(reason) + "</button>").join("")
         + "</div></details>";
@@ -1248,7 +1453,7 @@ function renderSearch(payload) {
     return '<article class="' + classes.join(" ") + '">'
       + '<a class="cardlink" href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener"'
       + ' aria-label="Открыть вакансию: ' + esc(job.title) + '"></a>'
-      + '<div class="row"><span class="lvl ' + esc(level) + '">' + esc(level) + "</span>"
+      + '<div class="row"><span class="lvl ' + esc(level) + '">' + esc(level) + "</span>" + verdictChip(job)
       + '<span class="src">' + esc(job.source) + "</span>" + fitBadge + eligibilityBadge + signalBadges(job)
       + (isNewJob(job) ? '<span class="newbadge" title="first seen since your last visit">новая</span>' : "")
       + (job.repostedAt ? '<span class="sig" title="the board re-posted it on ' + esc(String(job.repostedAt).slice(0, 10))
@@ -1268,6 +1473,7 @@ function renderSearch(payload) {
       + esc(job.eligibility.reason) + "</div>"
       + (isRuleHidden(job) ? '<div class="rulehit">правило: ' + esc(job.screen.reason) + "</div>" : "")
       + ((job.screen && job.screen.flags) || []).map((flag) => '<div class="flag">⚑ ' + esc(flag) + "</div>").join("")
+      + verdictBlock(job, index)
       + '<div class="actions">' + action + "</div></article>";
   }).join("");
 
@@ -1286,6 +1492,94 @@ function renderSearch(payload) {
   document.querySelectorAll("#jobgrid button[data-restore]").forEach((button) => {
     button.addEventListener("click", () => restore(Number(button.dataset.restore)));
   });
+  document.querySelectorAll("#jobgrid button[data-verdict]").forEach((button) => {
+    button.addEventListener("click", () => askClaude(Number(button.dataset.verdict)));
+  });
+  document.querySelectorAll("#jobgrid button[data-discuss]").forEach((button) => {
+    button.addEventListener("click", () => discussInClaude(Number(button.dataset.discuss)));
+  });
+  document.querySelectorAll("#jobgrid details[data-why]").forEach((details) => {
+    details.addEventListener("toggle", () => {
+      if (details.open) openWhy.add(details.dataset.why);
+      else openWhy.delete(details.dataset.why);
+    });
+  });
+  document.querySelectorAll("#jobgrid details[data-hide-menu]").forEach((details) => {
+    details.addEventListener("toggle", () => {
+      if (details.open) openHide.add(details.dataset.hideMenu);
+      else openHide.delete(details.dataset.hideMenu);
+    });
+  });
+}
+
+/*
+ * "спросить Claude" / ↻ on a card: the server reads the posting and runs
+ * "claude -p" on it (src/verdict.ts), ~10–20 s. The card shows where it is,
+ * and the verdict lands through pollVerdicts.
+ */
+async function askClaude(index) {
+  const job = searchResults[index];
+  if (!job) return;
+  try {
+    const response = await fetch("/api/verdict", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: job.key }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    claudeStatus = payload.status || claudeStatus;
+    renderSearch(lastSearchPayload);
+    pollVerdicts();
+  } catch (error) {
+    toast("Claude не запустился: " + error.message, true);
+  }
+}
+
+/** The verdict's own session, opened in Claude Desktop: the posting and the verdict are already in it. */
+async function discussInClaude(index) {
+  const job = searchResults[index];
+  if (!job) return;
+  try {
+    const response = await fetch("/api/verdict/open", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: job.key }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    toast(payload.opened === "desktop" ? "Открываю в Claude Desktop…" : "Открываю Claude в терминале…");
+  } catch (error) {
+    toast("Не открылось: " + error.message, true);
+  }
+}
+
+/*
+ * Verdicts made since the last look, and the queue's state: every 3 s while
+ * the server is working on something, otherwise with the 15-second refresh.
+ * Redraws the grid only when verdictSignature() says something drawn (or a
+ * card's visibility) changed; the queue's progress alone is the line above.
+ */
+async function pollVerdicts() {
+  clearTimeout(verdictPoll);
+  verdictPoll = null;
+  if (!searchLoaded) return;
+  try {
+    const query = verdictsSince ? "?since=" + encodeURIComponent(verdictsSince) : "";
+    const payload = await fetch("/api/verdicts" + query).then((r) => r.json());
+    verdictsSince = payload.now || verdictsSince;
+    const before = verdictSignature();
+    claudeStatus = payload.status || claudeStatus;
+    for (const job of lastSearchPayload.jobs || []) {
+      const verdict = payload.verdicts && payload.verdicts[job.key];
+      if (verdict) job.verdict = verdict;
+    }
+    if (verdictSignature() !== before) renderSearch(lastSearchPayload);
+    else renderClaudeLine();
+  } catch {
+    // the next poll tries again
+  }
+  if (claudeBusy()) verdictPoll = setTimeout(pollVerdicts, 3000);
 }
 
 async function dismiss(index, reason) {
@@ -1417,6 +1711,12 @@ async function runSearch(event, quiet) {
     if (seq !== searchSeq) return;
     if (!response.ok) throw new Error(payload.error || response.statusText);
     lastSearchPayload = payload;
+    // The verdicts are in the payload; polls from here on ask only for newer ones.
+    if (payload.claude) {
+      const { now, ...status } = payload.claude;
+      claudeStatus = status;
+      verdictsSince = now || verdictsSince;
+    }
     // "New" is relative to the previous visit, fixed for this page session.
     if (pageNewSince === undefined) pageNewSince = payload.newSince || null;
     // A new result set starts at one screenful again; a quiet re-read keeps
@@ -1424,6 +1724,7 @@ async function runSearch(event, quiet) {
     if (!quiet) renderLimit = RENDER_BATCH;
     renderSearch(payload);
     searchLoaded = true;
+    if (claudeBusy() && !verdictPoll) verdictPoll = setTimeout(pollVerdicts, 3000);
     showFreshness(payload.freshness);
     if (!visitMarked) {
       visitMarked = true;
@@ -1634,6 +1935,10 @@ function bindChrome() {
     showRuleHidden = event.target.checked;
     renderSearch(lastSearchPayload);
   });
+  $("showClaudeHidden").addEventListener("change", (event) => {
+    showClaudeHidden = event.target.checked;
+    renderSearch(lastSearchPayload);
+  });
   $("showDismissed").addEventListener("change", (event) => {
     showDismissed = event.target.checked;
     if (searchLoaded) runSearch();
@@ -1705,6 +2010,8 @@ async function load() {
     toast("Load failed: " + error.message, true);
   }
   showNewCount();
+  // Verdicts the background queue made while nothing here was waiting for one.
+  if (searchLoaded && !verdictPoll) pollVerdicts();
 }
 
 /*
@@ -1867,6 +2174,11 @@ function writeRejection(request: IncomingMessage): string | null {
   return null;
 }
 
+/** A request from this machine, not from a phone on the Wi-Fi: for things that open windows here. */
+function fromThisComputer(request: IncomingMessage): boolean {
+  return ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress ?? "");
+}
+
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? HOST}`);
   const path = url.pathname;
@@ -1954,22 +2266,99 @@ const server = createServer(async (request, response) => {
         sinceParam && !Number.isNaN(Date.parse(sinceParam))
           ? new Date(sinceParam).toISOString()
           : getMeta(LAST_VISIT);
+      // Claude's "skip" is hidden on the page, so it is not news either; a
+      // posting Claude liked goes first in `top`, marked. `pending`: how many
+      // of them Claude is about to judge, and since when — the tray app waits
+      // for those before it says "N новых", so a skip is not announced first.
       const sources = [...SEARCH_DEFAULTS.sources];
       const stored = sources.some((source) => lastFetch(source).lastSuccessAt !== null);
+      const verdicts = verdictViews();
+      const rank: Record<string, number> = { apply: 0, maybe: 1 };
+      const verdictRank = (key: string) => rank[verdicts.get(key)?.verdict ?? ""] ?? 2;
       const fresh =
         since === null || !stored
           ? []
           : feedView(sources, undefined, false).page.filter(
               ({ job, bucket }) =>
                 (bucket === "apply" || bucket === "check" || bucket === "needs-you") &&
-                (job.firstSeenAt ?? "") > since,
+                (job.firstSeenAt ?? "") > since &&
+                verdicts.get(job.key)?.verdict !== "skip",
             );
+      const mark = { apply: "✓ ", maybe: "? " } as Record<string, string>;
+      const pending = fresh.filter(
+        ({ job }) => !verdicts.has(job.key) && verdictPending(job.key, job.firstSeenAt ?? null),
+      );
       sendJson(response, 200, {
         count: fresh.length,
+        pending: pending.length,
+        pendingSince: pending.map(({ job }) => job.firstSeenAt ?? "").sort()[0] || null,
         since,
-        top: fresh.slice(0, 3).map(({ job }) => `${job.company} — ${job.title}`),
+        top: [...fresh]
+          .sort((a, b) => verdictRank(a.job.key) - verdictRank(b.job.key))
+          .slice(0, 3)
+          .map(({ job }) => `${mark[verdicts.get(job.key)?.verdict ?? ""] ?? ""}${job.company} — ${job.title}`),
         refreshing: refreshing(),
       });
+      return;
+    }
+
+    /*
+     * Claude's verdict on one card (src/verdict.ts): queued now, answered in
+     * ~10–20 s; the page polls GET /api/verdicts for it. The job is looked up
+     * in the stored feed the card came from, then among all stored postings.
+     */
+    if (request.method === "POST" && path === "/api/verdict") {
+      const body = JSON.parse((await readBody(request)) || "{}") as Record<string, unknown>;
+      const key = typeof body["key"] === "string" ? body["key"] : "";
+      const shown = storedFeed(SEARCH_DEFAULTS.sources).jobs.find((candidate) => jobKey(candidate.url) === key);
+      const copies = [...(shown ? [shown] : []), ...findPostings(key)];
+      if (copies.length === 0) {
+        sendJson(response, 404, { error: "no such job in the stored postings" });
+        return;
+      }
+      requestVerdict(key, copies, "manual");
+      sendJson(response, 202, { status: verdictStatus() });
+      return;
+    }
+
+    // Verdicts made after `since`, and what the queue is doing. `now` is the
+    // next call's `since`; it is taken before the read so nothing falls between.
+    if (request.method === "GET" && path === "/api/verdicts") {
+      const now = new Date().toISOString();
+      const sinceParam = url.searchParams.get("since");
+      const since =
+        sinceParam && !Number.isNaN(Date.parse(sinceParam)) ? new Date(sinceParam).toISOString() : undefined;
+      sendJson(response, 200, {
+        verdicts: Object.fromEntries(verdictViews(since)),
+        status: verdictStatus(),
+        now,
+      });
+      return;
+    }
+
+    /*
+     * "обсудить в Claude": the verdict's own session, opened in Claude Desktop
+     * (or a console running `claude --resume`). On this computer only — that
+     * is where the window opens.
+     */
+    if (request.method === "POST" && path === "/api/verdict/open") {
+      if (!fromThisComputer(request)) {
+        sendJson(response, 403, { error: "Claude открывается только на этом компьютере" });
+        return;
+      }
+      const body = JSON.parse((await readBody(request)) || "{}") as Record<string, unknown>;
+      const row = getVerdict(typeof body["key"] === "string" ? body["key"] : "");
+      if (!row?.session_id) {
+        sendJson(response, 404, { error: "у этой вакансии нет оценки Claude" });
+        return;
+      }
+      try {
+        sendJson(response, 200, { opened: await openSession(row.session_id) });
+      } catch (error) {
+        sendJson(response, error instanceof SessionGone ? 410 : 500, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       return;
     }
 
@@ -2004,8 +2393,7 @@ const server = createServer(async (request, response) => {
      * was not preceded by one.
      */
     if (request.method === "POST" && path === "/api/apply") {
-      const remote = request.socket.remoteAddress ?? "";
-      if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remote)) {
+      if (!fromThisComputer(request)) {
         sendJson(response, 403, { error: "applications start only from this computer" });
         return;
       }
@@ -2110,9 +2498,15 @@ const server = createServer(async (request, response) => {
       const forceRefresh = ["1", "true", "on", "yes"].includes(
         (url.searchParams.get("refresh") ?? "").toLowerCase(),
       );
-      if (forceRefresh) await refreshDue({ force: true, sources });
-      else await ensureStored(sources);
+      if (forceRefresh) {
+        await refreshDue({ force: true, sources });
+        // What the refresh found is judged now, not at the next 2-minute tick.
+        queueVerdicts();
+      } else await ensureStored(sources);
       const view = feedView(sources, hoursOld, includeDismissed);
+      // Before the read, as in /api/verdicts: the page polls from here on.
+      const verdictsAt = new Date().toISOString();
+      const verdicts = verdictViews();
 
       sendJson(response, 200, {
         // `key` is the job's identity (src/jobkey.ts): the page compares it with
@@ -2122,7 +2516,10 @@ const server = createServer(async (request, response) => {
           key: job.key,
           dismissed: job.dismissed,
           screen: { bucket, reason, flags },
+          // Claude's verdict (src/verdict.ts), null until there is one.
+          verdict: verdicts.get(job.key) ?? null,
         })),
+        claude: { ...verdictStatus(), now: verdictsAt },
         dismissedCount: view.dismissedCount,
         sourceCounts: view.result.sourceCounts,
         reports: view.result.reports,
@@ -2192,6 +2589,8 @@ const server = createServer(async (request, response) => {
         notes: text(body["notes"]),
         postedAt: text(body["postedAt"]),
       });
+      // Applied to: a verdict still waiting in the queue is not needed any more.
+      dropQueued(jobKey(url_));
 
       // Re-adding is a no-op, not an error — the UI shows "already in funnel".
       sendJson(response, alreadyExisted ? 200 : 201, {
@@ -2227,6 +2626,7 @@ const server = createServer(async (request, response) => {
         title: text(body["title"]),
         reason: text(body["reason"]),
       });
+      dropQueued(jobKey(jobUrl));
       sendJson(response, alreadyHidden ? 200 : 201, {
         dismissed,
         result: alreadyHidden ? "already_hidden" : "hidden",
@@ -2320,6 +2720,7 @@ server.listen(PORT, HOST, () => {
               console.log(`refresh  ${describe(outcome)}`);
             }
           }
+          queueVerdicts();
         })
         .catch((error: unknown) => {
           console.error(`Refresh failed: ${error instanceof Error ? error.message : error}`);
@@ -2328,7 +2729,28 @@ server.listen(PORT, HOST, () => {
     tick();
     setInterval(tick, 15 * 60_000);
   }
+  // Also on a timer of its own: the queue's daily cap and a usage limit end
+  // between refreshes, and a scheduled `npm run refresh` fills the store too.
+  setInterval(queueVerdicts, 2 * 60_000);
 });
+
+/*
+ * Claude's verdicts for the cards the Search tab shows by default (default
+ * boards, month window, nothing hidden, applied or hit by a rule): what
+ * src/verdict.ts queues in the background. JOBHUNT_CLAUDE_AUTO=0 turns it off.
+ */
+function queueVerdicts(): void {
+  try {
+    const sources = [...SEARCH_DEFAULTS.sources];
+    if (!sources.some((source) => lastFetch(source).lastSuccessAt !== null)) return;
+    const shown = feedView(sources, undefined, false).page.filter(
+      ({ job, bucket }) => !job.dismissed && (bucket === "apply" || bucket === "check" || bucket === "needs-you"),
+    );
+    queueShown(shown.map(({ job }) => ({ key: job.key, job })));
+  } catch (error) {
+    console.error(`Verdict queue failed: ${error instanceof Error ? error.message : error}`);
+  }
+}
 
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {
