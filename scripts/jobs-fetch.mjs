@@ -403,14 +403,30 @@ async function readPosting(url) {
 const W = (p) => new RegExp(`(?<![a-z0-9])(?:${p})(?![a-z0-9])`, "gi");
 
 const REMOTE = W("remote|remotely|remote-first|fully remote|100% remote|zdalnie|zdalna|zdalnej|praca zdalna|work from anywhere|work from home|wfh|home office|home-based|distributed team");
-const HYBRID = W("hybrid|hybrydow[a-z]*|(?:\d|one|two|three|four)\s+days?\s+(?:per|a|each)\s+(?:week|month)|days? (?:per|a|each) (?:week|month) (?:in|at|from) (?:the )?office|office days|in[- ]office|from (?:the|our) office|on[- ]?site(?! gym| parking| cafeteria| canteen| kitchen| restaurant)|stacjonarn[a-z]*|at our (?:warsaw|krak[oó]w|cracow|wroc[lł]aw|gda[nń]sk|pozna[nń]) office");
+// Doubled backslashes: W() builds the RegExp from a string, and "\d" / "\s" in
+// a plain string literal are just "d" / "s" — this branch never matched before.
+const HYBRID = W("hybrid|hybrydow[a-z]*|(?:\\d|one|two|three|four)\\s+days?\\s+(?:per|a|each)\\s+(?:week|month)|days? (?:per|a|each) (?:week|month) (?:in|at|from) (?:the )?office|office days|in[- ]office|from (?:the|our) office|on[- ]?site(?! gym| parking| cafeteria| canteen| kitchen| restaurant)|stacjonarn[a-z]*|at our (?:warsaw|krak[oó]w|cracow|wroc[lł]aw|gda[nń]sk|pozna[nń]) office");
 const ONSITE = W("on[- ]?site only|office[- ]based|no remote|not remote|relocat(?:e|ion) (?:to|is required)|must relocate|work from (?:the|our) office");
 const COUNTRY_LOCK = /(?:must|need(?:s)? to|should|have to|required to)\s+(?:be\s+)?(?:based|located|reside|residing|living|live)\s+(?:in|within)\s+(?:the\s+)?([A-Z][A-Za-z.]+(?:\s[A-Z][A-Za-z.]+)?)|(?:only|exclusively)\s+(?:for\s+)?(?:candidates|applicants)\s+(?:based|located|residing)\s+(?:in|within)\s+(?:the\s+)?([A-Z][A-Za-z.]+)|([A-Z][A-Za-z.]+)[- ]based (?:candidates|applicants|only)|authori[sz]ed to work in (?:the\s+)?(United States|US|U\.S\.|UK|United Kingdom|Canada|Germany)/g;
 const STACK = W("react|next\\.?js|typescript|node\\.?js|nest\\.?js|graphql|electron|tailwind|redux|zustand|supabase|postgres(?:ql)?|openai|anthropic|llm|mcp|storybook|vite|websockets?");
 const NEGATIVE = W("angular|vue(?:\\.js)?|svelte|\\.net|c#|java(?!script)|python|django|ruby|rails|golang|\\bgo\\b|php|laravel|symfony|scala|kotlin|flutter|react native|wordpress|shopify|drupal|magento|salesforce|sap|ui5|power platform|dynamics 365|elixir|rust|c\\+\\+");
 const LANG = /(?:fluent|native|proficient|good|very good|communicative|business|advanced|c1|b2|working knowledge)[\s-]+(?:level\s+)?(?:of\s+|in\s+)?(german|french|italian|spanish|dutch|polish|portuguese|czech|swedish|norwegian|danish|finnish|japanese)|(german|french|italian|spanish|dutch|polish|portuguese|czech|swedish|norwegian|danish|finnish|japanese)(?:\s+language)?(?:\s+skills)?\s+(?:is\s+|are\s+)?(?:a\s+)?(?:required|mandatory|must|essential|necessary|needed)|(?:speak|speaking)\s+(german|french|italian|spanish|dutch|polish|portuguese)/gi;
 const YEARS = /(\d{1,2})\s*\+?\s*(?:years|yrs|lat|years')\s+(?:of\s+)?(?:professional\s+|commercial\s+|hands-on\s+|proven\s+)?(?:experience|doświadczenia)/gi;
-const SALARY = /(?:(?:PLN|zł|EUR|€|USD|\$|GBP|£)\s?\d[\d\s.,]{2,}(?:\s?[-–]\s?\d[\d\s.,]{2,})?(?:\s?(?:PLN|zł|EUR|USD|GBP))?|\d[\d\s.,]{2,}\s?(?:[-–]\s?\d[\d\s.,]{2,}\s?)?(?:PLN|zł|EUR|€|USD|GBP|£|k\b))(?:\s?(?:net|gross|brutto|netto))?(?:\s?\/?\s?(?:month|mo|year|yr|annual|h|hour|mies|m-c|rocznie|miesięcznie))?/gi;
+const SALARY = /(?:(?:PLN|zł|EUR|€|USD|\$|GBP|£)\s?\d[\d\s.,]{2,}(?:\s?[-–]\s?\d[\d\s.,]{2,})?(?:\s?(?:PLN|zł|EUR|USD|GBP))?|\d[\d\s.,]{2,}\s?(?:[-–]\s?\d[\d\s.,]{2,}\s?)?(?:PLN|zł|EUR|€|USD|GBP|£|k\b))(?:\s?(?:net|gross|brutto|netto))?(?:\s?\/?\s?(?:month|mo|year|yr|annual|h|hour|mies|m-c|rocznie|miesięcznie)(?![a-z]))?/gi;
+
+/**
+ * Whether a SALARY match is pay and not some other money in the text. It used
+ * to put "$26", "$781" and "$500 h" into application rows: funding rounds
+ * ("$26M Series A"), revenue, and "$500 hardware budget".
+ */
+function plausibleSalary(text, after) {
+  if (/^\s?(?:m\b|mln|million|bn|b\b|billion|k\+? (?:users|customers|employees))/i.test(after)) return false;
+  const thousands = /\d\s?k\b/i.test(text) ? 1000 : 1;
+  const amounts = (text.match(/\d[\d\s.,]*/g) ?? []).map((n) => Number(n.replace(/[\s,]/g, "")) * thousands);
+  const top = Math.max(0, ...amounts.filter((n) => Number.isFinite(n)));
+  const hourly = /\/\s?h\b|\bh\b|hour|godz/i.test(text);
+  return hourly ? top >= 20 : top >= 1000;
+}
 const LEVEL_JUNIOR = W("junior|intern|internship|trainee|graduate|entry[- ]level|młodszy");
 const LEVEL_MID = W("mid|middle|regular|mid-level");
 const LEVEL_SENIOR = W("senior|lead|staff|principal|expert|architect|starszy");
@@ -457,7 +473,12 @@ export function analyse(title, text) {
   LEVEL_JUNIOR.lastIndex = LEVEL_SENIOR.lastIndex = LEVEL_MID.lastIndex = 0;
 
   const years = [...body.matchAll(YEARS)].map((m) => Number(m[1])).filter((n) => n > 0 && n < 20);
-  const salary = uniq(body.match(SALARY) ?? [], 2).map((s) => s.replace(/\s+/g, " "));
+  const salary = uniq(
+    [...body.matchAll(SALARY)]
+      .filter((m) => plausibleSalary(m[0], body.slice(m.index + m[0].length, m.index + m[0].length + 14)))
+      .map((m) => m[0].trim()),
+    2,
+  ).map((s) => s.replace(/\s+/g, " "));
 
   return {
     mode: mode + (mode.includes("hybrid") ? hybridHint : ""),
@@ -551,7 +572,8 @@ function formatLine(r) {
     r.stack.length ? `+${r.stack.slice(0, 5).join(",")}` : "+none",
     r.neg.length ? `-${r.neg.join(",")}` : "",
     r.lang.length ? `lang:${r.lang.join(",")}` : "",
-    r.salary.length ? `$${r.salary[0]}` : "",
+    // "pay:", not "$": the figure keeps its own currency.
+    r.salary.length ? `pay:${r.salary[0]}` : "",
     `apply:${r.applyVendor}${q}`,
     r.applyUrl,
   ]

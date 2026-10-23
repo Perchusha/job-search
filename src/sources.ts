@@ -414,7 +414,16 @@ async function fetchHimalayas(options: FetchOptions): Promise<Job[]> {
     // 503 on the most common path — a text search's first page.
     if (page > 1) params.set("page", String(page));
 
-    const payload = await fetchJson(`https://himalayas.app/jobs/api/search?${params.toString()}`);
+    // A failed later page keeps what the earlier ones returned. It used to
+    // throw, discarding the whole query's rows for one 503 on page 2.
+    let payload: unknown;
+    try {
+      payload = await fetchJson(`https://himalayas.app/jobs/api/search?${params.toString()}`);
+    } catch (error) {
+      if (page === 1) throw error;
+      console.error(`himalayas: page ${page} of "${options.query ?? ""}" failed, keeping pages 1-${page - 1}`);
+      break;
+    }
     const rows = unwrapJobArray(payload);
 
     // Only an empty page means "no more results". A short page does not: the
@@ -541,21 +550,58 @@ function companyTitleKey(job: Job): string {
   return `${squash(job.company)}|${squash(job.title)}`;
 }
 
+/** No restriction, or one that includes Poland. */
+function opensToPoland(restrictions: string[]): boolean {
+  return (
+    restrictions.length === 0 ||
+    /\b(?:poland|polska|europe|eu|european union|emea|worldwide|anywhere)\b/i.test(restrictions.join(" "))
+  );
+}
+
 /**
  * Dedupe by jobKey first (tracking parameters ignored, job ids in the query
- * kept — see jobkey.ts), then by company+title. The first copy wins.
+ * kept — see jobkey.ts), then by company+title. The first copy wins, with one
+ * exception: Himalayas publishes one URL per country for the same role, and
+ * when a variant for another country came first ("Frontend Engineer — UK",
+ * then the same role for Poland), the role was scored as out of reach and
+ * dropped. A later copy that is open to Poland replaces one that is not.
  */
 export function dedupeJobs(jobs: Job[]): Job[] {
   const seenUrls = new Set<string>();
-  const seenCompanyTitle = new Set<string>();
+  const byCompanyTitle = new Map<string, number>();
   const unique: Job[] = [];
 
   for (const job of jobs) {
     const urlKey = jobKey(job.url);
+    if (seenUrls.has(urlKey)) continue;
     const nameKey = companyTitleKey(job);
-    if (seenUrls.has(urlKey) || seenCompanyTitle.has(nameKey)) continue;
+    const at = byCompanyTitle.get(nameKey);
+    if (at !== undefined) {
+      const kept = unique[at] as Job;
+      if (
+        kept.locationRestrictions.length > 0 &&
+        !opensToPoland(kept.locationRestrictions) &&
+        job.locationRestrictions.length > 0 &&
+        opensToPoland(job.locationRestrictions)
+      ) {
+        unique[at] = job;
+        seenUrls.add(urlKey);
+      } else if (!kept.pay?.length && job.pay?.length) {
+        // The kept copy wins, but not by throwing away what only the other
+        // copy publishes: CommIT's Indeed listing beat its Himalayas one, and
+        // the PLN 23–30k range went with it.
+        unique[at] = {
+          ...kept,
+          pay: job.pay,
+          salary: job.salary,
+          salaryMin: job.salaryMin,
+          salaryMax: job.salaryMax,
+        };
+      }
+      continue;
+    }
     seenUrls.add(urlKey);
-    seenCompanyTitle.add(nameKey);
+    byCompanyTitle.set(nameKey, unique.length);
     unique.push(job);
   }
 

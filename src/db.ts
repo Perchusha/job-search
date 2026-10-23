@@ -84,6 +84,8 @@ export type ApplicationRow = {
   response_at: string | null;
   last_update: string;
   notes: string | null;
+  /** When the posting was published (or first seen): how early I applied. */
+  posted_at: string | null;
 };
 
 /** A row as presented to callers, with `ghosted` derived and days computed. */
@@ -253,6 +255,13 @@ function migrate(database: Database.Database): void {
    * migration must not fail on them. Rows written by an older process without
    * a key are filled in on the next open, and lookups fall back to url.
    */
+  // How long after publication I applied — the one thing that can be learned
+  // about timing once replies come in. Nullable: older rows never had it.
+  const appColumns = database.prepare<[], { name: string }>("PRAGMA table_info(applications)").all();
+  if (!appColumns.some((column) => column.name === "posted_at")) {
+    database.exec("ALTER TABLE applications ADD COLUMN posted_at TEXT");
+  }
+
   for (const table of ["applications", "dismissed"]) {
     const columns = database.prepare<[], { name: string }>(`PRAGMA table_info(${table})`).all();
     if (!columns.some((column) => column.name === "url_key")) {
@@ -279,6 +288,13 @@ function migrate(database: Database.Database): void {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/** An ISO date string, or null for anything that does not parse. */
+function validIso(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : new Date(time).toISOString();
 }
 
 function daysBetween(fromIso: string, toIso: string): number {
@@ -330,6 +346,8 @@ export type NewApplication = {
   status?: Status;
   notes?: string | null;
   appliedAt?: string;
+  /** The posting's publication date (or when it was first seen), if known. */
+  postedAt?: string | null;
 };
 
 /** Matches on jobKey, so a tracking-parameter variant finds the same row. */
@@ -368,8 +386,8 @@ export function insertApplication(
   const result = getDb()
     .prepare(
       `INSERT INTO applications
-         (company, title, url, url_key, source, location, salary, status, applied_at, response_at, last_update, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+         (company, title, url, url_key, source, location, salary, status, applied_at, response_at, last_update, notes, posted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
     )
     .run(
       input.company,
@@ -383,6 +401,7 @@ export function insertApplication(
       appliedAt,
       timestamp,
       initialNote,
+      validIso(input.postedAt),
     );
 
   const created = getApplication(Number(result.lastInsertRowid));

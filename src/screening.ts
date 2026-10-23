@@ -22,6 +22,7 @@
  *     EPAM's Lead and Senior full-stack openings on purpose.
  */
 
+import { belowSalaryFloor } from "./boards-pl.ts";
 import { jobKey } from "./jobkey.ts";
 import { workSignals } from "./workmode.ts";
 import {
@@ -202,6 +203,10 @@ export type ScreenJob = {
   eligibility?: { level: string; reason: string };
   /** Posting text, when the board gave one — for the language rule. */
   description?: string | null;
+  salary?: string | null;
+  pay?: import("./sources.ts").PayRange[];
+  /** Already computed by presentJob (funnel.mjs screens presented jobs). */
+  belowSalaryFloor?: boolean;
 };
 
 const STALE_DAYS = 60;
@@ -238,6 +243,11 @@ export function decide(
   const company = companyKey(job.company);
   const tokens = titleTokens(title);
   const flags = companyFlags(context, company);
+  // Known pay under the floor: a flag, not a hide — the user did apply to
+  // some on purpose — but never again by accident (Bold, Scalo).
+  if (job.belowSalaryFloor ?? belowSalaryFloor(job as Parameters<typeof belowSalaryFloor>[0])) {
+    flags.push(`зарплата ниже порога: ${job.salary ?? "?"}`);
+  }
 
   if (job.dismissed) return { bucket: "skip", reason: "already hidden", flags };
   if (context.appliedKeys.has(jobKey(job.url))) {

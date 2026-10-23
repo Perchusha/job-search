@@ -1003,7 +1003,12 @@ function renderRows() {
     const titleCell = a.url
       ? '<a href="' + esc(a.url) + '" target="_blank" rel="noreferrer noopener">' + esc(a.title) + "</a>"
       : esc(a.title);
-    const sub = [a.source, a.location, a.salary].filter(Boolean).map(esc).join(" &middot; ");
+    // How early I applied: days from publication (or first sighting) to the application.
+    const lead = a.posted_at
+      ? Math.max(0, Math.floor((Date.parse(a.applied_at) - Date.parse(a.posted_at)) / 86400000))
+      : null;
+    const sub = [a.source, a.location, a.salary, lead === null ? null : "через " + lead + " дн. после публикации"]
+      .filter(Boolean).map(esc).join(" &middot; ");
 
     const needsAttention = !a.ghosted && a.status === "applied" && a.daysSinceApplied >= 7;
     const rowClass = a.ghosted ? "is-ghosted" : (needsAttention ? "needs-attention" : "");
@@ -1334,6 +1339,7 @@ async function addToFunnel(index, button) {
         source: job.source,
         location: job.location,
         salary: job.salary,
+        postedAt: job.postedAt,
       }),
     });
     const payload = await response.json();
@@ -1479,19 +1485,32 @@ function renderAttempts(attempts) {
  */
 let applyState = null;
 
-async function startApplyRun(index, mode) {
+async function startApplyRun(index, mode, acceptLowPay) {
   const job = searchResults[index];
   if (!job) return;
   try {
     const response = await fetch("/api/apply", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: job.key, mode }),
+      body: JSON.stringify({ key: job.key, mode, acceptLowPay: Boolean(acceptLowPay) }),
     });
     const payload = await response.json();
+    if (response.status === 409 && payload.lowPay) {
+      // Published pay under the floor: ask, do not guess.
+      applyState = { index, job, id: null, timer: null, acceptLowPay: false };
+      const panel = $("applypanel");
+      panel.hidden = false;
+      panel.innerHTML = '<div class="applyhead"><span><b>' + esc(job.company) + "</b> — " + esc(job.title) + "</span>"
+        + '<button type="button" class="linkbtn" id="applyclose">закрыть</button></div>'
+        + '<p class="warn">Зарплата ниже твоего порога: ' + esc(job.salary || "?") + "</p>"
+        + '<button type="button" class="btn secondary" id="applylowpay">Всё равно подать</button>';
+      document.getElementById("applyclose").addEventListener("click", () => { panel.hidden = true; });
+      document.getElementById("applylowpay").addEventListener("click", () => startApplyRun(index, mode, true));
+      return;
+    }
     if (!response.ok) throw new Error(payload.error || response.statusText);
     if (applyState && applyState.timer) clearTimeout(applyState.timer);
-    applyState = { index, job, id: payload.id, timer: null };
+    applyState = { index, job, id: payload.id, timer: null, acceptLowPay: Boolean(acceptLowPay) };
     renderApplyPanel({ done: false, mode, log: [] });
     pollApply();
   } catch (error) {
@@ -1550,7 +1569,7 @@ function renderApplyPanel(state) {
   const close = document.getElementById("applyclose");
   if (close) close.addEventListener("click", () => { panel.hidden = true; });
   const submit = document.getElementById("applysubmit");
-  if (submit) submit.addEventListener("click", () => startApplyRun(applyState.index, "submit"));
+  if (submit) submit.addEventListener("click", () => startApplyRun(applyState.index, "submit", applyState.acceptLowPay));
 }
 
 /** Per-board age of the stored data, on the Refresh button's tooltip. */
@@ -1983,9 +2002,9 @@ const server = createServer(async (request, response) => {
         sendJson(response, 404, { error: "no such job in the stored postings" });
         return;
       }
-      const refused = refusal(key, job, mode);
+      const refused = refusal(key, job, mode, body["acceptLowPay"] === true);
       if (refused) {
-        sendJson(response, 409, { error: refused });
+        sendJson(response, 409, { error: refused.message, lowPay: refused.lowPay ?? false });
         return;
       }
       const run = startApply(key, job, mode, `http://127.0.0.1:${PORT}`);
@@ -2156,6 +2175,7 @@ const server = createServer(async (request, response) => {
         // apply.mjs records what went out (CV version, cover letter, route), so
         // reply rates can later be compared per variant.
         notes: text(body["notes"]),
+        postedAt: text(body["postedAt"]),
       });
 
       // Re-adding is a no-op, not an error — the UI shows "already in funnel".

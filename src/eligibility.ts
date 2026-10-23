@@ -532,10 +532,12 @@ function runSanityChecks(): void {
     { title: "Senior React Native Developer", expect: 3 },
     // nothing recognised either way
     { title: "Senior Software Engineer, Growth", expect: 2 },
-    // Frontend + AI emphasis: both targets reach tier 0, backend-titled and
-    // ML roles do not. Changing the emphasis means changing profile.ts.
-    { title: "Senior AI Engineer (LLM, RAG)", expect: 0 },
-    { title: "LLM Engineer - Prompt Pipelines", expect: 0 },
+    // Frontend is the target, AI a bonus: an AI title with no frontend in it
+    // is capped at a partial match (profile.ts aiOnlyTitle); AI on a frontend
+    // title stays at the top. Backend-titled and ML roles are out.
+    { title: "Senior AI Engineer (LLM, RAG)", expect: 1 },
+    { title: "LLM Engineer - Prompt Pipelines", expect: 1 },
+    { title: "Senior Frontend Engineer (AI Applications)", expect: 0 },
     { title: "Senior UI Engineer, Design System", expect: 0 },
     { title: "Senior Backend Engineer (NestJS)", expect: 3 },
     { title: "Senior ML Engineer (PyTorch)", expect: 3 },

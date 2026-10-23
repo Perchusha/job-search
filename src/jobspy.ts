@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { Job } from "./sources.ts";
+import type { Job, PayRange } from "./sources.ts";
 
 /** JobSpy boards we expose. Their ids match JobSpy's `site_name` values. */
 export const JOBSPY_SITES = ["indeed", "linkedin", "glassdoor", "google", "zip_recruiter"] as const;
@@ -240,6 +240,30 @@ function compact(amount: number): string {
   return String(Math.round(amount));
 }
 
+/** JobSpy's posted pay as a PayRange; weekly figures become monthly. */
+function payRange(
+  min: number | null,
+  max: number | null,
+  currency: string | null,
+  interval: string,
+): PayRange[] {
+  const low = min !== null && min > 0 ? min : null;
+  const high = max !== null && max > 0 ? max : null;
+  if (!currency || (low === null && high === null)) return [];
+  const weekly = interval === "weekly" || interval === "biweekly";
+  const scale = interval === "weekly" ? 52 / 12 : interval === "biweekly" ? 26 / 12 : 1;
+  const unit: PayRange["unit"] =
+    interval === "hourly" ? "hour" : interval === "daily" ? "day" : interval === "monthly" || weekly ? "month" : "year";
+  return [{
+    contract: "other",
+    min: low === null ? null : low * scale,
+    max: high === null ? null : high * scale,
+    currency,
+    unit,
+    gross: false,
+  }];
+}
+
 /** Maps a JobSpy `site` value onto our source ids. */
 function mapSite(site: string | null): JobSpySite {
   const normalized = (site ?? "").toLowerCase().replace(/[\s-]+/g, "_");
@@ -301,6 +325,8 @@ function normalize(raw: RawJob): Job | null {
     salaryMin,
     salaryMax,
     tags: [...new Set(tags)],
+    // The posted figures as a pay range, for the salary floor and minSalary.
+    pay: payRange(rawMin, rawMax, currency, interval),
     postedAt: posted && !Number.isNaN(posted.getTime()) ? posted.toISOString() : null,
     // JobSpy has no per-country eligibility metadata; the search is scoped by
     // `location` instead, and the scorer reads the location text.

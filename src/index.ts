@@ -117,7 +117,7 @@ server.tool(
     minSalary: z
       .number()
       .optional()
-      .describe("Annual minimum. Only jobs that publish a salary can match this"),
+      .describe("Minimum pay in PLN per month, B2B-equivalent (e.g. 25000; hourly rates ×168, UoP gross scaled, other currencies converted). Only jobs that publish pay can match this"),
     sources: z
       .array(sourceEnum)
       .optional()
@@ -300,6 +300,7 @@ server.tool(
           source: z.string().optional(),
           location: z.string().optional(),
           salary: z.string().optional(),
+          postedAt: z.string().nullable().optional().describe("The posting's date, as find_jobs returns it"),
         }),
       )
       .min(1)
@@ -322,6 +323,7 @@ server.tool(
           location: job.location ?? null,
           salary: job.salary ?? null,
           status: initialStatus,
+          postedAt: job.postedAt ?? null,
         });
         return {
           url: job.url,

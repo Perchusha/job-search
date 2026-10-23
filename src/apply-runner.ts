@@ -9,6 +9,8 @@
  *   - One run per Chrome profile at a time. apply.mjs uses two fixed
  *     profiles (LinkedIn, everything else) and a second launch on the same
  *     profile fails.
+ *   - Published pay under the floor (profile.ts SALARY) needs an explicit
+ *     "apply anyway": two such applications went out unnoticed before.
  *   - The verification code, a CAPTCHA, an account: never automated.
  *     Greenhouse and LinkedIn run headed on this machine, and the page tells me
  *     to type the code into that window. Every other ending lands in the
@@ -23,6 +25,8 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { belowSalaryFloor } from "./boards-pl.ts";
+import { postingStack } from "./profile.ts";
 import type { Job } from "./sources.ts";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "apply.mjs");
@@ -67,12 +71,20 @@ export function getRun(id: string): ApplyRun | null {
   return runs.get(id) ?? null;
 }
 
-/** Why this run may not start, or null when it may. */
-export function refusal(key: string, job: Job, mode: ApplyMode): string | null {
+/** Why this run may not start, or null when it may. `lowPay`: the page can offer "apply anyway". */
+export function refusal(
+  key: string,
+  job: Job,
+  mode: ApplyMode,
+  acceptLowPay = false,
+): { message: string; lowPay?: boolean } | null {
   const holder = busy.get(profileFor(job));
   if (holder) {
     const other = runs.get(holder);
-    return `another application is running in this Chrome profile (${other?.company ?? "?"})`;
+    return { message: `another application is running in this Chrome profile (${other?.company ?? "?"})` };
+  }
+  if (!acceptLowPay && belowSalaryFloor(job)) {
+    return { message: `the published pay (${job.salary ?? "?"}) is below your floor`, lowPay: true };
   }
   if (mode === "submit") {
     const shown = [...runs.values()].some(
@@ -83,7 +95,7 @@ export function refusal(key: string, job: Job, mode: ApplyMode): string | null {
         run.result?.["result"] === "dry-run" &&
         Date.now() - run.startedAt < DRY_RUN_VALID_MS,
     );
-    if (!shown) return "dry run first: submit is allowed only after its filled fields were shown";
+    if (!shown) return { message: "dry run first: submit is allowed only after its filled fields were shown" };
   }
   return null;
 }
@@ -115,10 +127,13 @@ export function startApply(key: string, job: Job, mode: ApplyMode, dashboardUrl:
     "--title", job.title,
     "--source", job.source,
     "--cover", "auto",
-    "--stack", job.tags.slice(0, 12).join(","),
+    // The CV terms the posting names, in its order: the cover letter's one
+    // posting-specific sentence is built from them.
+    "--stack", postingStack(job).slice(0, 12).join(","),
   ];
   if (job.location) args.push("--location", job.location);
   if (job.salary) args.push("--salary", job.salary);
+  if (job.postedAt) args.push("--posted", job.postedAt);
   const contract = contractOf(job);
   if (contract) args.push("--contract", contract);
   if (mode === "dry-run") args.push("--dry-run");

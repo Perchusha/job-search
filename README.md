@@ -258,7 +258,10 @@ where the volume is:
 Jobs are deduped across sources by normalized URL, then by case-insensitive
 `company + title`. That second key matters: Himalayas' offset pagination can return the
 same job twice, and companies repost identical roles under different URLs — in testing,
-20 of 39 results for one query were duplicates.
+20 of 39 results for one query were duplicates. The first copy wins, with two exceptions:
+Himalayas lists one URL per country for the same role, so a copy open to Poland replaces
+one restricted elsewhere (the role used to be dropped as out of reach when the UK copy came
+first); and a surviving copy without pay takes the pay its duplicate published.
 
 **Rate limits and outages** are handled: HTTP 429 and any other failure skip that source
 with a note rather than throwing.
@@ -605,7 +608,12 @@ once and both surfaces follow.
   B2B-equivalent a month — hourly ×168, UoP gross ×0.81 — my own 34k UoP = 27.5k B2B, static FX) to the end of its tier;
   then fit band and seniority; then postings whose text asks for office days or fluent
   Polish; then eligibility confidence and recency. A junior title or a foreign stack in the
-  title is tier 3 outright — a body full of React cannot lift it.
+  title is tier 3 outright — a body full of React cannot lift it. An AI title with no
+  frontend/fullstack/web in it is capped at tier 1, after the frontend roles. A title that
+  names no level falls back to the board's own (Himalayas tags, nofluffjobs / justjoin.it
+  levels): Senior ranks as senior, Mid-level/Entry-level just below "unstated".
+- **`minSalary`** (find_jobs) is PLN per month, B2B-equivalent, in the same unit as the floor
+  — it used to compare monthly and foreign figures with an annual number.
 - **Screening rules run inside the search** ([src/screening.ts](src/screening.ts), lists in
   profile.ts): the same rules as `funnel.mjs screen`, applied at read time against the funnel
   and the hidden list. Hits stay behind the **скрыто правилами** toggle with their reason;
@@ -634,7 +642,10 @@ filled, nothing is sent, and the panel lists every field and value — and only 
 "Отправить отклик". The server refuses a submit that was not preceded by a dry run of the
 same job within 30 minutes, runs one application per Chrome profile at a time, and accepts
 the request only from this computer (the Chrome window, and the Greenhouse code typed into
-it, are here). A submitted application lands in the funnel by itself; anything short of that
+it, are here). A posting whose published pay is under the floor asks "Всё равно подать?"
+first; such pay is also flagged on its card. A submitted application lands in the funnel
+by itself, with the posting's date (the Tracker shows how many days after publication it
+went out); anything short of that
 — a code, a CAPTCHA, an account wall, a missing answer — lands under **нужно вам** on the
 Search tab and in `node scripts/funnel.mjs attempts`, until the job is applied to or hidden.
 

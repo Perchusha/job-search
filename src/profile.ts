@@ -425,6 +425,20 @@ function hasTerm(haystack: string, term: string): boolean {
 }
 
 /**
+ * The CV terms (STACK_WEIGHTS) a posting names, in the order it names them —
+ * what apply.mjs's cover letter mentions as "the stack you ask for".
+ */
+export function postingStack(job: Job): string[] {
+  const text = [job.title, ...job.tags, job.description ?? ""].join(" ");
+  return STACK_WEIGHTS.flatMap(([term, weight]) => {
+    if (weight < 2 || !hasTerm(text, term)) return [];
+    return [{ term, at: text.search(TERM_PATTERNS.get(term) as RegExp) }];
+  })
+    .sort((a, b) => a.at - b.at)
+    .map(({ term }) => term);
+}
+
+/**
  * Coarse seniority bucket from the title: 0 = senior, 1 = unstated, 2 = junior.
  * Lower sorts first.
  *
@@ -461,11 +475,25 @@ const SENIOR_MARKERS: RegExp[] = [
   /(?<![a-ząćęłńóśźż])starszy/, // "senior" in Polish
 ];
 
+/** A board's own level field or seniority tag (Himalayas, nofluffjobs, justjoin.it). */
+const BOARD_SENIOR = /^(?:senior|lead|staff|principal|expert|manager)\b/i;
+const BOARD_LOWER = /^(?:mid(?:-level)?|middle|regular|entry(?:-level)?|junior|intern)\b/i;
+
+/**
+ * 0 = senior, 1 = unstated, 1.5 = the board says mid/entry level, 2 = junior
+ * by title. The title decides first; a title with no level falls back to the
+ * board's own field. On one Himalayas pass 13 of 31 results were tagged
+ * Mid-level and ranked as "unstated" next to senior roles. Board tags only
+ * demote — the user did apply to two Mid-level-tagged roles — and never gate.
+ */
 export function seniorityBucket(job: Job): number {
   const title = job.title.toLowerCase();
   // Junior wins ties: "Junior/Senior" listings are really junior openings.
   if (JUNIOR_MARKERS.some((marker) => marker.test(title))) return 2;
   if (SENIOR_MARKERS.some((marker) => marker.test(title))) return 0;
+  const levels = [job.seniorityLevel ?? "", ...job.tags].map((tag) => tag.trim());
+  if (levels.some((tag) => BOARD_SENIOR.test(tag))) return 0;
+  if (levels.some((tag) => BOARD_LOWER.test(tag))) return 1.5;
   return 1;
 }
 
@@ -565,11 +593,28 @@ export function fitTier(job: Job): number {
   return tier;
 }
 
+const AI_TITLE_TERMS = ["ai", "llm", "genai", "agentic", "prompt", "rag"];
+
+/**
+ * An AI role with no frontend/fullstack/web in its title. "AI Engineer is not
+ * the job being searched for" (header): such titles are capped at tier 1, a
+ * partial match ranked after the frontend roles. Not lower — I did apply to
+ * "Technical Lead, Senior AI Engineer" — but they no longer reach the top as
+ * "Senior AI Engineer (LLM, RAG)" did with fit +10.
+ */
+function aiOnlyTitle(job: Job): boolean {
+  const title = job.title.toLowerCase();
+  return (
+    AI_TITLE_TERMS.some((term) => hasTerm(title, term)) &&
+    !TARGET_TITLE_TERMS.some((term) => hasTerm(title, term))
+  );
+}
+
 function computeFitTier(job: Job): number {
   if (titleDisqualifies(job)) return 3;
   const score = stackFit(job);
   if (score < 0) return 3; // wrong stack — bottom of the list
-  if (score >= 6) return 0; // clear match
+  if (score >= 6) return aiOnlyTitle(job) ? 1 : 0; // clear match
   if (score > 0) return 1; // partial match
   return 2; // nothing recognised either way
 }

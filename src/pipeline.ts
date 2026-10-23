@@ -11,7 +11,7 @@
  * twice.
  */
 
-import { belowSalaryFloor } from "./boards-pl.ts";
+import { belowSalaryFloor, payB2bPlnMonth } from "./boards-pl.ts";
 import { lastFetch, listDismissedKeys, loadPostings } from "./db.ts";
 import { workSignals } from "./workmode.ts";
 import { jobKey } from "./jobkey.ts";
@@ -57,6 +57,13 @@ export type SearchParams = {
   excludeUrls?: string[];
   seniority?: string;
   worldwideOnly?: boolean;
+  /**
+   * Minimum pay, PLN per month, B2B-equivalent — the unit the profile's floor
+   * is in (profile.ts SALARY: hourly ×168, UoP gross by my equivalence,
+   * static FX). It used to compare raw numbers: Himalayas monthly and
+   * foreign-currency figures against an annual floor, so "PLN 23k–30k /
+   * monthly" failed an 80k floor and "INR 1200k / annual" passed it.
+   */
   minSalary?: number;
   sources?: SourceName[];
   /** Drop jobs scored `low`. Default true. */
@@ -289,7 +296,8 @@ export function rankFetched(fetched: Fetched, params: SearchParams = {}): Search
     minSalary === undefined
       ? afterFit
       : afterFit.filter((job) => {
-          const best = job.salaryMax ?? job.salaryMin;
+          const monthly = job.pay?.length ? payB2bPlnMonth(job.pay) : null;
+          const best = monthly ? (monthly.max ?? monthly.min) : null;
           if (best === null) {
             hiddenForUnknownSalary++;
             return false;

@@ -7,6 +7,7 @@
  *   node scripts/apply.mjs <applyUrl> --url <postingUrl> --company ".." --title ".." [--source indeed]
  *                          [--cover <file|text>] [--answers <json file>] [--dry-run] [--headed]
  *   node scripts/apply.mjs --remember "<label substring>" "<answer>"   add to the answer bank
+ *                          [--posted <iso date>]   the posting's date, stored with the application
  *                          [--contract uop|b2b]   the posting's contract type, when known: picks
  *                                                 the gross UoP or the net B2B salary figure
  *   node scripts/apply.mjs --login            # opens a window on linkedin.com; log in, then close it
@@ -306,6 +307,55 @@ function escape(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Technologies from the CV, with the years profile.json states where it does.
+ * Order is the CV's; the sentence uses the posting's order instead.
+ */
+const CV_STACK = [
+  ["React", /\breact\b(?![\s.-]*native)/i, "yearsReact"],
+  ["TypeScript", /typescript/i, "yearsTypescript"],
+  ["Next.js", /\bnext(?:\.?js)?\b/i, "yearsNext"],
+  ["Node.js", /\bnode(?:\.?js)?\b/i, "yearsNode"],
+  ["NestJS", /\bnest(?:\.?js)?\b/i, null],
+  ["GraphQL", /graphql/i, null],
+  ["Redux", /redux/i, null],
+  ["Tailwind", /tailwind/i, null],
+  ["Storybook", /storybook/i, null],
+  ["Electron", /electron/i, null],
+  ["PostgreSQL", /postgres/i, null],
+  ["Supabase", /supabase/i, null],
+  ["WebSockets", /websocket/i, null],
+  ["Cypress", /cypress/i, null],
+  ["Jest", /\bjest\b/i, null],
+];
+
+/**
+ * The one sentence written for this posting: the CV technologies it asks for,
+ * in its own order, with years where profile.json has them. Every letter used
+ * to open identically; null when the posting names none of them.
+ */
+function stackSentence(title, stack) {
+  const asked = String(stack ?? "")
+    .split(/[,;]/)
+    .map((term) => term.trim())
+    .filter(Boolean);
+  const hits = [];
+  for (const term of asked) {
+    const hit = CV_STACK.find(([name, pattern]) => pattern.test(term) && !hits.some((h) => h[0] === name));
+    if (hit) hits.push(hit);
+    if (hits.length === 3) break;
+  }
+  if (hits.length === 0) return null;
+  const names = hits.map(([name]) => name);
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  const years = hits
+    .filter(([, , key]) => key && PROFILE[key])
+    .map(([name, , key]) => `${name} for ${PROFILE[key]} years`);
+  const every = names.length === 1 ? "which I work with every day" : "which is the stack I work in every day";
+  return `The ${title} role asks for ${list}, ${every}` +
+    (years.length ? ` — ${years.join(", ")} in production.` : ".");
+}
+
 /** Four short paragraphs; `stack` is the comma list jobs-fetch found in the posting. */
 function autoCover(company, title, stack) {
   const s = stack.toLowerCase();
@@ -315,9 +365,11 @@ function autoCover(company, title, stack) {
   if (/electron/.test(s)) extras.push("On the desktop side I ship and maintain a commercial Electron + React Steam game solo (29K lines of TypeScript, 450+ tests).");
   if (/next/.test(s) && extras.length < 2) extras.push("I run a production Next.js + Supabase SaaS of my own (stashlootstack.com), including Stripe billing and scheduled data syncs.");
   if (/accessib|wcag|a11y/.test(s)) extras.push("Accessibility is part of how I build: WCAG 2.1 AA / RGAA-compliant, server-rendered UIs for Qobuz.com across all regional domains.");
+  const fit = stackSentence(title, stack);
   return [
     `Hi ${company} team,`,
     `I'm a senior software engineer (9 years; React, Next.js, TypeScript, Node.js/NestJS) based in Warsaw and working fully remote. Most recently I've been building Next.js/GraphQL modules for a B2B events platform and SSR components for Qobuz.com; before that I was tech lead on an AI product, where I led the migration from Firebase to NestJS and cut LLM response times from 10-15 s to ~3 s.`,
+    ...(fit ? [fit] : []),
     ...extras.slice(0, 2),
     `I'd be glad to talk about the ${title} role. My CV is attached; portfolio: ${PROFILE.portfolio}.`,
     `Best regards,\nAnton Perch\n${PROFILE.phone} · ${PROFILE.linkedin}`,
@@ -835,6 +887,7 @@ async function recordInFunnel(args, applyUrl, vendor) {
     source: args.source ?? "manual",
     location: args.location ?? null,
     salary: args.salary ?? null,
+    postedAt: typeof args.posted === "string" ? args.posted : null,
     notes: sentNote(vendor),
   };
   try {
