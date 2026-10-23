@@ -326,6 +326,13 @@ const plural = (n) => (n % 10 === 1 && n % 100 !== 11 ? "новая ваканс
  * board.
  */
 async function checkNew() {
+  // A server this app attached to (Job Hunt.bat) may have been closed since;
+  // then start an own one, so the background refresh never quietly stops.
+  if (!server && !(await alive())) {
+    log("no server answering: starting one");
+    restarts = 0;
+    await startServer();
+  }
   try {
     const sinceVisit = await newSince(null);
     newCount = sinceVisit.count ?? 0;
