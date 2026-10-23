@@ -13,6 +13,7 @@
 
 import { belowSalaryFloor } from "./boards-pl.ts";
 import { listDismissedKeys } from "./db.ts";
+import { workSignals } from "./workmode.ts";
 import { jobKey } from "./jobkey.ts";
 import { scoreEligibility, levelRank, type Eligibility } from "./eligibility.ts";
 import {
@@ -109,6 +110,12 @@ export function rankJobs(jobs: RankedJob[]): RankedJob[] {
     const byFit = fitTier(a) - fitTier(b);
     if (byFit !== 0) return byFit;
 
+    // Published pay under the floor (profile.ts SALARY) goes to the end of its
+    // tier: a fit score cannot make INR 1.2M a year (≈4k PLN a month) a top
+    // card. Demoted, never hidden — unknown pay is not "below".
+    const byPay = Number(belowSalaryFloor(a)) - Number(belowSalaryFloor(b));
+    if (byPay !== 0) return byPay;
+
     const band = (job: RankedJob) => Math.floor(stackFit(job) / 8);
     const byBand = band(b) - band(a);
     if (byBand !== 0) return byBand;
@@ -116,10 +123,12 @@ export function rankJobs(jobs: RankedJob[]): RankedJob[] {
     const bySeniority = seniorityBucket(a) - seniorityBucket(b);
     if (bySeniority !== 0) return bySeniority;
 
-    // Published pay under the floor (profile.ts SALARY) sorts after everything
-    // else in its band. Demoted, never hidden: some are still worth a look.
-    const byPay = Number(belowSalaryFloor(a)) - Number(belowSalaryFloor(b));
-    if (byPay !== 0) return byPay;
+    // The text asks for office days, or for fluent Polish: shown, labelled,
+    // and after the roles that do not.
+    const friction = (job: RankedJob) =>
+      Number(workSignals(job).mode !== null || workSignals(job).polishRequired);
+    const byFriction = friction(a) - friction(b);
+    if (byFriction !== 0) return byFriction;
 
     // Eligibility `medium` usually means missing LinkedIn metadata, not a weak
     // professional match, so geography comes after fit and seniority.
@@ -367,5 +376,7 @@ export function presentJob(job: RankedJob) {
     workMode: job.workMode ?? null,
     seniorityLevel: job.seniorityLevel ?? null,
     belowSalaryFloor: belowSalaryFloor(job),
+    // From the posting text (src/workmode.ts); empty without a description.
+    signals: workSignals(job),
   };
 }

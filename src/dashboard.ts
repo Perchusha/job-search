@@ -526,6 +526,9 @@ const PAGE = /* html */ `<!doctype html>
   .linkbtn.restore:hover { color: var(--good); }
   .jobcard.is-dismissed { opacity: .5; }
   .jobcard.is-rulehidden { opacity: .62; }
+  .jobcard .sig { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; color: var(--muted);
+                  border: 1px solid var(--line); }
+  .jobcard .sig.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
   .jobcard .rulehit { font-size: 11.5px; color: var(--warn); }
   .jobcard .flag { font-size: 11.5px; color: var(--muted); }
   .jobcard .hidewhy { position: relative; }
@@ -1102,6 +1105,22 @@ function renderSourceFilter() {
   });
 }
 
+/** What the posting text says (src/workmode.ts): office days, Polish. */
+function signalBadges(job) {
+  const signals = job.signals || {};
+  let html = "";
+  if (signals.mode) {
+    html += '<span class="sig warn" title="' + esc(signals.context || "") + '">'
+      + (signals.mode === "onsite" ? "офис" : "офис N дн.") + "</span>";
+  }
+  if (signals.polishRequired) html += '<span class="sig warn" title="the posting asks for fluent Polish">польский C1+</span>';
+  else if (signals.inPolish) html += '<span class="sig" title="the posting is written in Polish">PL</span>';
+  if (job.workMode === "hybrid" || job.workMode === "office") {
+    html += '<span class="sig warn" title="the board lists it as ' + esc(job.workMode) + '">' + esc(job.workMode) + "</span>";
+  }
+  return html;
+}
+
 /** A card my screening rules would hide (src/screening.ts); shown under its toggle. */
 function isRuleHidden(job) {
   return Boolean(job.screen && job.screen.bucket === "dismiss");
@@ -1219,7 +1238,7 @@ function renderSearch(payload) {
       + '<a class="cardlink" href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener"'
       + ' aria-label="Открыть вакансию: ' + esc(job.title) + '"></a>'
       + '<div class="row"><span class="lvl ' + esc(level) + '">' + esc(level) + "</span>"
-      + '<span class="src">' + esc(job.source) + "</span>" + fitBadge + eligibilityBadge
+      + '<span class="src">' + esc(job.source) + "</span>" + fitBadge + eligibilityBadge + signalBadges(job)
       + '<span class="when">' + esc(ageLabel(job.postedAt)) + "</span></div>"
       + '<h3>' + esc(job.title) + "</h3>"
       + '<div class="co">' + esc(job.company) + "</div>"

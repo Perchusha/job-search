@@ -363,10 +363,31 @@ function normalizeHimalayas(raw: unknown): Job | null {
       asString(job["currency"]),
       asString(job["salaryPeriod"]),
     ),
+    // The same figures as a pay range, so the salary floor and the B2B-
+    // equivalent comparison apply to Himalayas too — "INR 1200k / annual"
+    // (≈4k PLN a month) used to rank like any other salaried role.
+    pay: himalayasPay(job),
     tags: [...new Set(tags)],
     postedAt: toIsoDate(job["pubDate"]),
     locationRestrictions: asStringArray(job["locationRestrictions"]),
   };
+}
+
+function himalayasPay(job: Record<string, unknown>): PayRange[] {
+  const min = asNumber(job["minSalary"]);
+  const max = asNumber(job["maxSalary"]);
+  const currency = asString(job["currency"]);
+  if (!currency || ((min ?? 0) <= 0 && (max ?? 0) <= 0)) return [];
+  const period = (asString(job["salaryPeriod"]) ?? "").toLowerCase();
+  const unit: PayRange["unit"] = period.startsWith("hour")
+    ? "hour"
+    : period.startsWith("day")
+      ? "day"
+      : period.startsWith("month")
+        ? "month"
+        : "year";
+  // Contract unknown: compared as if B2B, with no UoP scaling.
+  return [{ contract: "other", min: min && min > 0 ? min : null, max: max && max > 0 ? max : null, currency, unit, gross: false }];
 }
 
 async function fetchHimalayas(options: FetchOptions): Promise<Job[]> {

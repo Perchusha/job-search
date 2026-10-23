@@ -190,15 +190,28 @@ situation.
 
 ## Job sources
 
-Two families, all behind `Promise.allSettled` so one dead source never breaks a search —
+Three families, all behind `Promise.allSettled` so one dead source never breaks a search —
 it shows up as a skip note instead.
+
+**Polish IT boards** ([src/boards-pl.ts](src/boards-pl.ts)) — where the local market is, and
+the only sources with pay per contract type:
+
+| Source | Notes |
+| --- | --- |
+| [NoFluffJobs](https://nofluffjobs.com) | Default. One listing page (remote, senior, React) returns up to 100 postings; measured 62, pay on 60, B2B/UoP and per hour or month. Read from the page's `serverApp-state` |
+| [justjoin.it](https://justjoin.it) | Default. Two listing pages (remote, senior, JavaScript), 86 offers measured; pay per contract type, `workplaceType`, level. Read from the Next.js flight data. Its `publishedAt` is bumped on every refresh, so the older of its two stamps is used |
+
+Both boards' JSON APIs are disallowed in robots.txt; the listing pages are allowed, so those
+are what is read — once per pass, not once per query (`PER_PASS_SOURCES`). Their copy of a
+role goes first in dedupe, so the published pay survives. A page that parses to nothing is
+reported as skipped. The URLs are `POLISH_BOARDS` in profile.ts.
 
 **Scraped via [JobSpy](https://github.com/speedyapply/JobSpy)** (Python, optional) — this is
 where the volume is:
 
 | Source | Notes |
 | --- | --- |
-| **Indeed** | Default. ~60 jobs in ~1s, full descriptions on every job, `is_remote` reliably set. Real local market: "Warszawa, MZ, PL", "zdalnie, PL". **Country-scoped** — see below |
+| **Indeed** | Default. ~60 jobs in ~1s, full descriptions on every job. `is_remote` is a substring test for "remote" in the body, so the text is read again for office days (src/workmode.ts). Real local market: "Warszawa, MZ, PL", "zdalnie, PL". **Country-scoped** — see below |
 | **LinkedIn** | Opt-in. Measured at ~0.5s/job (25s for 50) and often omits `is_remote`, so cards say `geo check`; professional matches still rank normally. Worth it for coverage Indeed misses |
 | glassdoor / zip_recruiter / google | Available, not default. US-centric; google needs its own query syntax |
 
@@ -206,12 +219,12 @@ where the volume is:
 
 | Source | Notes |
 | --- | --- |
-| [Himalayas](https://himalayas.app) | Default. The **only** source with published salaries and real `locationRestrictions`; supports server-side `q`, `seniority`, `worldwide` |
+| [Himalayas](https://himalayas.app) | Default. Some published salaries (any currency) and real `locationRestrictions`; supports server-side `q`, `seniority`, `worldwide` |
 | [RemoteOK](https://remoteok.com) | Opt-in. First array element is legal metadata and is skipped. Content varies wildly |
 | [Arbeitnow](https://www.arbeitnow.com) | Opt-in. EU/Germany focused |
 
-Default set is **`indeed` + `himalayas`**: volume from one, salary and worldwide-remote from
-the other, ~1 second total.
+`SEARCH_DEFAULTS.sources` is **nofluffjobs, justjoin, indeed, linkedin, himalayas**.
+`DEFAULT_SOURCES` (`indeed` + `himalayas`) is only the fallback for a caller that names none.
 
 ### JobSpy caveats worth knowing
 
@@ -543,10 +556,17 @@ once and both surfaces follow.
 - **UTF-8 is forced on the Python child** (`PYTHONIOENCODING`, `PYTHONUTF8`). Without it,
   Polish listings (ł, ę, ó) raise `UnicodeEncodeError` on the Windows cp1252 console — this
   bit during development and looked like a scraper failure.
-- **Ranking starts with stack fit and seniority**, then eligibility confidence and recency.
-  It demotes junior titles in English and Polish
-  (`intern`, `junior`, `praktyk`, `staż`, `młodszy`). Scraped boards accept no seniority
-  filter, so without this a fresh internship outranks a staff role.
+- **Ranking**: fit tier; then published pay under the floor (`SALARY` in profile.ts, 25k PLN
+  B2B-equivalent a month — hourly ×168, UoP gross ×1.2, static FX) to the end of its tier;
+  then fit band and seniority; then postings whose text asks for office days or fluent
+  Polish; then eligibility confidence and recency. A junior title or a foreign stack in the
+  title is tier 3 outright — a body full of React cannot lift it.
+- **Screening rules run inside the search** ([src/screening.ts](src/screening.ts), lists in
+  profile.ts): the same rules as `funnel.mjs screen`, applied at read time against the funnel
+  and the hidden list. Hits stay behind the **скрыто правилами** toggle with their reason;
+  nothing is written to `dismissed`. Hides written by a rule never count as evidence, and a
+  role like one already applied to is a flag on the card, not a hide. "скрыть ▾" takes a
+  one-click reason; "не интересна компания" hides that company everywhere.
 - **Stack keywords come from the CV**, weighted, in `sources.ts`. That list is the single
   place that encodes "what I actually do" — edit it to change what ranks highly.
 

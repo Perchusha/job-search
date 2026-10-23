@@ -13,6 +13,7 @@
  */
 
 import { fitTier, stackFit } from "./profile.ts";
+import { workSignals } from "./workmode.ts";
 import type { Job } from "./sources.ts";
 
 export type Level = "high" | "medium" | "low";
@@ -198,6 +199,16 @@ function scoreScraped(job: Job): Eligibility {
     job.remote || matchToken(location, "zdalnie") || matchToken(job.title, "remote");
 
   if (explicitlyRemote) {
+    // The flag is a substring test for "remote" anywhere in the body; the
+    // text can still ask for office days. Then it is a "check", not confirmed.
+    const signals = workSignals(job);
+    if (signals.mode !== null) {
+      return {
+        eligible: true,
+        level: "medium",
+        reason: `Listed as remote, but the posting says ${signals.mode === "onsite" ? "onsite" : "office days"}: «${signals.context}»`,
+      };
+    }
     // "Remote" on a national board usually means remote *within that country* —
     // a Berlin remote role often requires German tax residency. Only a
     // Poland-or-EU-wide location earns `high`; anything else needs checking.
@@ -362,6 +373,36 @@ function runSanityChecks(): void {
       label: "indeed, remote 'zdalnie, PL' -> high",
       job: stub({ source: "indeed", remote: true, location: "zdalnie, PL" }),
       expect: "high",
+    },
+    {
+      label: "indeed, remote flag but the text asks for office days -> medium",
+      job: stub({
+        source: "indeed",
+        remote: true,
+        location: "zdalnie, PL",
+        description: "Please note, the position requires hybrid (3 days office) work in Krakow.",
+      }),
+      expect: "medium",
+    },
+    {
+      label: "indeed, 'hybrid or 100% remote, your choice' stays high",
+      job: stub({
+        source: "indeed",
+        remote: true,
+        location: "zdalnie, PL",
+        description: "Możliwość pracy w **trybie hybrydowym** (3 dni z biura) lub **100% zdalnie.**",
+      }),
+      expect: "high",
+    },
+    {
+      label: "nofluffjobs, remote -> high",
+      job: stub({ source: "nofluffjobs", remote: true, workMode: "remote", location: "Remote, PL" }),
+      expect: "high",
+    },
+    {
+      label: "justjoin, hybrid in Warsaw -> medium",
+      job: stub({ source: "justjoin", remote: false, workMode: "hybrid", location: "Warszawa, PL" }),
+      expect: "medium",
     },
     {
       label: "indeed, 'zdalnie, PL' with missing remote flag -> high",

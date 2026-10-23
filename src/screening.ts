@@ -23,6 +23,7 @@
  */
 
 import { jobKey } from "./jobkey.ts";
+import { workSignals } from "./workmode.ts";
 import {
   SCREEN_BACKEND_ONLY,
   SCREEN_FRONTEND,
@@ -199,6 +200,8 @@ export type ScreenJob = {
   postedAt: string | null;
   dismissed?: boolean;
   eligibility?: { level: string; reason: string };
+  /** Posting text, when the board gave one — for the language rule. */
+  description?: string | null;
 };
 
 const STALE_DAYS = 60;
@@ -268,6 +271,11 @@ export function decide(
       if (reason.startsWith("QA") && SCREEN_FRONTEND.test(title) && !/\bqa\b|tester|sdet/i.test(title)) continue;
       return { bucket: "dismiss", reason, flags };
     }
+  }
+
+  // Polish B1 is not "fluent Polish". The title rule above only sees titles.
+  if (workSignals(job).polishRequired) {
+    return { bucket: "dismiss", reason: "requires fluent Polish (per posting)", flags };
   }
 
   if (SCREEN_BACKEND_ONLY.test(plain) && !SCREEN_FRONTEND.test(plain)) {

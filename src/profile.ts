@@ -171,7 +171,10 @@ export const POLISH_BOARDS = {
 export const SALARY = {
   floorB2bPlnMonth: 25_000,
   uopToB2b: 1.2,
-  fxToPln: { PLN: 1, EUR: 4.25, USD: 3.9, GBP: 5.0, CHF: 4.5 } as Record<string, number>,
+  fxToPln: {
+    PLN: 1, EUR: 4.25, USD: 3.9, GBP: 5.0, CHF: 4.5, CAD: 2.85, AUD: 2.55,
+    SEK: 0.37, NOK: 0.36, DKK: 0.57, CZK: 0.17, INR: 0.046, BRL: 0.7, PHP: 0.067, UAH: 0.094,
+  } as Record<string, number>,
 };
 
 /**
