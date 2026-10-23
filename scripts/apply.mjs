@@ -22,6 +22,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, join, resolve as resolvePath } from "node:path";
 import { chromium } from "playwright";
@@ -799,7 +800,10 @@ async function collectErrors(page) {
 function sentNote(vendor) {
   let cv = "missing";
   try {
-    cv = `${basename(PROFILE.cvPath)}@${statSync(PROFILE.cvPath).mtime.toISOString().slice(0, 10)}`;
+    // Date plus a content hash: the file keeps its name across versions, and
+    // a hash tells two edits on the same day apart.
+    const hash = createHash("sha1").update(readFileSync(PROFILE.cvPath)).digest("hex").slice(0, 8);
+    cv = `${basename(PROFILE.cvPath)}@${statSync(PROFILE.cvPath).mtime.toISOString().slice(0, 10)}#${hash}`;
   } catch {}
   const cover = flags.cover === "auto" ? "auto" : flags.cover ? "custom" : "none";
   return `sent: cv=${cv} cover=${cover} route=${vendor}`;
