@@ -78,6 +78,9 @@ function summarizeApplication(application: Application) {
 
 const statusEnum = z.enum(STATUSES);
 const sourceEnum = z.enum([
+  // Polish IT boards — pay per contract type (B2B/UoP), explicit remote flag
+  "nofluffjobs",
+  "justjoin",
   // scraped via JobSpy — volume + descriptions, no salary data
   "indeed",
   "linkedin",
@@ -96,7 +99,7 @@ const sourceEnum = z.enum([
 
 server.tool(
   "find_jobs",
-  "Find jobs worth applying to. Called with NO arguments it searches the saved profile in src/profile.ts (my target searches, Poland, remote-only, neutral/wrong-stack and junior roles dropped) — that is the normal way to use it. The profile search skips LinkedIn: it takes ~80s on its own and would blow the request timeout. The dashboard queries it; this tool does not unless you name it in `sources`. Arguments override parts of the profile for one call (e.g. `sources` to add LinkedIn, `query` for a different search term); hidden jobs, remote-only and the fit filter still apply. Returns separate professional-match and work-eligibility levels plus the apply URL. Scraped boards give volume and descriptions but no salary; Himalayas is the only source with published salaries.",
+  "Find jobs worth applying to. Called with NO arguments it searches the saved profile in src/profile.ts (my target searches, Poland, remote-only, neutral/wrong-stack and junior roles dropped) — that is the normal way to use it. The profile search skips LinkedIn: it takes ~80s on its own and would blow the request timeout. The dashboard queries it; this tool does not unless you name it in `sources`. Arguments override parts of the profile for one call (e.g. `sources` to add LinkedIn, `query` for a different search term); hidden jobs, remote-only and the fit filter still apply. Returns separate professional-match and work-eligibility levels plus the apply URL. Scraped boards give volume and descriptions but no salary; the Polish boards (nofluffjobs, justjoin) publish pay per contract type (B2B/UoP), and pay under the profile floor sorts lower.",
   {
     query: z.string().optional().describe("Free-text search, e.g. 'senior react typescript'"),
     seniority: z

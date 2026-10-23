@@ -8,6 +8,7 @@
  * Field shapes below were verified against the live endpoints, not docs.
  */
 
+import { fetchJustJoin, fetchNoFluffJobs } from "./boards-pl.ts";
 import { jobKey } from "./jobkey.ts";
 import {
   JobSpyUnavailable,
@@ -30,6 +31,8 @@ import {
  * eligibility and salary metadata is worth more than a duplicate scrape.
  */
 export type SourceName =
+  | "nofluffjobs"
+  | "justjoin"
   | "indeed"
   | "linkedin"
   | "glassdoor"
@@ -51,7 +54,22 @@ export const JOBSPY_SOURCES: SourceName[] = [
 /** Free public feeds, no scraping, no extra runtime. */
 export const FEED_SOURCES: SourceName[] = ["himalayas", "remoteok", "arbeitnow"];
 
-export const ALL_SOURCES: SourceName[] = [...JOBSPY_SOURCES, ...FEED_SOURCES];
+/** Polish IT boards read from their listing pages (src/boards-pl.ts). */
+export const POLISH_SOURCES: SourceName[] = ["nofluffjobs", "justjoin"];
+
+/**
+ * Sources whose listing does not take a search term: one fetch per pass, not
+ * one per TARGET_QUERY (searchJobs splits them out). Their URLs already encode
+ * remote + senior + stack, and repeating them per query would download the
+ * same page ten times.
+ */
+export const PER_PASS_SOURCES: SourceName[] = [...POLISH_SOURCES];
+
+/**
+ * Order decides which copy survives dedupe. The Polish boards go first: their
+ * copy of a role carries pay per contract type, the Indeed copy carries none.
+ */
+export const ALL_SOURCES: SourceName[] = [...POLISH_SOURCES, ...JOBSPY_SOURCES, ...FEED_SOURCES];
 
 /**
  * Default search set — Indeed for volume, Himalayas for salary + worldwide.
@@ -70,6 +88,17 @@ export const ALL_SOURCES: SourceName[] = [...JOBSPY_SOURCES, ...FEED_SOURCES];
  * rows even for a US location. google needs its own query syntax.
  */
 export const DEFAULT_SOURCES: SourceName[] = ["indeed", "himalayas"];
+
+/** One published pay range. Polish boards list one per contract type. */
+export type PayRange = {
+  contract: "b2b" | "uop" | "mandate" | "other";
+  min: number | null;
+  max: number | null;
+  currency: string;
+  unit: "hour" | "day" | "month" | "year";
+  /** UoP figures are quoted gross; B2B net of VAT. */
+  gross: boolean;
+};
 
 export type Job = {
   source: SourceName;
@@ -95,6 +124,12 @@ export type Job = {
    * purpose — it is for drafting cover letters, not for filling context.
    */
   description?: string | null;
+  /** Pay per contract type, when the board publishes it (Polish boards). */
+  pay?: PayRange[];
+  /** The board's own work-mode field, when it has one. */
+  workMode?: "remote" | "hybrid" | "office" | null;
+  /** The board's own seniority level ("senior", "Mid-level"…), when it has one. */
+  seniorityLevel?: string | null;
 };
 
 export type FetchOptions = {
@@ -530,6 +565,8 @@ export async function fetchAllSources(options: FetchOptions = {}): Promise<Fetch
   };
 
   const fetchers: Record<SourceName, (options: FetchOptions) => Promise<Job[]>> = {
+    nofluffjobs: () => fetchNoFluffJobs(),
+    justjoin: () => fetchJustJoin(),
     indeed: scrape("indeed"),
     linkedin: scrape("linkedin"),
     glassdoor: scrape("glassdoor"),

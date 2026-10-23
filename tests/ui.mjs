@@ -682,7 +682,7 @@ async function main() {
 
   /* ---- source filter ---- */
   const boxes = sourceBoxes();
-  // Two here because of JOBHUNT_SOURCES above; the real profile ships three.
+  // Two here because of JOBHUNT_SOURCES above; the real profile ships five.
   check("a pill per configured board", boxes.length === 2,
     boxes.map((el) => el.value).join(", "));
   check("every board starts switched on", boxes.every((el) => el.checked));

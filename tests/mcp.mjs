@@ -46,7 +46,9 @@ async function connect() {
   const transport = new StdioClientTransport({
     command: "npx",
     args: ["tsx", "src/index.ts"],
-    env: { ...process.env, JOBHUNT_DB: DB },
+    // Same boards as tests/ui.mjs: the Polish boards and LinkedIn stay off, so a
+    // test run sends as little traffic as it can.
+    env: { ...process.env, JOBHUNT_DB: DB, JOBHUNT_SOURCES: "indeed,himalayas" },
   });
   const client = new Client({ name: "job-hunt-tests", version: "1.0.0" });
   await client.connect(transport);

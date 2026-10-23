@@ -229,9 +229,27 @@ function scoreScraped(job: Job): Eligibility {
   };
 }
 
+/**
+ * The Polish boards are scoped to Poland by the listing itself, and carry an
+ * explicit work-mode field, so the question is only whether it is remote.
+ */
+function scorePolishBoard(job: Job): Eligibility {
+  if (job.workMode === "remote" || job.remote) {
+    return { eligible: true, level: "high", reason: "Remote, Polish board" };
+  }
+  return {
+    eligible: true,
+    level: "medium",
+    reason: `${job.workMode === "hybrid" ? "Hybrid" : "Onsite"} in "${job.location ?? "Poland"}" — you live in Poland, but it is not remote`,
+  };
+}
+
 /** Score one job for a Poland-based applicant. */
 export function scoreEligibility(job: Job): Eligibility {
   switch (job.source) {
+    case "nofluffjobs":
+    case "justjoin":
+      return scorePolishBoard(job);
     case "himalayas":
       return scoreHimalayas(job);
     case "remoteok":

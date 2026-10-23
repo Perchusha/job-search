@@ -63,11 +63,11 @@ type SearchCacheEntry = {
  * identical searches share the same promise, and API responses can remain
  * `no-store` so a browser never serves stale application/dismissal state.
  *
- * The key is only what changes the boards' answer: sources and hoursOld. The
- * dismissed list used to be part of it, so every "скрыть" made the next date
- * chip, source pill or reload re-scrape every board — about 80 s with
- * LinkedIn. Entries now hold the whole ranked feed, hidden jobs included, and
- * /api/search drops the hidden ones per request.
+ * The key is only which boards were asked. The dismissed list and the date
+ * window used to be part of it, so every "скрыть" and every date chip made the
+ * next search re-scrape every board — about 80 s with LinkedIn. Entries now
+ * hold the whole ranked month, hidden jobs included, and /api/search cuts the
+ * window and drops the hidden ones per request.
  */
 const searchCache = new Map<string, SearchCacheEntry>();
 
@@ -128,8 +128,8 @@ async function cachedProfileSearch(
  */
 const FEED_LIMIT = 10_000;
 
-function profileCacheKey(sources: readonly string[], hoursOld: number): string {
-  return JSON.stringify({ sources: [...sources].sort(), hoursOld });
+function profileCacheKey(sources: readonly string[]): string {
+  return JSON.stringify({ sources: [...sources].sort() });
 }
 
 /**
@@ -502,6 +502,7 @@ const PAGE = /* html */ `<!doctype html>
                     background: color-mix(in srgb, var(--panel-2) 62%, transparent);
                     font-size: 11.5px; color: var(--muted); line-height: 1.5; }
   .jobcard .sal { color: var(--text); font-variant-numeric: tabular-nums; }
+  .jobcard .sal.low { color: var(--warn); }
   .jobcard .actions { display: flex; gap: 8px; align-items: center; margin-top: auto; padding-top: 4px;
                       position: relative; z-index: 2; }
   .jobcard .actions .btn:first-child { flex: 1 1 auto; }
@@ -1187,7 +1188,11 @@ function renderSearch(payload) {
       + '<div class="co">' + esc(job.company) + "</div>"
       + '<div class="details">'
       + (job.location ? '<span title="Location">⌖ ' + esc(job.location) + "</span>" : "")
-      + (job.salary ? '<span class="sal" title="Salary">· ' + esc(job.salary) + "</span>" : "")
+      + (job.salary
+        ? '<span class="sal' + (job.belowSalaryFloor ? " low" : "") + '" title="'
+          + (job.belowSalaryFloor ? "Published pay is below your floor" : "Salary") + '">· '
+          + esc(job.salary) + "</span>"
+        : "")
       + "</div>"
       + '<div class="reason">' + esc(job.match && job.match.reason ? job.match.reason + ". " : "")
       + esc(job.eligibility.reason) + "</div>"
@@ -1366,11 +1371,10 @@ function bindChrome() {
   $("searchform").addEventListener("submit", runSearch);
 
   /*
-   * Posting age is a SEARCH parameter, not a filter over what came back. The
-   * ranked list is capped at SEARCH_DEFAULTS.limit, and recency is only the
-   * fourth sort key — so filtering afterwards shows "0 fresh jobs" whenever the
-   * top of the list happens to be older postings, which is most of the time.
-   * Narrowing the window server-side ranks fresh jobs against each other.
+   * Posting age goes to the server rather than filtering the 200 cards already
+   * here: recency is only the fourth sort key, so the top of the list is mostly
+   * older postings and a local cut would show "0 fresh jobs". The server cuts
+   * the window from its cached month before the limit — no boards are asked.
    */
   document.querySelectorAll("#datefilter input[type=radio]").forEach((radio) => {
     radio.addEventListener("change", () => {
@@ -1635,23 +1639,31 @@ const server = createServer(async (request, response) => {
         (url.searchParams.get("refresh") ?? "").toLowerCase(),
       );
       const cached = await cachedProfileSearch(
-        profileCacheKey(sources, hoursOld ?? SEARCH_DEFAULTS.hoursOld),
+        profileCacheKey(sources),
         {
-          // The cache holds everything; hidden jobs are dropped below, per
-          // request, so a dismissal never invalidates it.
+          // The cache holds the whole month, hidden jobs included; the date
+          // window and the hidden list are applied below, per request, so
+          // neither a date chip nor a dismissal re-scrapes the boards.
           excludeUrls: [],
           limit: FEED_LIMIT,
-          ...(hoursOld === undefined ? {} : { hoursOld }),
           sources,
         },
         forceRefresh,
       );
       const result = cached.result;
 
+      // Narrower windows are cut from the cached month before the page limit,
+      // so fresh jobs are ranked against each other, as a dedicated search
+      // would. Postings with no date stay; the page decides about those.
+      const windowStart = Date.now() - (hoursOld ?? SEARCH_DEFAULTS.hoursOld) * 3_600_000;
+      const inWindow = result.jobs.filter(
+        (job) => !job.postedAt || Date.parse(job.postedAt) >= windowStart,
+      );
+
       // Read on every request, so dismissals written by the MCP or funnel.mjs
       // while the page is open apply at once.
       const dismissedKeys = new Set(listDismissedKeys());
-      const keyed = result.jobs.map((job) => ({ job, key: jobKey(job.url) }));
+      const keyed = inWindow.map((job) => ({ job, key: jobKey(job.url) }));
       const kept = includeDismissed ? keyed : keyed.filter(({ key }) => !dismissedKeys.has(key));
       const page = kept.slice(0, SEARCH_DEFAULTS.limit);
 
@@ -1858,7 +1870,7 @@ server.listen(PORT, HOST, () => {
   if (process.env["JOBHUNT_WARM"] !== "0") {
     const sources = [...SEARCH_DEFAULTS.sources];
     cachedProfileSearch(
-      profileCacheKey(sources, SEARCH_DEFAULTS.hoursOld),
+      profileCacheKey(sources),
       { excludeUrls: [], limit: FEED_LIMIT, sources },
       false,
     ).catch((error: unknown) => {

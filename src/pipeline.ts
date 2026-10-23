@@ -11,6 +11,7 @@
  * twice.
  */
 
+import { belowSalaryFloor } from "./boards-pl.ts";
 import { listDismissedKeys } from "./db.ts";
 import { jobKey } from "./jobkey.ts";
 import { scoreEligibility, levelRank, type Eligibility } from "./eligibility.ts";
@@ -25,6 +26,7 @@ import {
 } from "./profile.ts";
 import {
   DEFAULT_SOURCES,
+  PER_PASS_SOURCES,
   dedupeJobs,
   fetchAllSources,
   type Job,
@@ -84,6 +86,8 @@ export type SearchCounts = {
   hiddenForFit: number;
   /** Excluded because they were dismissed ("not interested"). */
   hiddenForDismissed: number;
+  /** Excluded as older than the hoursOld window. */
+  hiddenForAge: number;
   /** The searches that produced this list. */
   queries: string[];
 };
@@ -111,6 +115,11 @@ export function rankJobs(jobs: RankedJob[]): RankedJob[] {
 
     const bySeniority = seniorityBucket(a) - seniorityBucket(b);
     if (bySeniority !== 0) return bySeniority;
+
+    // Published pay under the floor (profile.ts SALARY) sorts after everything
+    // else in its band. Demoted, never hidden: some are still worth a look.
+    const byPay = Number(belowSalaryFloor(a)) - Number(belowSalaryFloor(b));
+    if (byPay !== 0) return byPay;
 
     // Eligibility `medium` usually means missing LinkedIn metadata, not a weak
     // professional match, so geography comes after fit and seniority.
@@ -163,9 +172,18 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
     linkedinDescriptions: params.linkedinDescriptions,
   };
 
-  const outcomes = await Promise.all(
-    queries.map((query) => fetchAllSources({ ...common, query: query || undefined })),
-  );
+  // Boards that take no search term are fetched once, not once per query.
+  // Their outcome goes first so their copy of a role (with pay) wins dedupe.
+  const perPass = sources.filter((source) => PER_PASS_SOURCES.includes(source));
+  const perQuery = sources.filter((source) => !PER_PASS_SOURCES.includes(source));
+  const outcomes = await Promise.all([
+    ...(perPass.length > 0 ? [fetchAllSources({ ...common, sources: perPass })] : []),
+    ...(perQuery.length > 0
+      ? queries.map((query) =>
+          fetchAllSources({ ...common, sources: perQuery, query: query || undefined }),
+        )
+      : []),
+  ]);
 
   const allJobs = outcomes.flatMap((outcome) => outcome.jobs);
 
@@ -193,7 +211,24 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
     excluded.size === 0 ? deduped : deduped.filter((job) => !excluded.has(jobKey(job.url)));
   const hiddenForDismissed = deduped.length - kept.length;
 
-  const scored: RankedJob[] = kept.map((job) => ({
+  // The window is enforced here, for every caller. hoursOld only reaches the
+  // scraped boards, and Himalayas alone returned month-and-a-half-old rows;
+  // before this only the dashboard page dropped them, so find_jobs and the
+  // screen script still saw them. Undated postings are kept: not provably old.
+  const hoursOld = params.hoursOld;
+  let hiddenForAge = 0;
+  const fresh =
+    hoursOld === undefined
+      ? kept
+      : kept.filter((job) => {
+          if (!job.postedAt || Date.parse(job.postedAt) >= Date.now() - hoursOld * 3_600_000) {
+            return true;
+          }
+          hiddenForAge++;
+          return false;
+        });
+
+  const scored: RankedJob[] = fresh.map((job) => ({
     ...job,
     eligibility: scoreEligibility(job),
   }));
@@ -259,6 +294,7 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
       hiddenForUnknownSalary,
       hiddenForFit,
       hiddenForDismissed,
+      hiddenForAge,
       queries: queries.filter((query) => query.length > 0),
     },
   };
@@ -327,5 +363,9 @@ export function presentJob(job: RankedJob) {
       level: job.eligibility.level,
       reason: job.eligibility.reason,
     },
+    // What the Polish boards publish beyond the shared fields.
+    workMode: job.workMode ?? null,
+    seniorityLevel: job.seniorityLevel ?? null,
+    belowSalaryFloor: belowSalaryFloor(job),
   };
 }

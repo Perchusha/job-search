@@ -108,7 +108,7 @@ export const SEARCH_DEFAULTS = {
    *   zip_recruiter  returns zero rows, and zero for a US location too, so it
    *                  is not a geography problem — the scraper is simply dead.
    */
-  sources: resolveSources(["indeed", "linkedin", "himalayas"]),
+  sources: resolveSources(["nofluffjobs", "justjoin", "indeed", "linkedin", "himalayas"]),
   /**
    * Boards the MCP `find_jobs` tool leaves out of a bare profile search.
    *
@@ -138,6 +138,41 @@ export const SEARCH_DEFAULTS = {
    */
   limit: 200,
 } as const;
+
+/**
+ * The Polish boards' listing pages to read, one fetch each per pass. They take
+ * no free-text query, so what to look for is in the URL: remote, senior, and
+ * the stack category. The JavaScript category on justjoin.it also holds
+ * Angular and Vue roles; stackFit sorts those out like any other.
+ *
+ * nofluffjobs pages are cumulative: page=5 returns the first 100 postings.
+ * justjoin.it returns 50 per page.
+ */
+export const POLISH_BOARDS = {
+  nofluffjobs: [
+    "https://nofluffjobs.com/pl/praca-zdalna/React?criteria=seniority%3Dsenior&page=5",
+  ],
+  justjoin: [
+    "https://justjoin.it/job-offers/remote/javascript?experience-level=senior",
+    "https://justjoin.it/job-offers/remote/javascript?experience-level=senior&page=2",
+  ],
+} as const;
+
+/**
+ * What I am asking for, from .claude/skills/job-apply/profile.json: 25–30k PLN
+ * net per month on B2B. Postings are compared in that unit — PLN per month,
+ * B2B-equivalent — so an hourly rate, a UoP gross figure and a EUR salary can
+ * be put side by side.
+ *
+ * uopToB2b: a UoP gross salary costs roughly 1.2× more on an invoice. The FX
+ * rates are deliberately static and rough: they only decide whether a posting
+ * sorts above or below the floor, never what a card displays.
+ */
+export const SALARY = {
+  floorB2bPlnMonth: 25_000,
+  uopToB2b: 1.2,
+  fxToPln: { PLN: 1, EUR: 4.25, USD: 3.9, GBP: 5.0, CHF: 4.5 } as Record<string, number>,
+};
 
 /**
  * Stack fit — the two lists that decide what ranks highly. Taken from the CV,
