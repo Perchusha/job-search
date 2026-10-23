@@ -25,6 +25,7 @@ import {
   type Status,
 } from "./db.ts";
 import { presentJob, searchForProfile } from "./pipeline.ts";
+import { buildContext, screenAll } from "./screening.ts";
 import { SEARCH_DEFAULTS, TARGET_QUERIES } from "./profile.ts";
 import { formatSourceReports } from "./sources.ts";
 
@@ -196,9 +197,19 @@ server.tool(
       );
     }
 
+    // My screening rules, as the dashboard applies them: rule hits are left out
+    // and counted by reason; already-applied jobs are left out too.
+    const screened = screenAll(result.jobs, buildContext(listApplications(), listDismissed()));
+    const kept = screened.filter((row) => row.bucket !== "dismiss" && row.bucket !== "skip");
+    const byRule: Record<string, number> = {};
+    for (const row of screened) {
+      if (row.bucket === "dismiss") byRule[row.reason] = (byRule[row.reason] ?? 0) + 1;
+    }
+    const alreadyApplied = screened.filter((row) => row.bucket === "skip").length;
+
     const { counts } = result;
     const lines = [
-      `Found ${counts.returned} job(s) you can apply to from Poland` +
+      `Found ${kept.length} job(s) you can apply to from Poland` +
         (counts.queries.length > 0 ? ` for ${counts.queries.map((q) => `"${q}"`).join(", ")}` : "") +
         (useProfile ? " (saved profile)" : "") +
         ".",
@@ -223,6 +234,15 @@ server.tool(
         `${counts.hiddenForFit} job(s) dropped as a poor stack fit (wrong stack, junior, or non-engineering).`,
       );
     }
+    const ruleTotal = Object.values(byRule).reduce((sum, n) => sum + n, 0);
+    if (ruleTotal > 0) {
+      lines.push(
+        `${ruleTotal} job(s) left out by the screening rules: ${Object.entries(byRule)
+          .map(([reason, n]) => `${reason} ×${n}`)
+          .join("; ")}.`,
+      );
+    }
+    if (alreadyApplied > 0) lines.push(`${alreadyApplied} job(s) left out as already in the funnel.`);
     if (counts.hiddenForUnknownSalary > 0) {
       lines.push(
         `${counts.hiddenForUnknownSalary} job(s) hidden because they publish no salary and minSalary was set.`,
@@ -230,7 +250,12 @@ server.tool(
     }
     lines.push("To track any of these, pass them to log_found_jobs — everything in the funnel counts as applied, so only pass the ones I actually applied to.");
 
-    return reply(lines.join("\n"), { jobs: result.jobs.map(presentJob) });
+    return reply(lines.join("\n"), {
+      jobs: kept.map(({ job, bucket, reason, flags }) => ({
+        ...presentJob(job),
+        screen: { bucket, reason, flags },
+      })),
+    });
   },
 );
 

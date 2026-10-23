@@ -546,3 +546,51 @@ export function matchLevel(job: Job): MatchLevel {
 export function relevanceBoost(job: Job): number {
   return stackFit(job);
 }
+
+/* ------------------------------------------------------------------ */
+/* Screening rules                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The rules that decide, from the title, that a role is not for me — the same
+ * ones the job-screen skill used to apply after the search (scripts/funnel.mjs).
+ * The search now applies them itself (src/screening.ts) and puts the hits
+ * behind the "скрыто правилами" toggle instead of on screen. funnel.mjs
+ * imports them from here, so there is one copy.
+ *
+ * Matched on whole words; FRONTEND and BACKEND_ONLY are tested against the
+ * normalised title, so "Full-Stack" and "Node.js" match.
+ */
+const T = (pattern: string): RegExp => new RegExp(`(?<![a-z0-9])(?:${pattern})(?![a-z0-9])`, "i");
+
+/** Title-level rejections. Order matters: the first match is the reason. */
+export const SCREEN_TITLE_RULES: Array<[reason: string, pattern: RegExp]> = [
+  ["junior/intern level", T("junior|intern|internship|trainee|graduate|entry[- ]level|mlodszy|młodszy|staz|staż|praktyk\\w*|apprentice")],
+  ["mid-level role, CV is senior", T("middle|mid[- ]?level|regular|engineer (?:2|ii)|developer (?:2|ii)")],
+  ["management role, not engineering", T("head of|engineering manager|director|cto|vp|vice president|chief")],
+  // AI-training gigs (rating model output, writing prompts for a lab) are not
+  // engineering work, whatever the title says about TypeScript.
+  ["AI-training gig, not engineering", T("ai training|ai trainer|ai tutor|data annotation|rlhf")],
+  ["not an engineering role", T("recruiter|talent|designer|ui/ux design|product manager|project manager|scrum master|business analyst|analyst|account manager|customer success|support|advocate|consultant|informatyk|administrator|technical writer|documentation")],
+  ["QA / test role", T("qa|test engineer|tester|sdet|quality|automation test|automation engineer")],
+  ["DevOps / infra / security role", T("devops|sre|site reliability|security|cloud architect|platform lead|network|infrastructure|k8s|kubernetes")],
+  ["data / ML role", T("data engineer|data scientist|ml engineer|machine learning|deep learning|mlops|data visuali[sz]ation|computer vision")],
+  ["AI/ML role, not frontend", T("ai engineer|ai architect|genai|llm engineer|ai infrastructure|ai platform|solutions? architect|agentic solution|ai lead|lead ai|ai engineering")],
+  ["mobile role", T("mobile|react native|android|ios|flutter|swift|kotlin|hybrid app")],
+  ["wrong stack: .NET / Java", T("\\.net|c#|asp\\.net|java|jvm|spring|kotlin|scala")],
+  ["wrong stack: other language", T("python|django|fastapi|ruby|rails|golang|go developer|go engineer|\\(go\\)|rust|elixir|erlang|c\\+\\+|embedded|unity|unreal")],
+  ["wrong stack: other frontend framework", T("angular|angularjs|vue|svelte|ui5|sapui5|blazor")],
+  ["wrong stack: platform / CMS / ERP", T("shopify|wordpress|drupal|magento|salesforce|sap|abap|sharepoint|power platform|dynamics 365|copilot studio|netsuite|1c|servicenow|low[- ]code|appian|mendix|outsystems|pega|webflow|website editor")],
+  ["PHP-first role", T("php|laravel|symfony")],
+  ["requires another language", T("german|deutsch|italian|french|spanish|dutch|polish speaker|with (?:german|italian|french|spanish|dutch)|(?:german|italian|french|spanish|dutch)[- ]speaking")],
+];
+
+// Tested against the *normalised* title, so "Full-Stack" and "Node.js" match.
+export const SCREEN_FRONTEND = T("react|frontend|fullstack|next|web|ui engineer|product engineer");
+export const SCREEN_BACKEND_ONLY = T("node|nest|backend|microservices|api developer");
+
+/**
+ * Boards and marketplaces that hire through their own account/vetting flow.
+ * The skills cannot create accounts, so these go to the "needs you" list.
+ */
+export const SCREEN_MARKETPLACES = T("lemon\\.io|jobgether|gitstart|proxify|micro1|alignerr|toptal|turing|crossover|upwork|braintrust|andela|arc\\.dev|remotepass");

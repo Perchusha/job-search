@@ -32,6 +32,7 @@ import {
 } from "./db.ts";
 import { jobKey } from "./jobkey.ts";
 import { presentJob, searchForProfile } from "./pipeline.ts";
+import { buildContext, screenAll } from "./screening.ts";
 import { SEARCH_DEFAULTS, TARGET_QUERIES } from "./profile.ts";
 
 const PORT = Number(process.env["JOBHUNT_PORT"] ?? 4321);
@@ -524,6 +525,16 @@ const PAGE = /* html */ `<!doctype html>
   .linkbtn:hover { color: var(--bad); }
   .linkbtn.restore:hover { color: var(--good); }
   .jobcard.is-dismissed { opacity: .5; }
+  .jobcard.is-rulehidden { opacity: .62; }
+  .jobcard .rulehit { font-size: 11.5px; color: var(--warn); }
+  .jobcard .flag { font-size: 11.5px; color: var(--muted); }
+  .jobcard .hidewhy { position: relative; }
+  .jobcard .hidewhy summary { list-style: none; cursor: pointer; padding: 4px 6px; color: var(--muted); }
+  .jobcard .hidewhy summary::-webkit-details-marker { display: none; }
+  .jobcard .hidewhy[open] > div { position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 5;
+                                  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+                                  padding: 8px 10px; border-radius: 8px; white-space: nowrap;
+                                  background: var(--panel-2); border: 1px solid var(--line); }
   .jobcard.is-applied { border-left-color: var(--accent); }
   .search-empty { display: flex; flex-direction: column; align-items: center; gap: 7px;
                   padding: 54px 20px; border: 1px dashed var(--line); border-radius: 14px;
@@ -750,6 +761,7 @@ const PAGE = /* html */ `<!doctype html>
           <legend class="sr">Показывать</legend>
           <label><input type="checkbox" role="switch" id="hideApplied" checked> скрыть отклики</label>
           <label><input type="checkbox" role="switch" id="showDismissed"> скрытые <span id="dismissedCount"></span></label>
+          <label title="вакансии, которые отсеяли твои правила скрининга (src/screening.ts) — с причиной на карточке"><input type="checkbox" role="switch" id="showRuleHidden"> скрыто правилами <span id="ruleHiddenCount"></span></label>
         </fieldset>
       </form>
       <div class="search-progress" id="searchprogress" role="status" hidden
@@ -818,6 +830,9 @@ let searchResults = [];
 let searchLoaded = false;
 let hideApplied = true;
 let showDismissed = false;
+// Rule hits come with the search (job.screen) and are filtered here, so the
+// toggle is instant and the reason is on the card when it is on.
+let showRuleHidden = false;
 let jobQuery = "";
 let jobSort = "match";
 let matchFilter = "";
@@ -1087,6 +1102,20 @@ function renderSourceFilter() {
   });
 }
 
+/** A card my screening rules would hide (src/screening.ts); shown under its toggle. */
+function isRuleHidden(job) {
+  return Boolean(job.screen && job.screen.bucket === "dismiss");
+}
+
+/*
+ * One-click reasons for "скрыть". A reason teaches the screening rules: role
+ * reasons hide reposts of that role, and "не интересна компания" — the same
+ * string as COMPANY_REASON in src/screening.ts — hides the whole company. A
+ * plain "скрыть" still works and still counts towards the company rule.
+ */
+const HIDE_REASONS = ["не remote", "не тот стек", "уровень (mid/junior)", "не интересна компания",
+  "зарплата ниже", "уже откликался в другом месте"];
+
 function renderSearch(payload) {
   const all = payload.jobs || [];
   searchResults = all;
@@ -1095,6 +1124,7 @@ function renderSearch(payload) {
   // external boards again.
   let visible = all.filter((job) => {
     if (job.dismissed && !showDismissed) return false;
+    if (isRuleHidden(job) && !showRuleHidden) return false;
     if (hideApplied && trackedUrls.has(job.key)) return false;
     if (matchFilter && professionalLevel(job) !== matchFilter) return false;
     if (jobQuery) {
@@ -1136,6 +1166,8 @@ function renderSearch(payload) {
 
   const dismissedTotal = payload.dismissedCount || 0;
   $("dismissedCount").textContent = dismissedTotal ? "(" + dismissedTotal + ")" : "";
+  const ruleHiddenTotal = all.filter((job) => !job.dismissed && isRuleHidden(job)).length;
+  $("ruleHiddenCount").textContent = ruleHiddenTotal ? "(" + ruleHiddenTotal + ")" : "";
 
   const remaining = visible.length - shown.length;
   $("loadmore").hidden = remaining <= 0;
@@ -1156,6 +1188,7 @@ function renderSearch(payload) {
     const eligibilityLevel = job.eligibility.level;
     const classes = ["jobcard", "lvl-" + level];
     if (job.dismissed) classes.push("is-dismissed");
+    if (isRuleHidden(job)) classes.push("is-rulehidden");
     if (tracked) classes.push("is-applied");
 
     const fitBadge = typeof job.fit === "number"
@@ -1176,7 +1209,11 @@ function renderSearch(payload) {
         + (tracked ? " disabled" : "")
         + ' title="записать как отклик — в воронке всё считается applied">'
         + (tracked ? "✓ Откликнулся" : "В воронку") + "</button>"
-        + '<button class="btn secondary" data-hide="' + index + '" title="never show this job again">скрыть</button>';
+        + '<button class="btn secondary" data-hide="' + index + '" title="never show this job again">скрыть</button>'
+        + '<details class="hidewhy"><summary title="скрыть с причиной — причины учатся правилами">▾</summary><div>'
+        + HIDE_REASONS.map((reason) => '<button type="button" class="linkbtn" data-hide-reason="' + index
+          + '" data-reason="' + esc(reason) + '">' + esc(reason) + "</button>").join("")
+        + "</div></details>";
 
     return '<article class="' + classes.join(" ") + '">'
       + '<a class="cardlink" href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener"'
@@ -1196,11 +1233,16 @@ function renderSearch(payload) {
       + "</div>"
       + '<div class="reason">' + esc(job.match && job.match.reason ? job.match.reason + ". " : "")
       + esc(job.eligibility.reason) + "</div>"
+      + (isRuleHidden(job) ? '<div class="rulehit">правило: ' + esc(job.screen.reason) + "</div>" : "")
+      + ((job.screen && job.screen.flags) || []).map((flag) => '<div class="flag">⚑ ' + esc(flag) + "</div>").join("")
       + '<div class="actions">' + action + "</div></article>";
   }).join("");
 
   document.querySelectorAll("#jobgrid button[data-add]").forEach((button) => {
     button.addEventListener("click", () => addToFunnel(Number(button.dataset.add), button));
+  });
+  document.querySelectorAll("#jobgrid button[data-hide-reason]").forEach((button) => {
+    button.addEventListener("click", () => dismiss(Number(button.dataset.hideReason), button.dataset.reason));
   });
   document.querySelectorAll("#jobgrid button[data-hide]").forEach((button) => {
     button.addEventListener("click", () => dismiss(Number(button.dataset.hide)));
@@ -1210,14 +1252,14 @@ function renderSearch(payload) {
   });
 }
 
-async function dismiss(index) {
+async function dismiss(index, reason) {
   const job = searchResults[index];
   if (!job) return;
   try {
     const response = await fetch("/api/dismissed", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: job.applyUrl, title: job.title, company: job.company }),
+      body: JSON.stringify({ url: job.applyUrl, title: job.title, company: job.company, reason: reason || null }),
     });
     if (!response.ok) throw new Error((await response.json()).error || response.statusText);
     job.dismissed = true;
@@ -1392,6 +1434,11 @@ function bindChrome() {
     renderSearch(lastSearchPayload);
   });
   // Showing hidden jobs changes what the server returns, so re-run the search.
+  // Rule hits are already in the payload: a local filter, no request.
+  $("showRuleHidden").addEventListener("change", (event) => {
+    showRuleHidden = event.target.checked;
+    renderSearch(lastSearchPayload);
+  });
   $("showDismissed").addEventListener("change", (event) => {
     showDismissed = event.target.checked;
     if (searchLoaded) runSearch();
@@ -1665,7 +1712,20 @@ const server = createServer(async (request, response) => {
       const dismissedKeys = new Set(listDismissedKeys());
       const keyed = inWindow.map((job) => ({ job, key: jobKey(job.url) }));
       const kept = includeDismissed ? keyed : keyed.filter(({ key }) => !dismissedKeys.has(key));
-      const page = kept.slice(0, SEARCH_DEFAULTS.limit);
+
+      // My screening rules (src/screening.ts), against the funnel and the hidden
+      // list as they are right now. Rule hits stay in the payload with their
+      // reason; the page keeps them behind the "скрыто правилами" toggle.
+      const context = buildContext(listApplications(), listDismissed());
+      const screened = screenAll(
+        kept.map(({ job, key }) => ({ ...job, key, dismissed: dismissedKeys.has(key) })),
+        context,
+      );
+      const page = screened.slice(0, SEARCH_DEFAULTS.limit);
+      const hiddenByRules: Record<string, number> = {};
+      for (const row of page) {
+        if (row.bucket === "dismiss") hiddenByRules[row.reason] = (hiddenByRules[row.reason] ?? 0) + 1;
+      }
 
       const levelCounts: Record<string, number> = {};
       for (const { job } of page) {
@@ -1675,10 +1735,11 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, {
         // `key` is the job's identity (src/jobkey.ts): the page compares it with
         // the funnel's url_key. `dismissed` renders a restore button.
-        jobs: page.map(({ job, key }) => ({
+        jobs: page.map(({ job, bucket, reason, flags }) => ({
           ...presentJob(job),
-          key,
-          dismissed: dismissedKeys.has(key),
+          key: job.key,
+          dismissed: job.dismissed,
+          screen: { bucket, reason, flags },
         })),
         dismissedCount: dismissedKeys.size,
         sourceCounts: result.sourceCounts,
@@ -1686,6 +1747,7 @@ const server = createServer(async (request, response) => {
         counts: {
           ...result.counts,
           hiddenForDismissed: keyed.length - kept.length,
+          hiddenByRules,
           returned: page.length,
         },
         levelCounts,

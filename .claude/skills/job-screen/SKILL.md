@@ -22,11 +22,20 @@ age company — title [location] {salary} <reason> url`.
 | `apply` | geo confirmed (Indeed says remote, or Himalayas open to Poland) and nothing in the title disqualifies it | hand to `job-apply` |
 | `check` | LinkedIn rows: location unknown or "onsite/hybrid" — LinkedIn omits `is_remote`, so this is unverified, not a rejection | open the posting, decide (step 3) |
 | `needs-you` | marketplaces that need an account (lemon.io, Jobgether, GitStart, Proxify, Alignerr…) — accounts are never created by the skill | list for the user |
-| `dismiss` | rule hit: junior/mid, management, wrong stack, backend-only, another language, onsite per Indeed, stale, duplicate of a tracked application, same role hidden before, company hidden 2×+ and never applied to, second posting of a role already in this search | review, then commit |
+| `dismiss` | rule hit: junior/mid, management, wrong stack, backend-only, another language, onsite per Indeed, stale, same role hidden before (by the user — rule-written hides do not count), company hidden for 2+ different roles by hand or marked "не интересна компания", second posting of a role already in this search | review, then commit |
 | `skip` | already in the funnel or already hidden | nothing |
 
-The rules live in `TITLE_RULES`, `FRONTEND`, `BACKEND_ONLY` and `decide()` in
-[scripts/funnel.mjs](../../../scripts/funnel.mjs). Edit them there, not in prose.
+`!…` after a line is a flag, not a verdict: an earlier application at the same
+company, or a role that looks like one already applied to. Same-role
+applications are flagged rather than dismissed because different levels at one
+company (EPAM Lead vs Senior) were applied to on purpose — decide per row.
+
+The rule lists are `SCREEN_TITLE_RULES`, `SCREEN_FRONTEND`, `SCREEN_BACKEND_ONLY`
+and `SCREEN_MARKETPLACES` in [src/profile.ts](../../../src/profile.ts); the
+mechanics are `decide()` in [src/screening.ts](../../../src/screening.ts). The
+dashboard runs the same rules on every search and keeps their hits behind the
+"скрыто правилами" toggle, so the Search tab already shows roughly the `apply`
+bucket. Edit the rules there, not in prose.
 
 ## 2. Review the dismiss bucket, then commit
 

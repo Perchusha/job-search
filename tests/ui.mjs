@@ -326,7 +326,8 @@ async function main() {
     "dbinfo", "cards", "funnel", "rows", "empty", "toast",
     "view-tracker", "view-search", "searchform", "searchbtn",
     "searchprogress", "searchtimer", "jobgrid", "searchempty", "statusfilter",
-    "hideApplied", "showDismissed", "dismissedCount", "datefilter", "sourcefilter",
+    "hideApplied", "showDismissed", "dismissedCount", "showRuleHidden", "ruleHiddenCount",
+    "datefilter", "sourcefilter",
     "loadmore", "appsearch", "applicationcount", "jobsearch", "matchfilter",
     "jobsort", "resultcount", "clearjobfilters", "searchemptynote",
     "copy-linkedin", "copy-github", "copy-portfolio",
@@ -485,6 +486,22 @@ async function main() {
   registry.get("clearjobfilters")._handlers.click();
   check("clear restores the loaded result set",
     registry.get("resultcount").textContent === "2 matches");
+
+  /* ---- screening-rule hits: behind their own toggle, with the reason ---- */
+  const ruled = { ...demoJob("Beta", "Mid Frontend Developer", "high", 9),
+    screen: { bucket: "dismiss", reason: "mid-level role, CV is senior", flags: [] } };
+  const flagged = { ...demoJob("Gamma", "Senior Frontend Engineer", "high", 10),
+    screen: { bucket: "apply", reason: "Open in Poland", flags: ["откликался сюда 1× (#7 rejected)"] } };
+  page.renderSearchPayload({ jobs: [ruled, flagged], counts: {}, profile: { hoursOld: 720 } });
+  check("a rule hit is hidden by default",
+    !registry.get("jobgrid").innerHTML.includes("Mid Frontend Developer")
+      && registry.get("ruleHiddenCount").textContent === "(1)");
+  check("an earlier application at the company shows as a flag",
+    registry.get("jobgrid").innerHTML.includes("откликался сюда 1×"));
+  registry.get("showRuleHidden")._handlers.change({ target: { checked: true } });
+  check("the toggle shows rule hits with their reason",
+    registry.get("jobgrid").innerHTML.includes("правило: mid-level role, CV is senior"));
+  registry.get("showRuleHidden")._handlers.change({ target: { checked: false } });
 
   /* ---- profile search (live network) ---- */
   console.log("\n(running a live profile search through the page's own code path…)");
