@@ -41,6 +41,8 @@ function refreshHours(): number {
 /** Fetched one query at a time, incrementally, at most daily. */
 const SLOW_SOURCES: SourceName[] = ["linkedin"];
 const SLOW_INTERVAL_HOURS = 24;
+/** Fetched in full, but only daily: company boards change slowly. */
+const DAILY_SOURCES: SourceName[] = ["watchlist"];
 const BACKOFF_HOURS = 24;
 
 export type SourceOutcome = {
@@ -66,7 +68,7 @@ function due(source: SourceName, force: boolean): SourceOutcome["status"] | "due
   // "Обновить" refreshes the fast boards on demand; LinkedIn keeps its own
   // pace whatever is clicked, because every click used to cost ~140 requests.
   if (force && !slow) return "due";
-  const interval = slow ? SLOW_INTERVAL_HOURS : refreshHours();
+  const interval = slow || DAILY_SOURCES.includes(source) ? SLOW_INTERVAL_HOURS : refreshHours();
   return hoursSince(state.lastSuccessAt) >= interval ? "due" : "fresh";
 }
 

@@ -83,6 +83,8 @@ const sourceEnum = z.enum([
   // Polish IT boards — pay per contract type (B2B/UoP), explicit remote flag
   "nofluffjobs",
   "justjoin",
+  // chosen companies' own boards (profile.ts WATCHLIST), via their ATS APIs
+  "watchlist",
   // scraped via JobSpy — volume + descriptions, no salary data
   "indeed",
   "linkedin",

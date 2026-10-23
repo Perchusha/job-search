@@ -207,6 +207,17 @@ are what is read — once per pass, not once per query (`PER_PASS_SOURCES`). The
 role goes first in dedupe, so the published pay survives. A page that parses to nothing is
 reported as skipped. The URLs are `POLISH_BOARDS` in profile.ts.
 
+**Company watchlist** ([src/watchlist.ts](src/watchlist.ts)) — chosen companies' own boards,
+read through their ATS's public API (Greenhouse, Lever, Ashby), once a day. Product
+companies post there first and often nowhere else; on 2026-10-23 the 16 boards in
+`WATCHLIST` (profile.ts) gave 18 engineering roles open to Poland, Elastic's with published
+PLN ranges. A company board lists every role it has, so only engineering titles that pass
+the fit filter and are not out of geographic reach are kept. Region comes from the posting's
+own location (Greenhouse office groups like "EMEA" are ignored): Poland or a region including
+it is confirmed, a bare "Remote / Global" is a check, any other named place is out. These
+postings carry no board date — an open role on a company board is open — so their age is
+when this tool first saw them. Add a company by its ATS slug.
+
 **Scraped via [JobSpy](https://github.com/speedyapply/JobSpy)** (Python, optional) — this is
 where the volume is:
 
@@ -224,7 +235,7 @@ where the volume is:
 | [RemoteOK](https://remoteok.com) | Opt-in. First array element is legal metadata and is skipped. Content varies wildly |
 | [Arbeitnow](https://www.arbeitnow.com) | Opt-in. EU/Germany focused |
 
-`SEARCH_DEFAULTS.sources` is **nofluffjobs, justjoin, indeed, linkedin, himalayas**.
+`SEARCH_DEFAULTS.sources` is **nofluffjobs, justjoin, watchlist, indeed, linkedin, himalayas**.
 `DEFAULT_SOURCES` (`indeed` + `himalayas`) is only the fallback for a caller that names none.
 
 ### JobSpy caveats worth knowing
@@ -357,6 +368,7 @@ every restart, hide, date chip or source pill.
 | Board | Refresh |
 | --- | --- |
 | nofluffjobs, justjoin, indeed, himalayas | a full month-wide pass every 6 h (`JOBHUNT_REFRESH_HOURS`), ~2–5 s each. ↻ Обновить runs it now |
+| watchlist | daily, ~10 s for 16 boards |
 | linkedin | at most once a day, only what is new since its last success (`hoursOld`), one query at a time; a day off after HTTP 429. ↻ Обновить does not force it |
 
 The dashboard runs it at start and checks what is due every 15 minutes; the very

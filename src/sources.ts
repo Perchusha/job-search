@@ -10,6 +10,7 @@
 
 import { fetchJustJoin, fetchNoFluffJobs } from "./boards-pl.ts";
 import { jobKey } from "./jobkey.ts";
+import { fetchWatchlist } from "./watchlist.ts";
 import {
   JobSpyUnavailable,
   fetchJobSpy,
@@ -31,6 +32,7 @@ import {
  * eligibility and salary metadata is worth more than a duplicate scrape.
  */
 export type SourceName =
+  | "watchlist"
   | "nofluffjobs"
   | "justjoin"
   | "indeed"
@@ -63,13 +65,13 @@ export const POLISH_SOURCES: SourceName[] = ["nofluffjobs", "justjoin"];
  * remote + senior + stack, and repeating them per query would download the
  * same page ten times.
  */
-export const PER_PASS_SOURCES: SourceName[] = [...POLISH_SOURCES];
+export const PER_PASS_SOURCES: SourceName[] = [...POLISH_SOURCES, "watchlist"];
 
 /**
  * Order decides which copy survives dedupe. The Polish boards go first: their
  * copy of a role carries pay per contract type, the Indeed copy carries none.
  */
-export const ALL_SOURCES: SourceName[] = [...POLISH_SOURCES, ...JOBSPY_SOURCES, ...FEED_SOURCES];
+export const ALL_SOURCES: SourceName[] = [...POLISH_SOURCES, "watchlist", ...JOBSPY_SOURCES, ...FEED_SOURCES];
 
 /**
  * Default search set — Indeed for volume, Himalayas for salary + worldwide.
@@ -591,6 +593,7 @@ export async function fetchAllSources(options: FetchOptions = {}): Promise<Fetch
 
   const fetchers: Record<SourceName, (options: FetchOptions) => Promise<Job[]>> = {
     nofluffjobs: () => fetchNoFluffJobs(),
+    watchlist: () => fetchWatchlist(),
     justjoin: () => fetchJustJoin(),
     indeed: scrape("indeed"),
     linkedin: scrape("linkedin"),

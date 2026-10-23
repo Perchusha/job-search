@@ -255,12 +255,34 @@ function scorePolishBoard(job: Job): Eligibility {
   };
 }
 
+/**
+ * A company's own board: its location field is the only signal. Poland or a
+ * region that includes it is confirmed; a bare "Remote" / "Remote, Global" is
+ * a check; any named place without Poland ("Málaga, Spain", "North America",
+ * "Remote - Australia") is out of reach, remote or not — remote within a
+ * country usually means employed there.
+ */
+const GENERIC_REMOTE = /^(?:remote|anywhere|worldwide|global|distributed)(?:[\s,()-]*(?:remote|global|worldwide|anywhere))*$/i;
+
+function scoreWatchlist(job: Job): Eligibility {
+  const places = job.locationRestrictions.join("; ");
+  const hit = firstFriendly(places);
+  if (hit) return { eligible: true, level: "high", reason: `Company board lists "${hit}" (${places})` };
+  const generic = job.locationRestrictions.every((place) => GENERIC_REMOTE.test(place.trim()));
+  if (job.remote && generic) {
+    return { eligible: true, level: "medium", reason: `Remote, region not stated ("${places || "—"}") — check the posting` };
+  }
+  return { eligible: false, level: "low", reason: `Company board lists ${places || "no location"} — Poland not included` };
+}
+
 /** Score one job for a Poland-based applicant. */
 export function scoreEligibility(job: Job): Eligibility {
   switch (job.source) {
     case "nofluffjobs":
     case "justjoin":
       return scorePolishBoard(job);
+    case "watchlist":
+      return scoreWatchlist(job);
     case "himalayas":
       return scoreHimalayas(job);
     case "remoteok":
@@ -393,6 +415,26 @@ function runSanityChecks(): void {
         description: "Możliwość pracy w **trybie hybrydowym** (3 dni z biura) lub **100% zdalnie.**",
       }),
       expect: "high",
+    },
+    {
+      label: "watchlist, company board lists Poland -> high",
+      job: stub({ source: "watchlist", remote: false, locationRestrictions: ["Poland"] }),
+      expect: "high",
+    },
+    {
+      label: "watchlist, bare 'Remote, Global' -> medium",
+      job: stub({ source: "watchlist", remote: true, locationRestrictions: ["Remote, Global"] }),
+      expect: "medium",
+    },
+    {
+      label: "watchlist, remote but 'Málaga, Spain' -> low",
+      job: stub({ source: "watchlist", remote: true, locationRestrictions: ["Málaga, Spain"] }),
+      expect: "low",
+    },
+    {
+      label: "watchlist, remote 'North America' -> low",
+      job: stub({ source: "watchlist", remote: true, locationRestrictions: ["North America"] }),
+      expect: "low",
     },
     {
       label: "nofluffjobs, remote -> high",

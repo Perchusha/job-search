@@ -108,7 +108,7 @@ export const SEARCH_DEFAULTS = {
    *   zip_recruiter  returns zero rows, and zero for a US location too, so it
    *                  is not a geography problem — the scraper is simply dead.
    */
-  sources: resolveSources(["nofluffjobs", "justjoin", "indeed", "linkedin", "himalayas"]),
+  sources: resolveSources(["nofluffjobs", "justjoin", "watchlist", "indeed", "linkedin", "himalayas"]),
   /**
    * Boards the MCP `find_jobs` tool leaves out of a bare profile search.
    *
@@ -157,6 +157,41 @@ export const POLISH_BOARDS = {
     "https://justjoin.it/job-offers/remote/javascript?experience-level=senior&page=2",
   ],
 } as const;
+
+export type WatchedBoard = {
+  vendor: "ashby" | "greenhouse" | "lever";
+  /** The board's slug: jobs.ashbyhq.com/<board>, job-boards.greenhouse.io/<board>, jobs.lever.co/<board>. */
+  board: string;
+  company: string;
+};
+
+/**
+ * Companies whose own job boards are read directly (src/watchlist.ts), once a
+ * day. Product companies that hire remote people in Poland, plus the boards
+ * behind earlier applications. Add a company by its ATS slug — the part of its
+ * jobs URL after the ATS host. A board that 404s shows in the refresh log.
+ *
+ * Checked live on 2026-10-23; toggl (Ashby), remotecom and clickhouse
+ * (Greenhouse) answered 404, and deel and kraken returned empty boards.
+ */
+export const WATCHLIST: WatchedBoard[] = [
+  { vendor: "ashby", board: "linear", company: "Linear" },
+  { vendor: "ashby", board: "elevenlabs", company: "ElevenLabs" },
+  { vendor: "ashby", board: "posthog", company: "PostHog" },
+  { vendor: "ashby", board: "supabase", company: "Supabase" },
+  { vendor: "ashby", board: "n8n", company: "n8n" },
+  { vendor: "ashby", board: "mimica", company: "Mimica" },
+  { vendor: "ashby", board: "whiskeylibrary", company: "Whiskey Library" },
+  { vendor: "ashby", board: "leovegasgroup", company: "LeoVegas" },
+  { vendor: "greenhouse", board: "elastic", company: "Elastic" },
+  { vendor: "greenhouse", board: "gitlab", company: "GitLab" },
+  { vendor: "greenhouse", board: "grafanalabs", company: "Grafana Labs" },
+  { vendor: "greenhouse", board: "vercel", company: "Vercel" },
+  { vendor: "greenhouse", board: "apolloio", company: "Apollo.io" },
+  { vendor: "greenhouse", board: "storyblok", company: "Storyblok" },
+  { vendor: "lever", board: "swingdev", company: "Swing Development" },
+  { vendor: "lever", board: "airslate", company: "airSlate" },
+];
 
 /**
  * What I am asking for, from .claude/skills/job-apply/profile.json: 25–30k PLN
