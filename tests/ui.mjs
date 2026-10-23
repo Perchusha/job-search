@@ -16,6 +16,7 @@
 import Database from "better-sqlite3";
 import { spawn } from "node:child_process";
 import { rmSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -246,6 +247,32 @@ async function main() {
     console.log("FAIL  dashboard did not start");
     process.exit(1);
   }
+
+  /* ---- the browser is not trusted: cross-site writes are refused ---- */
+  const plain = await fetch(`${BASE}/api/dismissed`, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain", Origin: "https://evil.example" },
+    body: JSON.stringify({ url: "https://example.com/evil" }),
+  });
+  check("a text/plain write (a CORS simple request) is refused", plain.status === 415, String(plain.status));
+  const crossSite = await fetch(`${BASE}/api/dismissed`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://evil.example" },
+    body: JSON.stringify({ url: "https://example.com/evil" }),
+  });
+  check("a JSON write from another origin is refused", crossSite.status === 403, String(crossSite.status));
+  // node:http, because fetch will not let a caller set Host.
+  const rebound = await new Promise((resolve, reject) => {
+    const req = httpRequest(`${BASE}/api/stats`, { headers: { Host: "evil.example" } }, (res) => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    req.on("error", reject);
+    req.end();
+  });
+  check("a request for another host name (DNS rebinding) is refused", rebound === 403, String(rebound));
+  check("nothing was written by them",
+    (await (await fetch(`${BASE}/api/dismissed`)).json()).dismissed.length === 0);
 
   /* ---- seed through the real API, so no schema is duplicated here ---- */
   const seed = [

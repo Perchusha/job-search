@@ -12,6 +12,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -1393,7 +1394,8 @@ async function runSearch(event, quiet) {
     showFreshness(payload.freshness);
     if (!visitMarked) {
       visitMarked = true;
-      fetch("/api/visit", { method: "POST" }).catch(() => {});
+      fetch("/api/visit", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+        .catch(() => {});
     }
     // Boards still being fetched in the background: read again shortly.
     if (payload.freshness && payload.freshness.refreshing) {
@@ -1664,9 +1666,60 @@ function readBody(request: IncomingMessage): Promise<string> {
   });
 }
 
+/*
+ * There is no login (a single-user tool on a trusted network), so the browser
+ * is the thing to guard against: any web page you visit can send requests to
+ * localhost. Measured before this: a cross-site POST with a text/plain body
+ * wrote a dismissal and changed an application's status. Three checks:
+ *
+ *   - Host must be this machine (localhost, a private LAN address, its own
+ *     name). A DNS-rebinding page arrives with its own domain as Host.
+ *   - Writes must be application/json. A cross-site page can only send JSON
+ *     after a CORS preflight, which this server never approves.
+ *   - Writes that carry an Origin must come from this same host.
+ *
+ * Phones on the Wi-Fi (Job Hunt.bat binds 0.0.0.0) keep working: their Host is
+ * the LAN address and their page is served from it.
+ */
+const PRIVATE_HOST = /^(localhost|127(?:\.\d+){3}|\[?::1\]?|10(?:\.\d+){3}|192\.168(?:\.\d+){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d+){2})$/i;
+const MACHINE_NAMES = new Set([hostname().toLowerCase(), `${hostname().toLowerCase()}.local`]);
+
+function hostAllowed(host: string | undefined): boolean {
+  if (!host) return false;
+  const name = host.replace(/:\d+$/, "").toLowerCase();
+  return PRIVATE_HOST.test(name) || MACHINE_NAMES.has(name);
+}
+
+function writeRejection(request: IncomingMessage): string | null {
+  if (request.method === "GET" || request.method === "HEAD") return null;
+  const type = String(request.headers["content-type"] ?? "").toLowerCase();
+  if (!type.startsWith("application/json")) return "writes must be application/json";
+  const origin = request.headers.origin;
+  if (origin) {
+    let originHost = "";
+    try {
+      originHost = new URL(origin).host.toLowerCase();
+    } catch {
+      return "bad Origin";
+    }
+    if (originHost !== String(request.headers.host ?? "").toLowerCase()) return "cross-origin write refused";
+  }
+  return null;
+}
+
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? HOST}`);
   const path = url.pathname;
+
+  if (!hostAllowed(request.headers.host)) {
+    sendJson(response, 403, { error: "unexpected Host header" });
+    return;
+  }
+  const rejection = writeRejection(request);
+  if (rejection) {
+    sendJson(response, rejection.startsWith("writes") ? 415 : 403, { error: rejection });
+    return;
+  }
 
   try {
     if (request.method === "GET" && (path === "/" || path === "/index.html")) {

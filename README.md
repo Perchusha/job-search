@@ -313,9 +313,15 @@ is what feeds the response-rate and days-to-response stats. `dropped` is the exc
 `result: "already_tracked"` instead of an error, which is why the Search tab can safely show
 a card as "✓ В воронке" rather than failing.
 
-Binds to `127.0.0.1` only. There is no auth by design — it is a single-user local tool.
-Nothing is fetched off the machine: the one stylesheet comes from `node_modules` over the
-same local server, so the dashboard works with the network down.
+Binds to `127.0.0.1` by default (`Job Hunt.bat` binds `0.0.0.0`, for phones on the same
+Wi-Fi). There is no login by design — it is a single-user tool — so the guard is against
+the browser: any web page you visit can send requests to localhost. Requests whose `Host`
+is not this machine (localhost, a private LAN address, its own name) get 403, which stops
+DNS rebinding; writes must be `application/json` (a cross-site page cannot send that
+without a CORS preflight, which is never approved) and, when they carry an `Origin`, come
+from the same host. Before this, a cross-site `text/plain` POST could write a dismissal.
+The page's assets come from `node_modules` over the same local server, so the dashboard
+works with the network down.
 
 ### Why Pico, and only in the toolbar
 
