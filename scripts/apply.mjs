@@ -19,9 +19,9 @@
  * passwords, never solves CAPTCHAs.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve as resolvePath } from "node:path";
+import { basename, join, resolve as resolvePath } from "node:path";
 import { chromium } from "playwright";
 
 const ROOT = resolvePath(new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
@@ -62,7 +62,29 @@ const DEBUG = Boolean(process.env["JH_DEBUG"]) || Boolean(flags.debug);
 /* Answer rules                                                        */
 /* ------------------------------------------------------------------ */
 
-const NON_PL_COUNTRIES = /united states|\bus\b|u\.s\.|usa|united kingdom|\buk\b|britain|canada|germany|netherlands|france|spain|italy|sweden|denmark|norway|finland|ireland|switzerland|austria|belgium|portugal|australia|israel|india|uae|dubai|singapore|japan/i;
+/**
+ * Earlier applications to the same company, read from the funnel at start.
+ * "Have you applied before?" used to be answered No unconditionally, while a
+ * fifth of the funnel is repeat applications to the same company.
+ */
+let PRIOR = [];
+
+const COMPANY_NOISE = /\b(sp\.? ?z ?o\.? ?o\.?|s\.? ?a\.?|ltd|limited|inc|llc|gmbh|ag|plc|group|poland|polska)\b/g;
+const companyKey = (name) =>
+  String(name ?? "").toLowerCase().replace(COMPANY_NOISE, " ").replace(/[^a-z0-9]+/g, " ").trim();
+
+async function loadPriorApplications(company) {
+  try {
+    const response = await fetch(DASHBOARD + "/api/applications");
+    const { applications = [] } = await response.json();
+    const key = companyKey(company);
+    return key ? applications.filter((row) => companyKey(row.company) === key) : [];
+  } catch {
+    return []; // dashboard down: no history is better than no application
+  }
+}
+
+const NON_PL_COUNTRIES =/united states|\bus\b|u\.s\.|usa|united kingdom|\buk\b|britain|canada|germany|netherlands|france|spain|italy|sweden|denmark|norway|finland|ireland|switzerland|austria|belgium|portugal|australia|israel|india|uae|dubai|singapore|japan/i;
 
 function salaryFor(label, type) {
   const l = label.toLowerCase();
@@ -198,11 +220,24 @@ function answerFor(label, control, extra) {
   }
   if (/authori[sz]ed|legally|right to work|eligible to work|permit|allowed to work|work (in|from) (poland|the eu)|pozwolenie|legal(ly)? (able|entitled)|country you are in|country you live in|country of residence/.test(l)) {
     if (NON_PL_COUNTRIES.test(l) && !/poland|polsk/.test(l)) return { kind: "select", prefer: [/^no\b/i] };
+    // The permit covers Poland, not the whole EU (profile.json eu: false). A
+    // plain Yes could surface as a problem at offer stage, and No may screen
+    // out a role that is fine from Poland — so the person answers this one.
+    if (/\beu\b|europe|european union|\beea\b/.test(l) && !/poland|polsk/.test(l)) {
+      return isChoice ? null : { kind: "text", value: "Authorised to work in Poland (residence permit); available as a B2B contractor or employee from Poland" };
+    }
     return { kind: "select", prefer: [/^yes\b/i, /poland/i, /eu citizen|eu work permit|valid work permit|permit/i] };
   }
   if (/relocat|przeprowadz/.test(l)) return { kind: "select", prefer: [/^no\b/i, /not willing/i] };
   if (/work remotely|remote work|working remotely|comfortable (with )?remote|fully remote/.test(l)) return { kind: "select", prefer: [/^yes\b/i] };
-  if (/previously (worked|applied|employed)|have you (ever )?(applied|worked|been employed)|former employee|wcześniej/.test(l)) return { kind: "select", prefer: [/^no\b/i] };
+  if (/previously applied|have you (ever )?applied|applied (to|with|at) (us|this company|.* before)|aplikował/.test(l)) {
+    if (PRIOR.length === 0) return isChoice ? { kind: "select", prefer: [/^no\b/i] } : { kind: "text", value: "No" };
+    const last = PRIOR[0];
+    return isChoice
+      ? { kind: "select", prefer: [/^yes\b/i] }
+      : { kind: "text", value: `Yes — ${last.title} (${String(last.applied_at).slice(0, 7)})` };
+  }
+  if (/previously (worked|employed)|have you (ever )?(worked|been employed)|former employee|wcześniej/.test(l)) return { kind: "select", prefer: [/^no\b/i] };
   if (/have you used|used (a|our|any) .*product|customer of|current(ly)? (a )?(customer|user)/.test(l)) return { kind: "select", prefer: [/^no\b/i] };
   if (/currently (employed|working)|are you employed/.test(l)) return { kind: "select", prefer: [/^yes\b/i] };
   if (/how did you (hear|find|learn)|where did you (hear|find)|source|skąd/.test(l)) return isChoice ? { kind: "select", prefer: [/job board/i, /linkedin/i, /indeed/i, /other/i, /internet|online|search/i] } : { kind: "text", value: PROFILE.heardFrom };
@@ -717,7 +752,25 @@ async function collectErrors(page) {
   });
 }
 
-async function recordInFunnel(args, applyUrl) {
+/**
+ * What went out with this application, kept in its notes so reply rates can
+ * later be compared per CV version, cover letter and apply route.
+ */
+function sentNote(vendor) {
+  let cv = "missing";
+  try {
+    cv = `${basename(PROFILE.cvPath)}@${statSync(PROFILE.cvPath).mtime.toISOString().slice(0, 10)}`;
+  } catch {}
+  const cover = flags.cover === "auto" ? "auto" : flags.cover ? "custom" : "none";
+  return `sent: cv=${cv} cover=${cover} route=${vendor}`;
+}
+
+/**
+ * Never throws. It runs after the form was submitted, so a failure here must
+ * not turn an application that went out into a "crash" that apply-batch would
+ * happily retry — that is how a second application gets sent.
+ */
+async function recordInFunnel(args, applyUrl, vendor) {
   const body = {
     url: args.url ?? applyUrl,
     title: args.title,
@@ -725,10 +778,15 @@ async function recordInFunnel(args, applyUrl) {
     source: args.source ?? "manual",
     location: args.location ?? null,
     salary: args.salary ?? null,
+    notes: sentNote(vendor),
   };
-  const response = await fetch(DASHBOARD + "/api/applications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const json = await response.json().catch(() => ({}));
-  return json.application ? `#${json.application.id} ${json.result}` : `funnel error ${response.status}`;
+  try {
+    const response = await fetch(DASHBOARD + "/api/applications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const json = await response.json().catch(() => ({}));
+    return json.application ? `#${json.application.id} ${json.result}` : `NOT RECORDED: funnel answered ${response.status} — add it by hand`;
+  } catch (error) {
+    return `NOT RECORDED: ${error.message} — the application WAS sent; add it by hand (node scripts/funnel.mjs add ...)`;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -758,6 +816,8 @@ async function main() {
     console.log(JSON.stringify({ result: "needs-account", vendor, applyUrl }));
     return 4;
   }
+  PRIOR = await loadPriorApplications(flags.company);
+  if (PRIOR.length > 0) log(`${flags.company}: applied ${PRIOR.length}× before (${PRIOR.map((row) => "#" + row.id + " " + row.status).join(", ")})`);
   const extra = flags.answers ? JSON.parse(readFileSync(flags.answers, "utf8")) : {};
   if (flags.cover === "auto") extra.__cover = autoCover(flags.company, flags.title, String(flags.stack ?? ""));
   else if (flags.cover) extra.__cover = existsSync(flags.cover) ? readFileSync(flags.cover, "utf8") : flags.cover;
@@ -892,7 +952,7 @@ async function main() {
         return 3;
       }
     }
-    const funnel = await recordInFunnel(flags, applyUrl);
+    const funnel = await recordInFunnel(flags, applyUrl, vendor);
     if (vendor === "linkedin") await clickButton(page, /^(done|dismiss|close)$/i);
     console.log(JSON.stringify({ result: "applied", funnel, button: submittedText, filled: report }));
     return 0;

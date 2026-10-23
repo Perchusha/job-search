@@ -77,7 +77,11 @@ for (const row of rows) {
   if (answersFile && existsSync(answersFile)) args.push("--answers", answersFile);
 
   const started = Date.now();
-  const run = spawnSync(process.execPath, args, { encoding: "utf8", timeout: 240_000 });
+  // Greenhouse and LinkedIn run headed: apply.mjs may wait up to 5 minutes for
+  // the person to type an e-mailed code, after filling the form. A 4-minute kill
+  // closed the window under them mid-code.
+  const headed = /greenhouse|linkedin/.test(`${row.applyVendor ?? ""} ${row.vendor ?? ""} ${applyUrl}`);
+  const run = spawnSync(process.execPath, args, { encoding: "utf8", timeout: headed ? 480_000 : 240_000 });
   const stdout = run.stdout ?? "";
   let parsed = null;
   try { parsed = JSON.parse(stdout.slice(stdout.indexOf("{"))); } catch { parsed = null; }
@@ -86,6 +90,7 @@ for (const row of rows) {
     result === "applied" ? `${parsed.funnel} · ${parsed.filled.length} fields`
     : result === "missing-answers" ? parsed.missing.map((m) => `"${m.label.slice(0, 60)}"${m.options?.length ? ` [${m.options.slice(0, 5).join(" / ")}]` : ""}`).join("; ")
     : result === "dry-run" ? `${parsed.filled.length} fields filled`
+    : result === "timeout" ? "killed before it answered — check the inbox for a receipt before re-running"
     : parsed?.reason ?? parsed?.errors?.join("; ") ?? (run.stderr ?? "").split("\n").filter(Boolean).slice(-2).join(" ").slice(0, 200);
   console.log(`${head} | ${result} | ${detail} | ${Math.round((Date.now() - started) / 1000)}s`);
   results.push({ index: row.index, company: row.company, title: row.title, applyUrl, result, detail, screenshot: parsed?.screenshot ?? null, filled: parsed?.filled ?? null, missing: parsed?.missing ?? null });
