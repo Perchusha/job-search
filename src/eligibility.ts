@@ -462,6 +462,30 @@ function runSanityChecks(): void {
       description: "Java and Spring Boot are required for day-to-day development.",
       expect: 3,
     },
+    // The title is a gate: a body full of the right stack must not lift a
+    // junior or wrong-stack title into the feed (both used to reach tier 0/1).
+    {
+      title: "Junior Frontend Developer (React.js)",
+      description: "React, TypeScript, Next.js, Redux, Tailwind, Storybook and accessibility.",
+      expect: 3,
+    },
+    {
+      title: "Angular Software Developer",
+      description: "Frontend work with TypeScript; some React and Next.js on newer modules.",
+      expect: 3,
+    },
+    // "intern" is a word, not a substring: Internal Tools is a senior role.
+    {
+      title: "Senior Frontend Engineer, Internal Tools",
+      description: "React and TypeScript.",
+      expect: 0,
+    },
+    // A mild penalty term next to a target term does not gate the title.
+    {
+      title: "Fullstack Developer (Frontend/Backend)",
+      description: "React, TypeScript and Node.js.",
+      expect: 0,
+    },
   ];
   for (const { title, description, expect } of descriptionCases) {
     const job = stub({ source: "indeed", title, description });

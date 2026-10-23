@@ -334,10 +334,19 @@ const FOREIGN_STACK: Array<[term: string, penalty: number]> = [
  * Whole-word term test. Terms ending in a symbol (".net", "c#", "c++") get no
  * trailing boundary, because a word boundary never fires after a symbol.
  */
+const TERM_PATTERNS = new Map<string, RegExp>();
+
 function hasTerm(haystack: string, term: string): boolean {
-  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const trailing = /[a-z0-9]$/.test(term) ? "(?![a-z0-9])" : "";
-  return new RegExp(`(?<![a-z0-9])${escaped}${trailing}`, "i").test(haystack);
+  // Compiled once per term: stackFit runs every term over every posting, and
+  // building ~250 RegExps per call was most of a search's CPU time.
+  let pattern = TERM_PATTERNS.get(term);
+  if (!pattern) {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const trailing = /[a-z0-9]$/.test(term) ? "(?![a-z0-9])" : "";
+    pattern = new RegExp(`(?<![a-z0-9])${escaped}${trailing}`, "i");
+    TERM_PATTERNS.set(term, pattern);
+  }
+  return pattern.test(haystack);
 }
 
 /**
@@ -348,37 +357,40 @@ function hasTerm(haystack: string, term: string): boolean {
  * "Internship – Full-stack Engineer" would otherwise rank alongside a staff
  * role purely on recency. Includes Polish terms because Indeed PL is bilingual.
  */
-const JUNIOR_MARKERS = [
-  "intern",
-  "internship",
-  "junior",
-  "jr.",
-  "trainee",
-  "graduate",
-  "entry level",
-  "entry-level",
-  "apprentice",
-  "praktyk", // praktykant / praktyki
-  "staż", // staż / stażysta
-  "młodszy", // "junior" in Polish
+const JUNIOR_MARKERS: RegExp[] = [
+  // "intern" only as a word: a substring test also matched "Internal",
+  // "International" and the Polish "aplikacji internetowych" (web applications).
+  /(?<![a-z])intern(s|ship|ships)?(?![a-z])/,
+  /(?<![a-z])junior(?![a-z])/,
+  /(?<![a-z])jr\./,
+  /(?<![a-z])trainee/,
+  /(?<![a-z])graduate/,
+  /(?<![a-z])entry[- ]level/,
+  /(?<![a-z])apprentice/,
+  // Polish stems, matched as word starts: praktykant / praktyki, staż /
+  // stażysta, młodszy / młodsza.
+  /(?<![a-ząćęłńóśźż])praktyk/,
+  /(?<![a-ząćęłńóśźż])staż/,
+  /(?<![a-ząćęłńóśźż])młodsz/,
 ];
 
-const SENIOR_MARKERS = [
-  "senior",
-  "sr.",
-  "lead",
-  "staff",
-  "principal",
-  "architect",
-  "head of",
-  "starszy", // "senior" in Polish
+const SENIOR_MARKERS: RegExp[] = [
+  /(?<![a-z])senior(?![a-z])/,
+  /(?<![a-z])sr\./,
+  /(?<![a-z])lead/,
+  // Whole word, so "Staffing" is not a staff role.
+  /(?<![a-z])staff(?![a-z])/,
+  /(?<![a-z])principal(?![a-z])/,
+  /(?<![a-z])architect/,
+  /(?<![a-z])head of(?![a-z])/,
+  /(?<![a-ząćęłńóśźż])starszy/, // "senior" in Polish
 ];
 
 export function seniorityBucket(job: Job): number {
   const title = job.title.toLowerCase();
   // Junior wins ties: "Junior/Senior" listings are really junior openings.
-  if (JUNIOR_MARKERS.some((marker) => title.includes(marker))) return 2;
-  if (SENIOR_MARKERS.some((marker) => title.includes(marker))) return 0;
+  if (JUNIOR_MARKERS.some((marker) => marker.test(title))) return 2;
+  if (SENIOR_MARKERS.some((marker) => marker.test(title))) return 0;
   return 1;
 }
 
@@ -386,7 +398,24 @@ export function seniorityBucket(job: Job): number {
  * How well a posting matches my stack. Positive = good fit, negative = wrong
  * stack. Title counts double for matches and triple for penalties.
  */
+/**
+ * Scores are cached per job object. The pipeline asks for the same job's fit
+ * from the fit filter, from every comparison inside rankJobs and again in
+ * presentJob — about five times per job per search — and the dashboard serves
+ * the same cached objects on every request. Jobs are never mutated after they
+ * are scored (the pipeline copies them with spread), so the cache cannot go stale.
+ */
+const FIT_CACHE = new WeakMap<Job, number>();
+
 export function stackFit(job: Job): number {
+  const cached = FIT_CACHE.get(job);
+  if (cached !== undefined) return cached;
+  const score = computeStackFit(job);
+  FIT_CACHE.set(job, score);
+  return score;
+}
+
+function computeStackFit(job: Job): number {
   const title = job.title.toLowerCase();
   // JobSpy gives us the full Indeed description. It can rescue a generic title
   // whose actual work is React, or reject one whose body requires Java/Vue.
@@ -417,7 +446,52 @@ export function stackFit(job: Job): number {
  * Coarse fit tier, so recency still has room to work *within* a tier instead of
  * raw scores deciding everything. Lower sorts first.
  */
+/** Title words that keep a role a target even when it also names a mild penalty term. */
+const TARGET_TITLE_TERMS = [
+  "frontend",
+  "front-end",
+  "front end",
+  "react",
+  "next.js",
+  "nextjs",
+  "fullstack",
+  "full-stack",
+  "full stack",
+  "web",
+  "ui engineer",
+];
+
+/**
+ * True when the TITLE alone rules the role out: a junior opening, or a stack
+ * from FOREIGN_STACK. These used to be weights only, and a long description
+ * full of React/TypeScript could outscore them — "Junior Frontend Developer
+ * (React.js)" reached tier 0 and showed as a HIGH match, "Angular Software
+ * Developer" tier 1. A title says what the role is, so it is a gate.
+ *
+ * Mild penalties (backend, php, devops engineer — under 6) gate only when the
+ * title names no target term, so "Fullstack (Frontend/Backend)" still passes.
+ */
+function titleDisqualifies(job: Job): boolean {
+  if (seniorityBucket(job) === 2) return true;
+  const title = job.title.toLowerCase();
+  const hasTarget = TARGET_TITLE_TERMS.some((term) => hasTerm(title, term));
+  return FOREIGN_STACK.some(
+    ([term, penalty]) => hasTerm(title, term) && (penalty >= 6 || !hasTarget),
+  );
+}
+
+const TIER_CACHE = new WeakMap<Job, number>();
+
 export function fitTier(job: Job): number {
+  const cached = TIER_CACHE.get(job);
+  if (cached !== undefined) return cached;
+  const tier = computeFitTier(job);
+  TIER_CACHE.set(job, tier);
+  return tier;
+}
+
+function computeFitTier(job: Job): number {
+  if (titleDisqualifies(job)) return 3;
   const score = stackFit(job);
   if (score < 0) return 3; // wrong stack — bottom of the list
   if (score >= 6) return 0; // clear match
