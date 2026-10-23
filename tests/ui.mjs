@@ -353,7 +353,7 @@ async function main() {
     "dbinfo", "cards", "funnel", "rows", "empty", "toast",
     "view-tracker", "view-search", "searchform", "searchbtn",
     "searchprogress", "searchtimer", "jobgrid", "searchempty", "statusfilter",
-    "hideApplied", "showDismissed", "dismissedCount", "showRuleHidden", "ruleHiddenCount", "needsyou",
+    "hideApplied", "showDismissed", "dismissedCount", "showRuleHidden", "ruleHiddenCount", "needsyou", "applypanel",
     "datefilter", "sourcefilter",
     "loadmore", "appsearch", "applicationcount", "jobsearch", "matchfilter",
     "jobsort", "resultcount", "clearjobfilters", "searchemptynote",
@@ -441,6 +441,11 @@ async function main() {
     const row = applications.find((a) => a.company === "Omega");
     if (row) new Database(DB).prepare("DELETE FROM applications WHERE id = ?").run(row.id);
   });
+
+  /* ---- "Подать": guarded on the server, nothing spawned here ---- */
+  const applyUnknown = await post("/api/apply", { key: "example.com/not-in-the-store", mode: "dry-run" });
+  check("applying to a job that is not in the stored postings is refused", applyUnknown.status === 404,
+    String(applyUnknown.status));
 
   /* ---- tracker ---- */
   await page.load();
@@ -686,6 +691,15 @@ async function main() {
     !afterHide.jobs.some((row) => row.applyUrl === toHide.applyUrl));
   check("hiding a job does not fetch the boards again",
     afterHide.freshness?.sources?.indeed?.lastSuccessAt === fetchedAt);
+
+  // Applications go out in the user's name: never without a dry run first.
+  const submitFirst = await fetch(`${BASE}/api/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: afterHide.jobs[0].key, mode: "submit" }),
+  });
+  check("a submit without a dry run of the same job is refused", submitFirst.status === 409,
+    `${submitFirst.status} ${(await submitFirst.json()).error ?? ""}`);
 
   /*
    * The counter only counts dismissed jobs the search actually ran into, and

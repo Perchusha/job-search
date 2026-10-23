@@ -37,6 +37,7 @@ import {
   updateStatus,
   type Status,
 } from "./db.ts";
+import { getRun, refusal, startApply } from "./apply-runner.ts";
 import { jobKey } from "./jobkey.ts";
 import { presentJob, searchStored } from "./pipeline.ts";
 import { currentRefresh, describe, refreshDue, refreshing } from "./refresh.ts";
@@ -500,6 +501,14 @@ const PAGE = /* html */ `<!doctype html>
   .linkbtn.restore:hover { color: var(--good); }
   .jobcard.is-dismissed { opacity: .5; }
   .jobcard.is-rulehidden { opacity: .62; }
+  .applypanel { position: fixed; right: 18px; bottom: 18px; z-index: 20; width: min(440px, calc(100vw - 32px));
+                max-height: 70vh; overflow: auto; padding: 14px 16px; border-radius: 12px; font-size: 13px;
+                background: var(--panel); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+  .applypanel .applyhead { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .applypanel .log { font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--muted); }
+  .applypanel .filled { padding-left: 18px; color: var(--muted); }
+  .applypanel .warn { color: var(--warn); }
+  .applypanel .muted { color: var(--muted); }
   .needsyou { margin: 0 0 14px; padding: 10px 14px; border-radius: 10px; border: 1px solid
               color-mix(in srgb, var(--warn) 40%, transparent); background: var(--panel); }
   .needsyou summary { cursor: pointer; color: var(--warn); font-weight: 600; }
@@ -785,6 +794,8 @@ const PAGE = /* html */ `<!doctype html>
     </div>
     <!-- Applications apply.mjs started but could not finish without me. -->
     <details class="needsyou" id="needsyou" hidden></details>
+    <!-- "Подать": one application run by scripts/apply.mjs, dry run first. -->
+    <div class="applypanel" id="applypanel" hidden aria-live="polite"></div>
     <div class="jobgrid" id="jobgrid"></div>
     <div class="loadmore" id="loadmore" hidden></div>
     <div class="empty search-empty" id="searchempty" hidden>
@@ -1221,6 +1232,8 @@ function renderSearch(payload) {
         + (tracked ? " disabled" : "")
         + ' title="записать как отклик — в воронке всё считается applied">'
         + (tracked ? "✓ Откликнулся" : "В воронку") + "</button>"
+        + (tracked ? "" : '<button class="btn secondary" data-apply="' + index + '"'
+          + ' title="заполнить форму через apply.mjs — сначала без отправки, потом по кнопке">Подать</button>')
         + '<button class="btn secondary" data-hide="' + index + '" title="never show this job again">скрыть</button>'
         + '<details class="hidewhy"><summary title="скрыть с причиной — причины учатся правилами">▾</summary><div>'
         + HIDE_REASONS.map((reason) => '<button type="button" class="linkbtn" data-hide-reason="' + index
@@ -1255,6 +1268,9 @@ function renderSearch(payload) {
 
   document.querySelectorAll("#jobgrid button[data-add]").forEach((button) => {
     button.addEventListener("click", () => addToFunnel(Number(button.dataset.add), button));
+  });
+  document.querySelectorAll("#jobgrid button[data-apply]").forEach((button) => {
+    button.addEventListener("click", () => startApplyRun(Number(button.dataset.apply), "dry-run"));
   });
   document.querySelectorAll("#jobgrid button[data-hide-reason]").forEach((button) => {
     button.addEventListener("click", () => dismiss(Number(button.dataset.hideReason), button.dataset.reason));
@@ -1453,6 +1469,88 @@ function renderAttempts(attempts) {
       + (a.screenshot ? ' <span class="muted" title="' + esc(a.screenshot) + '">скриншот</span>' : "")
       + "</li>").join("") + "</ul>";
   box.open = open;
+}
+
+/*
+ * One application at a time through the server (POST /api/apply): a dry run
+ * fills the form and shows what went in, then "Отправить отклик" submits. The
+ * server refuses a submit without that dry run. Greenhouse and LinkedIn open a
+ * Chrome window on this machine; the e-mailed code is typed there by hand.
+ */
+let applyState = null;
+
+async function startApplyRun(index, mode) {
+  const job = searchResults[index];
+  if (!job) return;
+  try {
+    const response = await fetch("/api/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: job.key, mode }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    if (applyState && applyState.timer) clearTimeout(applyState.timer);
+    applyState = { index, job, id: payload.id, timer: null };
+    renderApplyPanel({ done: false, mode, log: [] });
+    pollApply();
+  } catch (error) {
+    toast("Не запустилось: " + error.message, true);
+  }
+}
+
+async function pollApply() {
+  if (!applyState) return;
+  const current = applyState;
+  try {
+    const state = await fetch("/api/apply/" + current.id).then((r) => r.json());
+    if (applyState !== current) return;
+    renderApplyPanel(state);
+    if (!state.done) {
+      current.timer = setTimeout(pollApply, 1500);
+      return;
+    }
+    await load(); // the funnel row, or the new attempt under "нужно вам"
+    if (state.result && state.result.result === "applied") renderSearch(lastSearchPayload);
+  } catch (error) {
+    toast("Не получил статус: " + error.message, true);
+  }
+}
+
+function renderApplyPanel(state) {
+  const panel = $("applypanel");
+  const job = applyState.job;
+  const r = state.result || {};
+  let body = "";
+  if (!state.done) {
+    const waitingForCode = (state.log || []).some((line) => /verification code|e-mailed/i.test(line));
+    body = '<p class="muted">' + (state.mode === "submit" ? "Отправляю…" : "Заполняю форму без отправки…") + "</p>"
+      + (waitingForCode ? '<p class="warn">На почту пришёл код — введи его в открытом окне Chrome и нажми Submit.</p>' : "")
+      + '<div class="log">' + (state.log || []).slice(-6).map(esc).join("<br>") + "</div>";
+  } else if (r.result === "dry-run") {
+    body = "<p>Заполнено полей: " + (r.filled || []).length + ". Проверь и отправь:</p>"
+      + '<ul class="filled">' + (r.filled || []).map((field) => "<li>" + esc(field) + "</li>").join("") + "</ul>"
+      + (r.screenshot ? '<p class="muted">Скриншот: ' + esc(r.screenshot) + "</p>" : "")
+      + '<button type="button" class="btn" id="applysubmit">Отправить отклик</button>';
+  } else if (r.result === "applied") {
+    body = "<p>Отклик отправлен и записан: " + esc(r.funnel || "") + "</p>";
+  } else {
+    body = '<p class="warn">' + esc(ATTEMPT_LABEL[r.result] || r.result || "?") + "</p>"
+      + (r.reason ? '<p class="muted">' + esc(r.reason) + "</p>" : "")
+      + (r.missing ? "<ul>" + r.missing.map((field) => "<li>" + esc(field.label)
+          + (field.options && field.options.length ? " [" + esc(field.options.slice(0, 5).join(" / ")) + "]" : "")
+          + "</li>").join("") + '</ul><p class="muted">Повторяющийся вопрос можно ответить один раз: '
+          + 'node scripts/apply.mjs --remember "вопрос" "ответ"</p>' : "")
+      + (r.errors && r.errors.length ? '<p class="muted">' + esc(r.errors.join("; ")) + "</p>" : "")
+      + '<p><a href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener">открыть форму</a></p>';
+  }
+  panel.hidden = false;
+  panel.innerHTML = '<div class="applyhead"><span><b>' + esc(job.company) + "</b> — " + esc(job.title) + "</span>"
+    + '<button type="button" class="linkbtn" id="applyclose">закрыть</button></div>' + body;
+  const close = document.getElementById("applyclose");
+  if (close) close.addEventListener("click", () => { panel.hidden = true; });
+  const submit = document.getElementById("applysubmit");
+  if (submit) submit.addEventListener("click", () => startApplyRun(applyState.index, "submit"));
 }
 
 /** Per-board age of the stored data, on the Refresh button's tooltip. */
@@ -1862,6 +1960,47 @@ const server = createServer(async (request, response) => {
         screenshot: text(body["screenshot"]),
       });
       sendJson(response, 201, { ok: true });
+      return;
+    }
+
+    /*
+     * "Подать" on a card: run scripts/apply.mjs for it (src/apply-runner.ts).
+     * Only from this machine — Chrome opens here, and the Greenhouse code is
+     * typed here — and only as dry run first; the runner refuses a submit that
+     * was not preceded by one.
+     */
+    if (request.method === "POST" && path === "/api/apply") {
+      const remote = request.socket.remoteAddress ?? "";
+      if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remote)) {
+        sendJson(response, 403, { error: "applications start only from this computer" });
+        return;
+      }
+      const body = JSON.parse((await readBody(request)) || "{}") as Record<string, unknown>;
+      const key = typeof body["key"] === "string" ? body["key"] : "";
+      const mode = body["mode"] === "submit" ? "submit" : "dry-run";
+      const job = storedFeed(SEARCH_DEFAULTS.sources).jobs.find((candidate) => jobKey(candidate.url) === key);
+      if (!job) {
+        sendJson(response, 404, { error: "no such job in the stored postings" });
+        return;
+      }
+      const refused = refusal(key, job, mode);
+      if (refused) {
+        sendJson(response, 409, { error: refused });
+        return;
+      }
+      const run = startApply(key, job, mode, `http://127.0.0.1:${PORT}`);
+      sendJson(response, 202, { id: run.id, mode, profile: run.profile });
+      return;
+    }
+
+    const applyRunMatch = path.match(/^\/api\/apply\/([0-9a-f-]{36})$/);
+    if (request.method === "GET" && applyRunMatch) {
+      const run = getRun(applyRunMatch[1] as string);
+      if (!run) {
+        sendJson(response, 404, { error: "no such run" });
+        return;
+      }
+      sendJson(response, 200, run);
       return;
     }
 

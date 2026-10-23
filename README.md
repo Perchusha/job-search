@@ -628,6 +628,16 @@ extension: **job-screen** (rules + hide), **job-apply** (one application),
 | `scripts/apply.mjs` | Fills and submits one application with Playwright on the installed Chrome; records it via `POST /api/applications`; exit codes for missing answers, account walls, CAPTCHAs, e-mailed verification codes |
 | `scripts/apply-batch.mjs` | Runs `apply.mjs` over a list, one result line per job |
 
+**From the dashboard:** "Подать" on a card runs `apply.mjs` for that job through the server
+([src/apply-runner.ts](src/apply-runner.ts)). It always starts as a dry run — the form is
+filled, nothing is sent, and the panel lists every field and value — and only then offers
+"Отправить отклик". The server refuses a submit that was not preceded by a dry run of the
+same job within 30 minutes, runs one application per Chrome profile at a time, and accepts
+the request only from this computer (the Chrome window, and the Greenhouse code typed into
+it, are here). A submitted application lands in the funnel by itself; anything short of that
+— a code, a CAPTCHA, an account wall, a missing answer — lands under **нужно вам** on the
+Search tab and in `node scripts/funnel.mjs attempts`, until the job is applied to or hidden.
+
 Facts the forms ask for live in `.claude/skills/job-apply/profile.json`. Chrome
 profiles: `~/.job-hunt/chrome-profile` (LinkedIn, log in once with
 `node scripts/apply.mjs --login`) and `~/.job-hunt/chrome-profile-ats` (all
