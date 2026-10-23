@@ -57,6 +57,7 @@ function makeEl(id = "") {
     querySelector: () => makeEl(),
     querySelectorAll: () => [],
     addEventListener(type, fn) { this._handlers[type] = fn; },
+    focus() {},
   };
 }
 
@@ -304,25 +305,53 @@ async function main() {
     pico.ok && pico.headers.get("content-type").startsWith("text/css"));
   check("the served stylesheet is the conditional build",
     (await pico.text()).includes(".pico "));
+  check("loaded search results have text, match, and sort controls",
+    html.includes('id="jobsearch"')
+      && html.includes('id="matchfilter"')
+      && html.includes('id="jobsort"'));
+  check("header exposes all three copy-link actions",
+    html.includes('id="copy-linkedin"')
+      && html.includes('id="copy-github"')
+      && html.includes('id="copy-portfolio"'));
+  check("search uses a compact progress indicator instead of technical details",
+    html.includes('id="searchprogress"')
+      && !html.includes('id="profileline"')
+      && !html.includes('id="srcline"'));
+  check("applied jobs are hidden by default",
+    html.includes('id="hideApplied" checked'));
 
   /* ---- evaluate it against the shim ---- */
   const registry = new Map();
   for (const id of [
     "dbinfo", "cards", "funnel", "rows", "empty", "toast",
     "view-tracker", "view-search", "searchform", "searchbtn",
-    "srcline", "jobgrid", "searchempty", "statusfilter", "profileline",
+    "searchprogress", "searchtimer", "jobgrid", "searchempty", "statusfilter",
     "hideApplied", "showDismissed", "dismissedCount", "datefilter", "sourcefilter",
-    "loadmore",
+    "loadmore", "appsearch", "applicationcount", "jobsearch", "matchfilter",
+    "jobsort", "resultcount", "clearjobfilters", "searchemptynote",
+    "copy-linkedin", "copy-github", "copy-portfolio",
   ]) registry.set(id, makeEl(id));
+
+  registry.get("copy-linkedin").dataset = {
+    label: "LinkedIn", url: "https://www.linkedin.com/in/anton-perch-768578113/",
+  };
+  registry.get("copy-github").dataset = {
+    label: "GitHub", url: "https://github.com/Perchusha",
+  };
+  registry.get("copy-portfolio").dataset = {
+    label: "Portfolio", url: "https://perchusha.github.io/portfolio/",
+  };
 
   const { document, tabs, chips, sourceBoxes, addButtons } = buildDocument(registry);
   const nativeFetch = globalThis.fetch.bind(globalThis);
+  const copiedLinks = [];
+  const navigator = { clipboard: { writeText: async (text) => copiedLinks.push(text) } };
   globalThis.document = document;
   // NOTE: never overwrite globalThis timers here — undici's fetch needs them,
   // and doing so once made every request in this harness fail silently.
 
   const page = new Function(
-    "document", "fetch", "setInterval", "setTimeout", "clearTimeout",
+    "document", "fetch", "setInterval", "setTimeout", "clearTimeout", "navigator",
     `${js}
      ; return {
        load, runSearch, showView, renderRows, esc,
@@ -331,7 +360,10 @@ async function main() {
        get trackedUrls(){return trackedUrls},
        get visibleCount(){return visibleCount},
        get renderLimit(){return renderLimit},
+       get hideApplied(){return hideApplied},
        showMore,
+       startSearchProgress, stopSearchProgress,
+       renderSearchPayload(payload){ lastSearchPayload = payload; renderSearch(payload) },
        setFilter(v){ statusFilter = v },
        setHideApplied(v){ hideApplied = v },
        renderSearchAgain(){ renderSearch(lastSearchPayload) },
@@ -339,7 +371,22 @@ async function main() {
        setSort(k, d){ sort = { key: k, dir: d } },
        sortedApplications,
      };`,
-  )(document, (path, init) => nativeFetch(BASE + path, init), () => 0, () => 0, () => {});
+  )(document, (path, init) => nativeFetch(BASE + path, init), () => 0, () => 0, () => {}, navigator);
+
+  await registry.get("copy-linkedin")._handlers.click();
+  await registry.get("copy-github")._handlers.click();
+  await registry.get("copy-portfolio")._handlers.click();
+  check("contact buttons copy their exact URLs",
+    copiedLinks.join("|") === [
+      "https://www.linkedin.com/in/anton-perch-768578113/",
+      "https://github.com/Perchusha",
+      "https://perchusha.github.io/portfolio/",
+    ].join("|"));
+  check("the hide-applied filter state starts enabled", page.hideApplied === true);
+  page.startSearchProgress();
+  check("search progress can be shown", registry.get("searchprogress").hidden === false);
+  page.stopSearchProgress();
+  check("search progress is cleared after completion", registry.get("searchprogress").hidden === true);
 
   /* ---- tracker ---- */
   await page.load();
@@ -393,11 +440,51 @@ async function main() {
   page.setFilter("");
   page.renderRows();
 
+  registry.get("appsearch").value = "alpha";
+  registry.get("appsearch")._handlers.input({ target: registry.get("appsearch") });
+  check("application search narrows by company, role, or location",
+    (registry.get("rows").innerHTML.match(/<tr/g) || []).length === 1);
+  check("filtered application count is visible",
+    registry.get("applicationcount").textContent === "1 of 3 applications");
+  registry.get("appsearch").value = "";
+  registry.get("appsearch")._handlers.input({ target: registry.get("appsearch") });
+
   page.setSort("company", "asc");
   const asc = page.sortedApplications().map((row) => row.company).join(",");
   page.setSort("company", "desc");
   const desc = page.sortedApplications().map((row) => row.company).join(",");
   check("sorting reverses", asc !== desc, `${asc}  vs  ${desc}`);
+
+  /* ---- instant filters over already loaded search results ---- */
+  const today = new Date().toISOString();
+  const demoJob = (company, title, level, fit) => ({
+    company, title, fit, source: "indeed", location: "Poland", postedAt: today,
+    applyUrl: `https://example.com/jobs/${company.toLowerCase()}`,
+    match: { level, reason: `${level} profile match` },
+    eligibility: { level: "high", reason: "Open in Poland" },
+  });
+  page.renderSearchPayload({
+    jobs: [demoJob("Zeta", "Senior Java Engineer", "medium", 2),
+      demoJob("Alpha", "Senior React Engineer", "high", 8)],
+    reports: [{ source: "indeed", count: 2 }],
+    counts: { fetched: 2, afterEligibility: 2, deduped: 2 },
+    profile: { queries: ["Senior Engineer"], location: "Poland", hoursOld: 720 },
+  });
+  registry.get("jobsearch").value = "react";
+  registry.get("jobsearch")._handlers.input({ target: registry.get("jobsearch") });
+  check("loaded jobs can be searched without another board request",
+    registry.get("resultcount").textContent === "1 of 2 matches"
+      && registry.get("jobgrid").innerHTML.includes("Senior React Engineer"));
+  registry.get("jobsearch").value = "";
+  registry.get("jobsearch")._handlers.input({ target: registry.get("jobsearch") });
+  registry.get("matchfilter").value = "high";
+  registry.get("matchfilter")._handlers.change({ target: registry.get("matchfilter") });
+  check("high-match filter narrows loaded jobs instantly",
+    registry.get("resultcount").textContent === "1 of 2 matches"
+      && !registry.get("jobgrid").innerHTML.includes("Senior Java Engineer"));
+  registry.get("clearjobfilters")._handlers.click();
+  check("clear restores the loaded result set",
+    registry.get("resultcount").textContent === "2 matches");
 
   /* ---- profile search (live network) ---- */
   console.log("\n(running a live profile search through the page's own code path…)");
@@ -435,13 +522,6 @@ async function main() {
       && grid.includes('target="_blank"'));
   check("the title is no longer the posting link", !grid.includes("<h3><a"));
   check("the redundant open-posting action is gone", !/open posting/i.test(grid));
-  check("profile line says what was searched",
-    registry.get("profileline").innerHTML.includes("Poland"));
-  // Per-source counts moved onto the pills; this line carries the pipeline.
-  check("the counts line still says what the pipeline dropped",
-    /\d+ fetched/.test(registry.get("srcline").innerHTML)
-      && /eligible/.test(registry.get("srcline").innerHTML),
-    registry.get("srcline").innerHTML.replace(/<[^>]+>/g, "").slice(0, 90));
   check("add button present", grid.includes("В воронку"));
   check("hide is a grey secondary button",
     grid.includes('class="btn secondary" data-hide='));
@@ -554,6 +634,8 @@ async function main() {
   /* ---- "hide applied" filter ---- */
   // Counted on what the filter matched, not on what is drawn: with the render
   // cap in play both numbers could be one batch and the check would be blind.
+  page.setHideApplied(false);
+  page.renderSearchAgain();
   const beforeFilter = page.visibleCount;
   page.setHideApplied(true);
   page.renderSearchAgain();
@@ -585,9 +667,8 @@ async function main() {
   check("a pill per configured board", boxes.length === 2,
     boxes.map((el) => el.value).join(", "));
   check("every board starts switched on", boxes.every((el) => el.checked));
-  check("each pill carries its fetch count",
-    /<span class="n">\d+<\/span>/.test(registry.get("sourcefilter").innerHTML),
-    registry.get("sourcefilter").innerHTML.replace(/<[^>]+>/g, " ").trim());
+  check("source pills stay free of fetch counters",
+    !/class="n"/.test(registry.get("sourcefilter").innerHTML));
 
   // Narrowing is a search parameter, so the server must honour it.
   const narrowed = await (await fetch(`${BASE}/api/search?sources=himalayas`)).json();
@@ -624,10 +705,6 @@ async function main() {
   check("every card left standing under a 24h window is from today or yesterday",
     !/\d+ дн\. назад/.test(freshGrid) && !freshGrid.includes(">без даты<"),
     `${fresh.length} returned, ${(freshGrid.match(/class="jobcard/g) || []).length} shown`);
-  check("the profile line reports the narrowed window",
-    registry.get("profileline").innerHTML.includes("last 1d"),
-    registry.get("profileline").innerHTML.slice(-40));
-
   await chipFor(30).check();
   check("«месяц» widens the window again",
     page.searchResults.length >= fresh.length,

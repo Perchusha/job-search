@@ -528,3 +528,23 @@ once and both surfaces follow.
   filter, so without this a fresh internship outranks a staff role.
 - **Stack keywords come from the CV**, weighted, in `sources.ts`. That list is the single
   place that encodes "what I actually do" — edit it to change what ranks highly.
+
+## Applying by script
+
+Three skills under `.claude/skills/` drive the whole pass without the browser
+extension: **job-screen** (rules + hide), **job-apply** (one application),
+**job-pipeline** (the daily run). They are thin wrappers over four scripts:
+
+| Script | Does |
+| --- | --- |
+| `scripts/funnel.mjs` | CLI over the dashboard API: `search`, `screen [--commit]`, `dismiss`, `undismiss`, `add`, `applied`, `dismissed`, `stats`, `status` |
+| `scripts/jobs-fetch.mjs` | Reads postings without a browser (board JSON APIs, LinkedIn guest API, stripped HTML, Chrome only for JS-only pages) and prints one line per job: work mode, stack, level, language/country constraints, ATS, form questions |
+| `scripts/apply.mjs` | Fills and submits one application with Playwright on the installed Chrome; records it via `POST /api/applications`; exit codes for missing answers, account walls, CAPTCHAs, e-mailed verification codes |
+| `scripts/apply-batch.mjs` | Runs `apply.mjs` over a list, one result line per job |
+
+Facts the forms ask for live in `.claude/skills/job-apply/profile.json`. Chrome
+profiles: `~/.job-hunt/chrome-profile` (LinkedIn, log in once with
+`node scripts/apply.mjs --login`) and `~/.job-hunt/chrome-profile-ats` (all
+other boards). The scripts never create accounts, never type passwords, never
+solve CAPTCHAs and never read verification codes from the mailbox — those
+steps are handed back to you.
