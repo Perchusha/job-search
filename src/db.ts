@@ -212,6 +212,27 @@ function migrate(database: Database.Database): void {
       key   TEXT PRIMARY KEY,
       value TEXT
     );
+
+    /*
+     * Application attempts that did not end in "applied" (scripts/apply.mjs
+     * writes one per run): a code to type, a CAPTCHA, an account wall, a
+     * missing answer, a failed submit. Not applications — the funnel stays
+     * applications-only. An attempt stops being open once the job is applied
+     * to or hidden.
+     */
+    CREATE TABLE IF NOT EXISTS attempts (
+      id         INTEGER PRIMARY KEY,
+      job_key    TEXT NOT NULL,
+      url        TEXT NOT NULL,
+      apply_url  TEXT,
+      company    TEXT,
+      title      TEXT,
+      at         TEXT NOT NULL,
+      result     TEXT NOT NULL,
+      detail     TEXT,
+      screenshot TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_attempts_job_key ON attempts(job_key);
   `);
 
   /*
@@ -707,6 +728,67 @@ export function setMeta(key: string, value: string): void {
   getDb()
     .prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     .run(key, value);
+}
+
+/* ------------------------------------------------------------------ */
+/* Attempts — applications that need me                                */
+/* ------------------------------------------------------------------ */
+
+export type Attempt = {
+  id: number;
+  job_key: string;
+  url: string;
+  apply_url: string | null;
+  company: string | null;
+  title: string | null;
+  at: string;
+  result: string;
+  detail: string | null;
+  screenshot: string | null;
+  /** How many runs this job has had. */
+  tries: number;
+};
+
+export function recordAttempt(input: {
+  url: string;
+  applyUrl?: string | null;
+  company?: string | null;
+  title?: string | null;
+  result: string;
+  detail?: string | null;
+  screenshot?: string | null;
+}): void {
+  getDb()
+    .prepare(
+      `INSERT INTO attempts (job_key, url, apply_url, company, title, at, result, detail, screenshot)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      jobKey(input.url),
+      input.url,
+      input.applyUrl ?? null,
+      input.company ?? null,
+      input.title ?? null,
+      nowIso(),
+      input.result,
+      input.detail ?? null,
+      input.screenshot ?? null,
+    );
+}
+
+/** The latest attempt per job, for jobs not yet applied to or hidden. */
+export function listOpenAttempts(): Attempt[] {
+  return getDb()
+    .prepare<[], Attempt>(
+      `SELECT a.*, latest.tries AS tries
+         FROM attempts a
+         JOIN (SELECT job_key, MAX(id) AS id, COUNT(*) AS tries FROM attempts GROUP BY job_key) latest
+           ON latest.id = a.id
+        WHERE a.job_key NOT IN (SELECT url_key FROM applications WHERE url_key IS NOT NULL)
+          AND a.job_key NOT IN (SELECT url_key FROM dismissed WHERE url_key IS NOT NULL)
+        ORDER BY a.id DESC`,
+    )
+    .all();
 }
 
 /** Closes the handle. Only needed by scripts that want a clean exit. */

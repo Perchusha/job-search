@@ -48,7 +48,20 @@ Result line (stdout, JSON) and exit code:
 
 Rules live in `answerFor()` in the script: label regex → value. When a
 `missing-answers` label is one that will recur (a new phrasing of "notice
-period", a Polish label), add a rule there rather than an `--answers` file.
+period", a Polish label), put the answer in the bank instead of an
+`--answers` file:
+
+```
+node scripts/apply.mjs --remember "<label substring>" "<answer>"
+```
+
+It goes into `answers` in profile.json and is used on every later form
+(after this run's `--answers`, before the built-in rules). Only facts the user
+has confirmed go in the bank; ask when unsure.
+
+Every outcome short of `applied` is recorded as an attempt (the dashboard's
+"нужно вам" list, `node scripts/funnel.mjs attempts`) until the job is applied
+to or hidden — no need to keep a list in the chat.
 
 ## Boards
 

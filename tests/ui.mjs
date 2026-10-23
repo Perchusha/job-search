@@ -353,7 +353,7 @@ async function main() {
     "dbinfo", "cards", "funnel", "rows", "empty", "toast",
     "view-tracker", "view-search", "searchform", "searchbtn",
     "searchprogress", "searchtimer", "jobgrid", "searchempty", "statusfilter",
-    "hideApplied", "showDismissed", "dismissedCount", "showRuleHidden", "ruleHiddenCount",
+    "hideApplied", "showDismissed", "dismissedCount", "showRuleHidden", "ruleHiddenCount", "needsyou",
     "datefilter", "sourcefilter",
     "loadmore", "appsearch", "applicationcount", "jobsearch", "matchfilter",
     "jobsort", "resultcount", "clearjobfilters", "searchemptynote",
@@ -415,6 +415,32 @@ async function main() {
   check("search progress can be shown", registry.get("searchprogress").hidden === false);
   page.stopSearchProgress();
   check("search progress is cleared after completion", registry.get("searchprogress").hidden === true);
+
+  /* ---- attempts that need me ---- */
+  const post = (path, body) => fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  await post("/api/attempts", { url: "https://example.com/attempt/1", company: "Omega",
+    title: "Senior Frontend Engineer", result: "needs-code", applyUrl: "https://example.com/attempt/1/apply" });
+  await post("/api/attempts", { url: "https://example.com/attempt/1", company: "Omega",
+    title: "Senior Frontend Engineer", result: "captcha" });
+  await page.load();
+  const needs = registry.get("needsyou");
+  check("an unfinished application is listed under «нужно вам»",
+    needs.hidden === false && needs.innerHTML.includes("Omega") && needs.innerHTML.includes("нужно вам (1)"),
+    needs.innerHTML.slice(0, 120));
+  check("only its latest attempt is shown, with the number of tries",
+    needs.innerHTML.includes("капча") && needs.innerHTML.includes("попыток: 2"));
+  await post("/api/applications", { url: "https://example.com/attempt/1?utm_source=x", title: "Senior Frontend Engineer", company: "Omega" });
+  check("applying to it closes the attempt",
+    (await (await fetch(`${BASE}/api/attempts`)).json()).attempts.length === 0);
+  await fetch(`${BASE}/api/applications`).then((r) => r.json()).then(async ({ applications }) => {
+    // Keep the tracker checks below exact: remove the row this check added.
+    const row = applications.find((a) => a.company === "Omega");
+    if (row) new Database(DB).prepare("DELETE FROM applications WHERE id = ?").run(row.id);
+  });
 
   /* ---- tracker ---- */
   await page.load();

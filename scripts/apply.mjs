@@ -6,6 +6,7 @@
  *
  *   node scripts/apply.mjs <applyUrl> --url <postingUrl> --company ".." --title ".." [--source indeed]
  *                          [--cover <file|text>] [--answers <json file>] [--dry-run] [--headed]
+ *   node scripts/apply.mjs --remember "<label substring>" "<answer>"   add to the answer bank
  *                          [--contract uop|b2b]   the posting's contract type, when known: picks
  *                                                 the gross UoP or the net B2B salary figure
  *   node scripts/apply.mjs --login            # opens a window on linkedin.com; log in, then close it
@@ -494,6 +495,18 @@ async function fillControls(page, scopeSelector, extra, report) {
         note("CV");
         // Boards that parse the CV (Breezy, SmartRecruiters, Teamtailor) prefill fields a few seconds later.
         await page.waitForTimeout(/breezy|smartrecruiters|teamtailor|\/jobs\/\d+/.test(page.url()) ? 7000 : 1500);
+        // Ashby parses the CV and fills fields while "Parsing your resume…"
+        // shows; filling before it ends left salary, country and work
+        // authorisation empty on the Venn form, reported as missing answers.
+        if (/ashbyhq/.test(page.url())) {
+          for (let waited = 0; waited < 20_000; waited += 1000) {
+            const busy = await page
+              .evaluate(() => /parsing your resume|autofilling/i.test(document.body?.innerText ?? ""))
+              .catch(() => false);
+            if (!busy) break;
+            await page.waitForTimeout(1000);
+          }
+        }
       } else if (answer.kind === "check") {
         if (c.checked) continue;
         if (c.role === "checkbox") await loc.click({ force: true });
@@ -837,6 +850,55 @@ async function recordInFunnel(args, applyUrl, vendor) {
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Prints the one result line, and records every outcome short of "applied"
+ * as an attempt in the dashboard (POST /api/attempts). Those used to exist only
+ * in the chat report: on 2026-10-13 about 30 roles were attempted, 12 were
+ * applied to, and 9 were left neither applied to nor hidden, with nothing on
+ * record but screenshot file names. The dashboard lists open attempts as
+ * "нужно вам". Never writes anything else to stdout.
+ */
+async function emit(outcome, pretty = false) {
+  console.log(pretty ? JSON.stringify(outcome, null, 1) : JSON.stringify(outcome));
+  if (outcome.result === "applied" || outcome.result === "dry-run") return;
+  const detail =
+    outcome.reason ??
+    outcome.errors?.join("; ") ??
+    outcome.missing?.map((field) => field.label).join("; ") ??
+    null;
+  try {
+    await fetch(DASHBOARD + "/api/attempts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        url: flags.url ?? positional[0],
+        applyUrl: outcome.applyUrl ?? outcome.url ?? positional[0],
+        title: flags.title,
+        company: flags.company,
+        result: outcome.result,
+        detail: detail ? String(detail).slice(0, 500) : null,
+        screenshot: outcome.screenshot ?? null,
+      }),
+    });
+  } catch (error) {
+    log(`attempt not recorded (${error.message})`);
+  }
+}
+
+/**
+ * `--remember "<label substring>" "<answer>"`: adds an answer to the bank in
+ * profile.json, used on every later form. For questions that recur — a new
+ * phrasing of "notice period", a Polish label — instead of an --answers file
+ * per run.
+ */
+function remember(label, value) {
+  const path = join(ROOT, ".claude/skills/job-apply/profile.json");
+  const profile = JSON.parse(readFileSync(path, "utf8"));
+  profile.answers = { ...(profile.answers ?? {}), [label]: value };
+  writeFileSync(path, JSON.stringify(profile, null, 2) + "\n", "utf8");
+  log(`remembered: "${label}" → "${value}" (${Object.keys(profile.answers).length} answers in the bank)`);
+}
+
 async function main() {
   mkdirSync(USER_DATA, { recursive: true });
   mkdirSync(SHOTS, { recursive: true });
@@ -850,6 +912,15 @@ async function main() {
     return 0;
   }
 
+  if (typeof flags.remember === "string") {
+    if (!positional[0]) {
+      log('usage: apply.mjs --remember "<label substring>" "<answer>"');
+      return 1;
+    }
+    remember(flags.remember, positional[0]);
+    return 0;
+  }
+
   const applyUrl = positional[0];
   if (!applyUrl || !flags.title || !flags.company) {
     log("usage: apply.mjs <applyUrl> --url <postingUrl> --company .. --title .. [--source ..] [--cover ..] [--answers ..] [--dry-run] [--headed]");
@@ -857,12 +928,17 @@ async function main() {
   }
   let vendor = vendorOf(applyUrl);
   if (vendor === "portal") {
-    console.log(JSON.stringify({ result: "needs-account", vendor, applyUrl }));
+    await emit({ result: "needs-account", vendor, applyUrl });
     return 4;
   }
   PRIOR = await loadPriorApplications(flags.company);
   if (PRIOR.length > 0) log(`${flags.company}: applied ${PRIOR.length}× before (${PRIOR.map((row) => "#" + row.id + " " + row.status).join(", ")})`);
+  // This run's --answers file first, then the bank in profile.json; the first
+  // label substring that matches wins (answerFor).
   const extra = flags.answers ? JSON.parse(readFileSync(flags.answers, "utf8")) : {};
+  for (const [label, value] of Object.entries(PROFILE.answers ?? {})) {
+    if (!(label in extra)) extra[label] = value;
+  }
   if (flags.cover === "auto") extra.__cover = autoCover(flags.company, flags.title, String(flags.stack ?? ""));
   else if (flags.cover) extra.__cover = existsSync(flags.cover) ? readFileSync(flags.cover, "utf8") : flags.cover;
 
@@ -883,7 +959,7 @@ async function main() {
       page = opened.external;
       vendor = vendorOf(page.url());
       log(`linkedin → external ${vendor} ${page.url().slice(0, 120)}`);
-      if (vendor === "portal") { console.log(JSON.stringify({ result: "needs-account", vendor, applyUrl: page.url() })); return 4; }
+      if (vendor === "portal") { await emit({ result: "needs-account", vendor, applyUrl: page.url() }); return 4; }
       opened = await openForm(page, vendor, page.url());
     }
     if (!opened.ok && !opened.notRemote) {
@@ -900,17 +976,17 @@ async function main() {
     }
     if (!opened.ok) {
       const file = await shot("noform");
-      console.log(JSON.stringify({ result: opened.notRemote ? "not-remote" : "no-form", reason: opened.reason, url: page.url(), screenshot: file }));
+      await emit({ result: opened.notRemote ? "not-remote" : "no-form", reason: opened.reason, url: page.url(), screenshot: file });
       return opened.notRemote ? 5 : 4;
     }
     const html = await page.content();
     if (/sign in to apply|log in to apply|create (an )?account to apply|create your account/i.test(html)) {
-      console.log(JSON.stringify({ result: "needs-account", url: page.url() }));
+      await emit({ result: "needs-account", url: page.url() });
       return 4;
     }
     if (CAPTCHA.test(html) && (await page.locator('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], .cf-turnstile').count()) > 0) {
       const visibleCaptcha = await page.locator('iframe[src*="recaptcha/api2/anchor"], iframe[src*="hcaptcha"], .cf-turnstile').first().isVisible().catch(() => false);
-      if (visibleCaptcha) { console.log(JSON.stringify({ result: "captcha", url: page.url() })); return 4; }
+      if (visibleCaptcha) { await emit({ result: "captcha", url: page.url() }); return 4; }
     }
 
     const target = opened.frame ?? page;
@@ -945,17 +1021,17 @@ async function main() {
 
     if (missing.length) {
       const file = await shot("missing");
-      console.log(JSON.stringify({ result: "missing-answers", missing, filled: report, screenshot: file }, null, 1));
+      await emit({ result: "missing-answers", missing, filled: report, screenshot: file }, true);
       return 2;
     }
     if (flags["dry-run"]) {
       const file = await shot("dryrun");
-      console.log(JSON.stringify({ result: "dry-run", filled: report, screenshot: file }, null, 1));
+      await emit({ result: "dry-run", filled: report, screenshot: file }, true);
       return 0;
     }
     if (!submittedText) {
       const file = await shot("nosubmit");
-      console.log(JSON.stringify({ result: "no-submit-button", filled: report, screenshot: file }));
+      await emit({ result: "no-submit-button", filled: report, screenshot: file });
       return 3;
     }
 
@@ -973,7 +1049,7 @@ async function main() {
         codeStep = true;
         if (!headed) {
           const file = await shot("code");
-          console.log(JSON.stringify({ result: "needs-code", reason: "the board e-mailed a verification code; re-run with --headed and type it", filled: report, screenshot: file }));
+          await emit({ result: "needs-code", reason: "the board e-mailed a verification code; re-run with --headed and type it", filled: report, screenshot: file });
           return 6;
         }
         log(`>>> ${flags.company}: a verification code was e-mailed to ${PROFILE.email}. Type it into the open Chrome window and press Submit (waiting up to 5 minutes).`);
@@ -992,13 +1068,13 @@ async function main() {
       if (!stillHasForm && errors.length === 0) success = true; // form gone, no errors: accepted
       else {
         const file = await shot("failed");
-        console.log(JSON.stringify({ result: "submit-failed", button: submittedText, errors, filled: report, screenshot: file }, null, 1));
+        await emit({ result: "submit-failed", button: submittedText, errors, filled: report, screenshot: file }, true);
         return 3;
       }
     }
     const funnel = await recordInFunnel(flags, applyUrl, vendor);
     if (vendor === "linkedin") await clickButton(page, /^(done|dismiss|close)$/i);
-    console.log(JSON.stringify({ result: "applied", funnel, button: submittedText, filled: report }));
+    await emit({ result: "applied", funnel, button: submittedText, filled: report });
     return 0;
   } finally {
     await context.close().catch(() => {});

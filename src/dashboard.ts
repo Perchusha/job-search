@@ -26,6 +26,8 @@ import {
   listApplications,
   listDismissed,
   listDismissedKeys,
+  listOpenAttempts,
+  recordAttempt,
   lastFetch,
   postingsVersion,
   getMeta,
@@ -498,6 +500,13 @@ const PAGE = /* html */ `<!doctype html>
   .linkbtn.restore:hover { color: var(--good); }
   .jobcard.is-dismissed { opacity: .5; }
   .jobcard.is-rulehidden { opacity: .62; }
+  .needsyou { margin: 0 0 14px; padding: 10px 14px; border-radius: 10px; border: 1px solid
+              color-mix(in srgb, var(--warn) 40%, transparent); background: var(--panel); }
+  .needsyou summary { cursor: pointer; color: var(--warn); font-weight: 600; }
+  .needsyou ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; }
+  .needsyou .sig { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); }
+  .needsyou .sig.warn { color: var(--warn); }
+  .needsyou .muted { color: var(--muted); }
   .jobcard .newbadge { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px;
                        color: var(--bg); background: var(--accent); }
   .jobcard .sig { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; color: var(--muted);
@@ -774,6 +783,8 @@ const PAGE = /* html */ `<!doctype html>
         </select>
       </div>
     </div>
+    <!-- Applications apply.mjs started but could not finish without me. -->
+    <details class="needsyou" id="needsyou" hidden></details>
     <div class="jobgrid" id="jobgrid"></div>
     <div class="loadmore" id="loadmore" hidden></div>
     <div class="empty search-empty" id="searchempty" hidden>
@@ -1417,6 +1428,33 @@ async function runSearch(event, quiet) {
   }
 }
 
+/*
+ * "нужно вам": attempts apply.mjs recorded that need a person — a code from
+ * the mailbox, a CAPTCHA, an account, an answer, a failed submit. Each stays
+ * until the job is applied to or hidden.
+ */
+const ATTEMPT_LABEL = {
+  "needs-code": "код из письма", "captcha": "капча", "needs-account": "нужен аккаунт",
+  "missing-answers": "нет ответа на вопрос", "submit-failed": "отправка не прошла",
+  "no-form": "форма не найдена", "no-submit-button": "нет кнопки отправки", "not-remote": "не удалённо",
+};
+
+function renderAttempts(attempts) {
+  const box = $("needsyou");
+  box.hidden = attempts.length === 0;
+  if (attempts.length === 0) return;
+  const open = box.open;
+  box.innerHTML = "<summary>нужно вам (" + attempts.length + ")</summary><ul>"
+    + attempts.map((a) => "<li><b>" + esc(a.company || "?") + "</b> — " + esc(a.title || "?")
+      + ' <span class="sig warn">' + esc(ATTEMPT_LABEL[a.result] || a.result) + "</span>"
+      + (a.tries > 1 ? ' <span class="sig">попыток: ' + a.tries + "</span>" : "")
+      + (a.detail ? ' <span class="muted">' + esc(a.detail) + "</span>" : "")
+      + ' <a href="' + esc(a.apply_url || a.url) + '" target="_blank" rel="noreferrer noopener">открыть форму</a>'
+      + (a.screenshot ? ' <span class="muted" title="' + esc(a.screenshot) + '">скриншот</span>' : "")
+      + "</li>").join("") + "</ul>";
+  box.open = open;
+}
+
 /** Per-board age of the stored data, on the Refresh button's tooltip. */
 function showFreshness(freshness) {
   if (!freshness || !freshness.sources) return;
@@ -1544,6 +1582,8 @@ async function load() {
     trackedUrls = new Set(applications.map((a) => a.url_key).filter(Boolean));
     renderStats(stats);
     renderRows();
+    const { attempts } = await fetch("/api/attempts").then((r) => r.json());
+    renderAttempts(attempts || []);
   } catch (error) {
     toast("Load failed: " + error.message, true);
   }
@@ -1798,6 +1838,36 @@ const server = createServer(async (request, response) => {
                 (job.firstSeenAt ?? "") > since,
             ).length;
       sendJson(response, 200, { count, since });
+      return;
+    }
+
+    // apply.mjs reports every outcome short of "applied".
+    if (request.method === "POST" && path === "/api/attempts") {
+      const body = JSON.parse((await readBody(request)) || "{}") as Record<string, unknown>;
+      const text = (value: unknown): string | null =>
+        typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+      const attemptUrl = text(body["url"]);
+      const result = text(body["result"]);
+      if (!attemptUrl || !result) {
+        sendJson(response, 400, { error: "url and result are required" });
+        return;
+      }
+      recordAttempt({
+        url: attemptUrl,
+        applyUrl: text(body["applyUrl"]),
+        company: text(body["company"]),
+        title: text(body["title"]),
+        result,
+        detail: text(body["detail"]),
+        screenshot: text(body["screenshot"]),
+      });
+      sendJson(response, 201, { ok: true });
+      return;
+    }
+
+    // Open attempts: the "нужно вам" list on the Search tab.
+    if (request.method === "GET" && path === "/api/attempts") {
+      sendJson(response, 200, { attempts: listOpenAttempts() });
       return;
     }
 

@@ -18,6 +18,9 @@
  *   node scripts/funnel.mjs add --url <url> --title ".." --company ".." [--source ..] [--location ..] [--salary ..]
  *       Record an application. Idempotent on url (already_tracked).
  *   node scripts/funnel.mjs applied | dismissed | stats
+ *   node scripts/funnel.mjs attempts
+ *       Applications apply.mjs started but could not finish (code, CAPTCHA,
+ *       account, missing answer, failed submit), not yet applied to or hidden.
  *   node scripts/funnel.mjs status <id> <status>
  *
  * Exit code 0 on success, 1 on a usage or API error.
@@ -256,6 +259,28 @@ async function cmdDismissed() {
   }
 }
 
+async function cmdAttempts() {
+  const { attempts } = await api("GET", "/api/attempts");
+  if (attempts.length === 0) {
+    console.log("no open attempts");
+    return;
+  }
+  for (const attempt of attempts) {
+    console.log(
+      [
+        attempt.at.slice(0, 16).replace("T", " "),
+        attempt.result.padEnd(16),
+        `${attempt.company ?? "?"} — ${attempt.title ?? "?"}`,
+        attempt.tries > 1 ? `(${attempt.tries} tries)` : "",
+        attempt.detail ? `<${attempt.detail}>` : "",
+        attempt.apply_url ?? attempt.url,
+      ]
+        .filter(Boolean)
+        .join("  "),
+    );
+  }
+}
+
 async function cmdStats() {
   console.log(JSON.stringify(await api("GET", "/api/stats"), null, 2));
 }
@@ -295,6 +320,9 @@ switch (command) {
     break;
   case "stats":
     await cmdStats();
+    break;
+  case "attempts":
+    await cmdAttempts();
     break;
   case "status":
     await cmdStatus(rest);

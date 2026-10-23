@@ -59,7 +59,8 @@ node scripts/apply-batch.mjs --fetched $S/batch-linkedin.json --out $S/results-l
 ```
 
 Then clear the `missing-answers` rows: write `$S/answers/<idx>.json`, re-run
-with `--only`. Fix a recurring label in `answerFor()` instead.
+with `--only`. A label that will recur goes into the answer bank once:
+`node scripts/apply.mjs --remember "<label substring>" "<answer>"`.
 
 Every `applied` row is already in the funnel (the script posts it). Do not
 add it again by hand.
@@ -75,7 +76,7 @@ add it again by hand.
 Four lists, one line each, nothing else:
 
 1. **Applied** — company, title, board, funnel id.
-2. **Needs you** — account-only boards, verification codes not typed, hybrid-light roles, marketplaces (lemon.io, Jobgether, Proxify…), with the URL.
+2. **Needs you** — `node scripts/funnel.mjs attempts` (codes not typed, CAPTCHAs, account walls, missing answers — recorded by apply.mjs, also on the dashboard), plus hybrid-light roles and marketplaces (lemon.io, Jobgether, Proxify…) from the screen, with the URL.
 3. **Hidden** — the count, grouped by reason (not the list; it is in the dashboard under "показать скрытые").
 4. **Failed** — `submit-failed` rows with the error text and screenshot path.
 
