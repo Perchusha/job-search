@@ -1744,6 +1744,9 @@ watchForBottom();
 // Draw the pills before the first search so the filter is usable while it runs.
 renderSourceFilter();
 load();
+// "#search" opens straight on the Search tab: the desktop app's notifications
+// link there.
+if (typeof location === "object" && location.hash === "#search") showView("search");
 // The MCP server may write while this page is open; WAL makes the reads safe.
 setInterval(load, 15000);
 </script>
@@ -1942,19 +1945,31 @@ const server = createServer(async (request, response) => {
      * rule hits). Polled with the stats, for the "(N)" in the page title.
      * Never fetches: it only reads what the background refresh stored.
      */
+    // `?since=<iso>` counts from another moment instead — the desktop app asks
+    // "since my last notification" and "in the last 24 hours". `top` names the
+    // first few, best-ranked first, for the notification text.
     if (request.method === "GET" && path === "/api/new-count") {
-      const since = getMeta(LAST_VISIT);
+      const sinceParam = url.searchParams.get("since");
+      const since =
+        sinceParam && !Number.isNaN(Date.parse(sinceParam))
+          ? new Date(sinceParam).toISOString()
+          : getMeta(LAST_VISIT);
       const sources = [...SEARCH_DEFAULTS.sources];
       const stored = sources.some((source) => lastFetch(source).lastSuccessAt !== null);
-      const count =
+      const fresh =
         since === null || !stored
-          ? 0
+          ? []
           : feedView(sources, undefined, false).page.filter(
               ({ job, bucket }) =>
                 (bucket === "apply" || bucket === "check" || bucket === "needs-you") &&
                 (job.firstSeenAt ?? "") > since,
-            ).length;
-      sendJson(response, 200, { count, since });
+            );
+      sendJson(response, 200, {
+        count: fresh.length,
+        since,
+        top: fresh.slice(0, 3).map(({ job }) => `${job.company} — ${job.title}`),
+        refreshing: refreshing(),
+      });
       return;
     }
 

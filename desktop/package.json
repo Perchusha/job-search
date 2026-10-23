@@ -1,0 +1,38 @@
+{
+  "name": "job-hunt-desktop",
+  "productName": "Job Hunt",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tray app for Job Hunt: runs the dashboard server in the background, notifies about new postings, starts with Windows.",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke",
+    "icons": "node make-icons.mjs",
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.16.1"
+  },
+  "build": {
+    "appId": "com.perch.jobhunt",
+    "productName": "Job Hunt",
+    "files": ["main.mjs", "preload.cjs", "settings.html", "assets/**", "package.json"],
+    "directories": { "output": "dist" },
+    "npmRebuild": false,
+    "win": {
+      "target": ["nsis"],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Job Hunt",
+      "runAfterFinish": true
+    }
+  }
+}

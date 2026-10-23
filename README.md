@@ -93,7 +93,38 @@ There is no build step; `tsx` runs the TypeScript directly.
 | `JOBHUNT_REFRESH_HOURS`        | `6`                  | How often the fast boards are re-fetched in the background (LinkedIn: daily) |
 | `JOBHUNT_BACKGROUND`           | on                   | `0` turns off the dashboard's background refresh; searches then fill the table on demand |
 
-### Windows app
+### Desktop app (tray, autostart, notifications)
+
+[`desktop/`](desktop/) is an Electron shell around the same server, so the background
+refresh keeps running without a terminal window:
+
+- starts with Windows straight into the tray (optional) and runs the dashboard server as a
+  hidden child process — or uses one already running, e.g. from `Job Hunt.bat` — restarting it
+  if it dies;
+- the dashboard opens in its own window; closing it keeps the app in the tray, **Выйти** stops
+  the app and the server;
+- notifications: "N новых вакансий" when a refresh finds postings (from `/api/new-count?since=`,
+  counted the way the Search tab shows them — not hidden, not applied, not a rule hit), and a
+  daily digest "За сутки появилось N новых вакансий"; quiet hours; clicking one opens Search.
+  The tray icon gets a dot and the count while there is something new;
+- **Настройки…**: autostart, refresh interval, LinkedIn in the background, notification
+  threshold, quiet hours, digest time, port, Wi-Fi access. Stored in
+  `%APPDATA%\Job Hunt\settings.json`; the log is `job-hunt.log` next to it.
+
+```bash
+cd desktop
+npm install          # Electron and electron-builder, kept out of the main package
+npm start            # run from the checkout
+npm run build        # dist/Job Hunt Setup 1.0.0.exe — per-user installer, no admin rights
+```
+
+The installed app does not carry a copy of the project: it starts `src/dashboard.ts` from this
+repo (the path is baked in by `build.mjs`; `JOBHUNT_REPO` overrides it) with the `node` on
+PATH, so moving the repo means rebuilding. The installer is unsigned, so SmartScreen asks once.
+Windows' own notification switch must be on (Settings → System → Notifications); the settings
+window says when it is off and opens that page.
+
+### Windows app (terminal)
 
 Double-click **`Job Hunt.bat`**. It starts the dashboard, opens it in the
 default browser and prints an address that can be opened from another device

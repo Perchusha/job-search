@@ -47,7 +47,7 @@ const BACKOFF_HOURS = 24;
 
 export type SourceOutcome = {
   source: SourceName;
-  status: "fetched" | "fresh" | "backoff" | "running" | "failed";
+  status: "fetched" | "fresh" | "backoff" | "running" | "failed" | "off";
   rows?: number;
   inserted?: number;
   error?: string;
@@ -62,6 +62,9 @@ function due(source: SourceName, force: boolean): SourceOutcome["status"] | "due
   const state = lastFetch(source);
   if (state.running) return "running";
   const slow = SLOW_SOURCES.includes(source);
+  // The desktop app's "LinkedIn в фоне" switch. Off: LinkedIn is not fetched
+  // on any schedule, and its stored postings stay until they age out.
+  if (slow && process.env["JOBHUNT_LINKEDIN_BACKGROUND"] === "0") return "off";
   if (slow && state.lastError && /429/.test(state.lastError) && hoursSince(state.lastRunAt) < BACKOFF_HOURS) {
     return "backoff";
   }

@@ -4,3 +4,5 @@ node_modules/
 *.db-shm
 .venv/
 __pycache__/
+desktop/node_modules/
+desktop/dist/
