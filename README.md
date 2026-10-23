@@ -73,6 +73,7 @@ npm run sanity     # 20/20 checks passed.
 
 ```bash
 npm run dashboard  # http://localhost:4321
+npm run refresh    # fetch every board that is due into the postings table (add -- --force for the fast boards now)
 npm run mcp        # stdio MCP server (your AI client normally starts this for you)
 npm test           # typecheck + scorer checks + MCP + dashboard UI
 ```
@@ -89,8 +90,8 @@ There is no build step; `tsx` runs the TypeScript directly.
 | `JOBHUNT_DB`                   | `~/.job-hunt/jobs.db` | SQLite file (dir auto-created)         |
 | `JOBHUNT_PORT`                 | `4321`               | Dashboard port                         |
 | `JOBHUNT_HOST`                 | `127.0.0.1`          | Bind address; use `0.0.0.0` for LAN   |
-| `JOBHUNT_SEARCH_CACHE_MINUTES` | `60`                 | Dashboard search cache TTL, in minutes. An expired entry is still served while a fresh pass runs in the background |
-| `JOBHUNT_WARM`                 | on                   | `0` skips the search the dashboard starts at boot to warm its cache |
+| `JOBHUNT_REFRESH_HOURS`        | `6`                  | How often the fast boards are re-fetched in the background (LinkedIn: daily) |
+| `JOBHUNT_BACKGROUND`           | on                   | `0` turns off the dashboard's background refresh; searches then fill the table on demand |
 
 ### Windows app
 
@@ -330,7 +331,7 @@ widget dropped onto it.
 If the rest of the page should move onto Pico too, that is a separate pass — a bigger one,
 because it means giving up the current card and funnel styling, not adding to it.
 
-### Job identity and the search cache
+### Job identity and stored postings
 
 Jobs are compared by `jobKey(url)` ([src/jobkey.ts](src/jobkey.ts)), never by the
 raw URL: host + path + query without tracking parameters (`utm_*`, `source`,
@@ -341,12 +342,39 @@ every job hidden or applied to before that back as new. Identifying parameters
 query merged distinct roles. Both tables carry a `url_key` column, filled on open
 for older rows; dedupe, the dismissed filter and "already applied" all use it.
 
-The `/api/search` cache is keyed only on what changes the boards' answer —
-sources and `hoursOld` — and holds the whole ranked feed, hidden jobs included.
-Hidden jobs are dropped per request, so hiding a card never forces a re-scrape
-(it used to: the key contained every dismissed URL, and with LinkedIn on the
-next date chip or reload cost ~80 s). The dashboard warms the default search at
-boot, and an expired entry is served while a fresh pass runs behind it.
+**Searches read stored postings, not the boards.** [src/refresh.ts](src/refresh.ts)
+fetches each board on its own schedule into the `postings` table, and
+`/api/search` ranks what is stored: ~25 ms per search (~160 ms for the first one
+after a refresh), where asking the boards cost ~4 s, ~80 s with LinkedIn, after
+every restart, hide, date chip or source pill.
+
+| Board | Refresh |
+| --- | --- |
+| nofluffjobs, justjoin, indeed, himalayas | a full month-wide pass every 6 h (`JOBHUNT_REFRESH_HOURS`), ~2–5 s each. ↻ Обновить runs it now |
+| linkedin | at most once a day, only what is new since its last success (`hoursOld`), one query at a time; a day off after HTTP 429. ↻ Обновить does not force it |
+
+The dashboard runs it at start and checks what is due every 15 minutes; the very
+first search on an empty table waits for each board's first pass. While the
+dashboard is closed, `npm run refresh` does the same once — e.g. from Task
+Scheduler:
+
+```
+schtasks /create /tn "JobHunt\Refresh" /sc hourly /mo 3 /tr "cmd /c cd /d D:\Projects\job-search && npm run refresh"
+```
+
+The table is board data, not applications — the Tracker and the stats never read
+it, so the funnel stays applications-only (the removed `npm run harvest` filed
+finds into the funnel; this does not). It keeps `first_seen` per posting: boards
+re-stamp their dates on every renewal (Himalayas every 30 days, justjoin.it on
+each refresh), so a card's age is the earlier of the board's date and when this
+tool first saw it, a later board date shows as "перевыложена", and **новая**
+marks what appeared since the Search tab was last opened — also counted in the
+browser tab title, "(N) Job Hunt". A posting a fully fetched board stops listing
+is dropped three days after that board's last good pass; LinkedIn's age out
+after 45 days.
+
+Hidden jobs, the date window and the screening rules are applied per request on
+top of the stored feed, so none of them asks a board.
 
 ## Using the Search tab
 
@@ -451,14 +479,13 @@ Two things to know about LinkedIn specifically:
 one run without editing the profile. `tests/ui.mjs` uses it to keep the suite
 off the slow boards.
 
-**The MCP `find_jobs` tool leaves LinkedIn out**, listed in
-`SEARCH_DEFAULTS.slowSources`. That is a constraint, not a preference: MCP times
-a request out at 60s and a pass with LinkedIn takes ~80s, so including it would
-fail outright rather than answer slowly. The dashboard can afford it — it shows
-progress and the pill drops the board in one click. Name `sources` explicitly on
-`find_jobs` if you want LinkedIn from an assistant and can wait — the rest of the
-profile (queries, remote-only, fit filter, hidden jobs) still applies; every
-argument is an override of the profile search, not a separate search.
+**The MCP `find_jobs` tool answers from the stored postings** when every board it
+needs was fetched in the last day — instantly, LinkedIn included. Otherwise (a
+different query or place, or stale data) it asks the boards live, and then
+leaves LinkedIn out (`SEARCH_DEFAULTS.slowSources`): MCP times a request out at
+60 s and a live LinkedIn pass takes ~80 s. Name `sources` explicitly to include
+it anyway. Every argument is an override of the profile search, so queries,
+remote-only, the fit filter, hidden jobs and the screening rules still apply.
 
 ## Tuning what gets found
 

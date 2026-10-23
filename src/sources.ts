@@ -130,6 +130,10 @@ export type Job = {
   workMode?: "remote" | "hybrid" | "office" | null;
   /** The board's own seniority level ("senior", "Mid-level"…), when it has one. */
   seniorityLevel?: string | null;
+  /** Stored postings only: when this tool first saw it (src/db.ts postings). */
+  firstSeenAt?: string;
+  /** Stored postings only: the board's later postedAt, when it was re-posted. */
+  repostedAt?: string | null;
 };
 
 export type FetchOptions = {

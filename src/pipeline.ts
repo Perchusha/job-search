@@ -12,7 +12,7 @@
  */
 
 import { belowSalaryFloor } from "./boards-pl.ts";
-import { listDismissedKeys } from "./db.ts";
+import { lastFetch, listDismissedKeys, loadPostings } from "./db.ts";
 import { workSignals } from "./workmode.ts";
 import { jobKey } from "./jobkey.ts";
 import { scoreEligibility, levelRank, type Eligibility } from "./eligibility.ts";
@@ -26,6 +26,7 @@ import {
   stackFit,
 } from "./profile.ts";
 import {
+  ALL_SOURCES,
   DEFAULT_SOURCES,
   PER_PASS_SOURCES,
   dedupeJobs,
@@ -160,9 +161,12 @@ function oversample(limit: number): number {
   return Math.min(Math.max(limit * 4, 60), 200);
 }
 
-export async function searchJobs(params: SearchParams = {}): Promise<SearchResult> {
+/** What the boards returned for one search, before dedupe and scoring. */
+export type Fetched = { jobs: Job[]; reports: SourceReport[]; queries: string[] };
+
+/** Asks the boards. Everything after this is local: see rankFetched. */
+export async function fetchJobs(params: SearchParams = {}): Promise<Fetched> {
   const limit = params.limit ?? DEFAULT_SEARCH_LIMIT;
-  const dropLow = params.onlyEligible ?? true;
   const sources: SourceName[] = params.sources?.length ? params.sources : DEFAULT_SOURCES;
 
   // One query or many: a single query is just a list of one, so the merge path
@@ -194,8 +198,6 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
       : []),
   ]);
 
-  const allJobs = outcomes.flatMap((outcome) => outcome.jobs);
-
   // Sum the per-source counts across queries so the UI reports real totals.
   const reportBySource = new Map<SourceName, SourceReport>();
   for (const outcome of outcomes) {
@@ -210,7 +212,26 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
       existing.skipped = existing.skipped ?? report.skipped;
     }
   }
-  const outcome = { jobs: allJobs, reports: [...reportBySource.values()] };
+  return {
+    jobs: outcomes.flatMap((outcome) => outcome.jobs),
+    reports: [...reportBySource.values()],
+    queries: queries.filter((query) => query.length > 0),
+  };
+}
+
+export async function searchJobs(params: SearchParams = {}): Promise<SearchResult> {
+  return rankFetched(await fetchJobs(params), params);
+}
+
+/**
+ * dedupe -> hidden -> date window -> eligibility -> fit -> salary -> rank.
+ * The one implementation of everything after the fetch: a live search and the
+ * stored postings (searchStored) both go through it.
+ */
+export function rankFetched(fetched: Fetched, params: SearchParams = {}): SearchResult {
+  const limit = params.limit ?? DEFAULT_SEARCH_LIMIT;
+  const dropLow = params.onlyEligible ?? true;
+  const outcome = fetched;
 
   const deduped = dedupeJobs(outcome.jobs);
 
@@ -304,7 +325,7 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
       hiddenForFit,
       hiddenForDismissed,
       hiddenForAge,
-      queries: queries.filter((query) => query.length > 0),
+      queries: fetched.queries,
     },
   };
 }
@@ -319,10 +340,15 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
  * Overrides are accepted for the rare one-off (a different city, a wider net).
  */
 export function searchForProfile(overrides: SearchParams = {}): Promise<SearchResult> {
-  // Read the "not interested" list here, so every caller of the profile search
-  // — dashboard and find_jobs — honours it without having to remember.
-  const dismissed = listDismissedKeys();
+  return searchJobs(profileParams(overrides));
+}
 
+/**
+ * The profile search's parameters with overrides on top. Reads the "not
+ * interested" list here, so every caller of the profile search — dashboard and
+ * find_jobs — honours it without having to remember.
+ */
+export function profileParams(overrides: SearchParams = {}): SearchParams {
   // Strip undefined before spreading. A caller forwarding optional arguments
   // passes `{ limit: undefined, remoteOnly: undefined, ... }`, and a plain
   // spread of those would overwrite the profile defaults with undefined —
@@ -331,7 +357,7 @@ export function searchForProfile(overrides: SearchParams = {}): Promise<SearchRe
     Object.entries(overrides).filter(([, value]) => value !== undefined),
   ) as SearchParams;
 
-  return searchJobs({
+  return {
     queries: TARGET_QUERIES,
     location: SEARCH_DEFAULTS.location,
     remoteOnly: SEARCH_DEFAULTS.remoteOnly,
@@ -339,9 +365,51 @@ export function searchForProfile(overrides: SearchParams = {}): Promise<SearchRe
     sources: [...SEARCH_DEFAULTS.sources],
     maxFitTier: SEARCH_DEFAULTS.maxFitTier,
     limit: SEARCH_DEFAULTS.limit,
-    excludeUrls: dismissed,
+    excludeUrls: listDismissedKeys(),
     ...defined,
+  };
+}
+
+/**
+ * Stored postings as jobs, with an honest age. A board's postedAt is reset on
+ * every renewal; first_seen is not. The earlier of the two is the posting's
+ * age, and a postedAt more than a week after first_seen marks a repost.
+ */
+function storedAsJobs(sources: readonly SourceName[]): Job[] {
+  const order = (source: string) => ALL_SOURCES.indexOf(source as SourceName);
+  return loadPostings(sources)
+    .sort((a, b) => order(a.source) - order(b.source))
+    .map(({ lastSeenAt: _lastSeen, ...job }) => {
+      const posted = job.postedAt ? Date.parse(job.postedAt) : NaN;
+      const first = Date.parse(job.firstSeenAt);
+      const reposted = Number.isFinite(posted) && posted - first > 7 * 86_400_000;
+      return {
+        ...job,
+        postedAt: Number.isFinite(posted) && posted < first ? job.postedAt : job.firstSeenAt,
+        repostedAt: reposted ? job.postedAt : null,
+      };
+    });
+}
+
+/**
+ * The profile search over what src/refresh.ts stored, instead of the boards:
+ * milliseconds instead of seconds (or ~80 s with LinkedIn), and LinkedIn
+ * included, since it was fetched in the background. Same ranking as a live
+ * search. `reports` says which boards have never been fetched or last failed.
+ */
+export function searchStored(overrides: SearchParams = {}): SearchResult {
+  const params = profileParams(overrides);
+  const sources = params.sources?.length ? params.sources : DEFAULT_SOURCES;
+  const jobs = storedAsJobs(sources);
+  const reports: SourceReport[] = sources.map((source) => {
+    const state = lastFetch(source);
+    return {
+      source,
+      count: jobs.filter((job) => job.source === source).length,
+      skipped: state.lastSuccessAt ? null : (state.lastError ?? "not fetched yet"),
+    };
   });
+  return rankFetched({ jobs, reports, queries: params.queries ?? [] }, params);
 }
 
 /** The wire/tool view of a ranked job: flat, no internal fields. */
@@ -376,6 +444,9 @@ export function presentJob(job: RankedJob) {
     workMode: job.workMode ?? null,
     seniorityLevel: job.seniorityLevel ?? null,
     belowSalaryFloor: belowSalaryFloor(job),
+    // Stored postings: when this tool first saw it, and a later re-post date.
+    firstSeenAt: job.firstSeenAt ?? null,
+    repostedAt: job.repostedAt ?? null,
     // From the posting text (src/workmode.ts); empty without a description.
     signals: workSignals(job),
   };

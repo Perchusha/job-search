@@ -15,6 +15,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { jobKey } from "./jobkey.ts";
+import type { Job } from "./sources.ts";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -171,6 +172,45 @@ function migrate(database: Database.Database): void {
       title        TEXT,
       reason       TEXT,
       dismissed_at TEXT NOT NULL
+    );
+
+    /*
+     * What the boards returned, kept between searches (src/refresh.ts fills it
+     * in the background). Board data, not applications: the Tracker and
+     * getStats never read it, so the funnel stays applications-only — unlike
+     * the removed \`npm run harvest\`, which filed finds into the funnel.
+     *
+     * data is the normalized Job as JSON, description included. first_seen is
+     * when this tool first saw the posting: boards re-stamp postedAt on every
+     * renewal (Himalayas every 30 days, justjoin.it on each refresh), so it is
+     * the only honest "how new is this" and what "new since last visit" uses.
+     */
+    CREATE TABLE IF NOT EXISTS postings (
+      source     TEXT NOT NULL,
+      job_key    TEXT NOT NULL,
+      data       TEXT NOT NULL,
+      posted_at  TEXT,
+      first_seen TEXT NOT NULL,
+      last_seen  TEXT NOT NULL,
+      PRIMARY KEY (source, job_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_postings_last_seen ON postings(last_seen);
+
+    /* One row per board refresh: when it last worked, and why it did not. */
+    CREATE TABLE IF NOT EXISTS fetch_runs (
+      id          INTEGER PRIMARY KEY,
+      source      TEXT NOT NULL,
+      started_at  TEXT NOT NULL,
+      finished_at TEXT,
+      hours_old   INTEGER,
+      rows        INTEGER,
+      error       TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_fetch_runs_source ON fetch_runs(source, started_at);
+
+    CREATE TABLE IF NOT EXISTS meta (
+      key   TEXT PRIMARY KEY,
+      value TEXT
     );
   `);
 
@@ -501,6 +541,172 @@ export function listDismissed(): DismissedJob[] {
   return getDb()
     .prepare<[], DismissedJob>("SELECT * FROM dismissed ORDER BY dismissed_at DESC")
     .all();
+}
+
+/* ------------------------------------------------------------------ */
+/* Postings — board data kept between searches (see src/refresh.ts)     */
+/* ------------------------------------------------------------------ */
+
+/** A stored posting, with when this tool first and last saw it. */
+export type StoredJob = Job & { firstSeenAt: string; lastSeenAt: string };
+
+/**
+ * Writes one board's fetch. A posting seen before keeps its first_seen; a new
+ * one gets now — except on a board's very first fetch, where everything would
+ * otherwise look "new": there first_seen is its own posting date.
+ */
+export function upsertPostings(source: string, jobs: Job[]): { inserted: number; updated: number } {
+  const database = getDb();
+  const now = nowIso();
+  const initial =
+    database.prepare<[string], { n: number }>("SELECT COUNT(*) AS n FROM postings WHERE source = ?").get(source)
+      ?.n === 0;
+  const existing = database.prepare<[string, string], { first_seen: string }>(
+    "SELECT first_seen FROM postings WHERE source = ? AND job_key = ?",
+  );
+  const insert = database.prepare(
+    `INSERT INTO postings (source, job_key, data, posted_at, first_seen, last_seen)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+  const update = database.prepare(
+    "UPDATE postings SET data = ?, posted_at = ?, last_seen = ? WHERE source = ? AND job_key = ?",
+  );
+  let inserted = 0;
+  let updated = 0;
+  database.transaction(() => {
+    for (const job of jobs) {
+      const key = jobKey(job.url);
+      const data = JSON.stringify(job);
+      if (existing.get(source, key)) {
+        update.run(data, job.postedAt, now, source, key);
+        updated++;
+      } else {
+        const firstSeen =
+          initial && job.postedAt && job.postedAt < now ? job.postedAt : now;
+        insert.run(source, key, data, job.postedAt, firstSeen, now);
+        inserted++;
+      }
+    }
+  })();
+  return { inserted, updated };
+}
+
+export function loadPostings(sources: readonly string[]): StoredJob[] {
+  if (sources.length === 0) return [];
+  const rows = getDb()
+    .prepare<string[], { data: string; first_seen: string; last_seen: string }>(
+      `SELECT data, first_seen, last_seen FROM postings WHERE source IN (${sources.map(() => "?").join(",")})`,
+    )
+    .all(...sources);
+  return rows.map((row) => ({
+    ...(JSON.parse(row.data) as Job),
+    firstSeenAt: row.first_seen,
+    lastSeenAt: row.last_seen,
+  }));
+}
+
+/**
+ * Drops postings that are gone or too old to show:
+ *   - not seen for 3 days by a board that has refreshed successfully since —
+ *     a board that is down does not empty its own shelf. Days, not one pass:
+ *     identical Indeed requests return slightly different sets, and a posting
+ *     that blinks out for one pass must not come back as "new".
+ *     LinkedIn is fetched incrementally (only what is new), so absence means
+ *     nothing there; it ages out by date only.
+ *   - LinkedIn only: first seen or posted more than 45 days ago, whichever is
+ *     earlier.
+ */
+export function prunePostings(incrementalSources: readonly string[]): number {
+  const database = getDb();
+  let removed = 0;
+  const sources = database.prepare<[], { source: string }>("SELECT DISTINCT source FROM postings").all();
+  for (const { source } of sources) {
+    if (incrementalSources.includes(source)) continue;
+    const success = lastFetch(source).lastSuccessAt;
+    if (!success) continue;
+    const cutoff = new Date(Date.parse(success) - 3 * 86_400_000).toISOString();
+    removed += database
+      .prepare("DELETE FROM postings WHERE source = ? AND last_seen < ?")
+      .run(source, cutoff).changes;
+  }
+  // By age only where absence means nothing. A board fetched in full still
+  // lists an old posting it has not taken down; deleting it would only bring
+  // it back as "new" on the next pass. The date window hides it anyway.
+  const old = new Date(Date.now() - 45 * 86_400_000).toISOString();
+  for (const source of incrementalSources) {
+    removed += database
+      .prepare("DELETE FROM postings WHERE source = ? AND MIN(first_seen, COALESCE(posted_at, first_seen)) < ?")
+      .run(source, old).changes;
+  }
+  return removed;
+}
+
+export type FetchState = {
+  lastSuccessAt: string | null;
+  lastRunAt: string | null;
+  /** Error of the most recent finished run, if it failed. */
+  lastError: string | null;
+  /** A run started in the last 15 minutes and not finished — by any process. */
+  running: boolean;
+};
+
+export function lastFetch(source: string): FetchState {
+  const database = getDb();
+  const success = database
+    .prepare<[string], { finished_at: string }>(
+      "SELECT finished_at FROM fetch_runs WHERE source = ? AND finished_at IS NOT NULL AND error IS NULL ORDER BY id DESC LIMIT 1",
+    )
+    .get(source);
+  const last = database
+    .prepare<[string], { started_at: string; finished_at: string | null; error: string | null }>(
+      "SELECT started_at, finished_at, error FROM fetch_runs WHERE source = ? ORDER BY id DESC LIMIT 1",
+    )
+    .get(source);
+  const running =
+    last !== undefined &&
+    last.finished_at === null &&
+    Date.now() - Date.parse(last.started_at) < 15 * 60_000;
+  return {
+    lastSuccessAt: success?.finished_at ?? null,
+    lastRunAt: last?.finished_at ?? last?.started_at ?? null,
+    lastError: last?.finished_at ? last.error : null,
+    running,
+  };
+}
+
+export function startFetchRun(source: string, hoursOld: number): number {
+  const result = getDb()
+    .prepare("INSERT INTO fetch_runs (source, started_at, hours_old) VALUES (?, ?, ?)")
+    .run(source, nowIso(), hoursOld);
+  return Number(result.lastInsertRowid);
+}
+
+export function finishFetchRun(id: number, rows: number, error: string | null): void {
+  getDb()
+    .prepare("UPDATE fetch_runs SET finished_at = ?, rows = ?, error = ? WHERE id = ?")
+    .run(nowIso(), rows, error, id);
+}
+
+/**
+ * Changes whenever any board refresh finishes, in this process or another
+ * (the scheduled `npm run refresh`). The dashboard rebuilds its feed on change.
+ */
+export function postingsVersion(): number {
+  return (
+    getDb()
+      .prepare<[], { id: number | null }>("SELECT MAX(id) AS id FROM fetch_runs WHERE finished_at IS NOT NULL")
+      .get()?.id ?? 0
+  );
+}
+
+export function getMeta(key: string): string | null {
+  return getDb().prepare<[string], { value: string }>("SELECT value FROM meta WHERE key = ?").get(key)?.value ?? null;
+}
+
+export function setMeta(key: string, value: string): void {
+  getDb()
+    .prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run(key, value);
 }
 
 /** Closes the handle. Only needed by scripts that want a clean exit. */

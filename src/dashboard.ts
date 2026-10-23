@@ -25,113 +25,82 @@ import {
   listApplications,
   listDismissed,
   listDismissedKeys,
+  lastFetch,
+  postingsVersion,
+  getMeta,
+  setMeta,
   resolveDbPath,
   undismissJob,
   updateStatus,
   type Status,
 } from "./db.ts";
 import { jobKey } from "./jobkey.ts";
-import { presentJob, searchForProfile } from "./pipeline.ts";
+import { presentJob, searchStored } from "./pipeline.ts";
+import { currentRefresh, describe, refreshDue, refreshing } from "./refresh.ts";
+import type { SourceName } from "./sources.ts";
 import { buildContext, screenAll } from "./screening.ts";
 import { SEARCH_DEFAULTS, TARGET_QUERIES } from "./profile.ts";
 
 const PORT = Number(process.env["JOBHUNT_PORT"] ?? 4321);
 const HOST = process.env["JOBHUNT_HOST"]?.trim() || "127.0.0.1";
 const MAX_BODY_BYTES = 64 * 1024;
-const DEFAULT_SEARCH_CACHE_MINUTES = 60;
-const configuredSearchCacheMinutes = Number(
-  process.env["JOBHUNT_SEARCH_CACHE_MINUTES"] ?? DEFAULT_SEARCH_CACHE_MINUTES,
-);
-const SEARCH_CACHE_TTL_MS = 60_000 * (
-  Number.isFinite(configuredSearchCacheMinutes) && configuredSearchCacheMinutes > 0
-    ? configuredSearchCacheMinutes
-    : DEFAULT_SEARCH_CACHE_MINUTES
-);
 
-type SearchResult = Awaited<ReturnType<typeof searchForProfile>>;
-
-type SearchCacheEntry = {
-  createdAt: number;
-  result: Promise<SearchResult>;
-  /** Set once the search has finished, so an expired entry can still be served. */
-  value?: SearchResult;
-  /** A background refresh of an expired entry, so only one runs at a time. */
-  refreshing?: Promise<unknown>;
-};
+type SearchResult = ReturnType<typeof searchStored>;
 
 /**
- * Server-owned rather than browser-owned: page reloads share it, concurrent
- * identical searches share the same promise, and API responses can remain
- * `no-store` so a browser never serves stale application/dismissal state.
+ * The ranked feed, built from the postings table (src/refresh.ts keeps it
+ * filled) rather than from the boards. Rebuilt only when a board refresh has
+ * finished since — in this process or the scheduled `npm run refresh` — so a
+ * search costs a few milliseconds and a restart costs nothing.
  *
- * The key is only which boards were asked. The dismissed list and the date
- * window used to be part of it, so every "скрыть" and every date chip made the
- * next search re-scrape every board — about 80 s with LinkedIn. Entries now
- * hold the whole ranked month, hidden jobs included, and /api/search cuts the
- * window and drops the hidden ones per request.
+ * One entry per set of boards (the source pills), holding the whole ranked
+ * month, hidden jobs included: /api/search cuts the date window and drops the
+ * hidden ones per request, so neither a date chip nor "скрыть" asks a board.
  */
-const searchCache = new Map<string, SearchCacheEntry>();
+const feeds = new Map<string, { version: number; result: SearchResult }>();
 
-function startSearch(overrides: Parameters<typeof searchForProfile>[0]): SearchCacheEntry {
-  const entry: SearchCacheEntry = { createdAt: Date.now(), result: searchForProfile(overrides) };
-  entry.result.then(
-    (value) => {
-      entry.value = value;
-    },
-    () => {},
-  );
-  return entry;
-}
-
-async function cachedProfileSearch(
-  key: string,
-  overrides: Parameters<typeof searchForProfile>[0],
-  forceRefresh: boolean,
-): Promise<{ result: SearchResult; hit: boolean; ageMs: number; stale: boolean }> {
-  const now = Date.now();
-  const existing = searchCache.get(key);
-  if (!forceRefresh && existing) {
-    const ageMs = now - existing.createdAt;
-    if (ageMs < SEARCH_CACHE_TTL_MS) {
-      return { result: await existing.result, hit: true, ageMs, stale: false };
-    }
-    // Expired but finished: answer with it now and refresh behind the scenes,
-    // rather than making the page wait a full pass because an hour went by.
-    if (existing.value) {
-      if (!existing.refreshing) {
-        const next = startSearch(overrides);
-        existing.refreshing = next.result.then(
-          () => searchCache.set(key, next),
-          () => {
-            existing.refreshing = undefined;
-          },
-        );
-      }
-      return { result: existing.value, hit: true, ageMs, stale: true };
-    }
-  }
-
-  const entry = startSearch(overrides);
-  searchCache.set(key, entry);
-  try {
-    return { result: await entry.result, hit: false, ageMs: 0, stale: false };
-  } catch (error) {
-    // A transient board failure must not poison every request for the next hour.
-    if (searchCache.get(key) === entry) searchCache.delete(key);
-    throw error;
-  }
-}
-
-/**
- * The cached feed is not sliced: hidden jobs are removed per request, and the
- * page's own limit applies after that. Any number above what a pass can return
- * works; oversample() in pipeline.ts caps the fetch size on its own.
- */
+/** Not sliced: hidden jobs are dropped per request, the page limit applies after. */
 const FEED_LIMIT = 10_000;
 
-function profileCacheKey(sources: readonly string[]): string {
-  return JSON.stringify({ sources: [...sources].sort() });
+function storedFeed(sources: readonly SourceName[]): SearchResult {
+  const version = postingsVersion();
+  const key = [...sources].sort().join(",");
+  const cached = feeds.get(key);
+  if (cached && cached.version === version) return cached.result;
+  const result = searchStored({ excludeUrls: [], limit: FEED_LIMIT, sources: [...sources] });
+  feeds.set(key, { version, result });
+  return result;
 }
+
+/**
+ * Waits for a board's first fill: a search must not show Himalayas alone just
+ * because Indeed's first pass is a second slower. Once a board has been
+ * fetched (or has failed) its stored data is used and refreshes run behind.
+ */
+async function ensureStored(sources: readonly SourceName[]): Promise<void> {
+  const unfilled = () =>
+    sources.filter((source) => {
+      const state = lastFetch(source);
+      return state.lastSuccessAt === null && state.lastError === null;
+    });
+  if (unfilled().length === 0) return;
+  await (currentRefresh() ?? refreshDue({ sources: unfilled() }));
+}
+
+function freshness(sources: readonly SourceName[]) {
+  return {
+    refreshing: refreshing(),
+    sources: Object.fromEntries(
+      sources.map((source) => {
+        const state = lastFetch(source);
+        return [source, { lastSuccessAt: state.lastSuccessAt, lastError: state.lastError }];
+      }),
+    ),
+  };
+}
+
+/** When the Search tab was last opened; postings first seen after it are "new". */
+const LAST_VISIT = "last_visit_at";
 
 /**
  * Read once at boot rather than per request. A missing file means a broken
@@ -372,6 +341,8 @@ const PAGE = /* html */ `<!doctype html>
          font: inherit; font-weight: 600; font-size: 12.5px; padding: 7px 15px; cursor: pointer; }
   .tab:hover { color: var(--text); }
   .tab.is-active { color: var(--text); background: var(--panel-3); box-shadow: 0 1px 2px rgba(0,0,0,.16); }
+  .tab[data-count]:not([data-count=""])::after { content: attr(data-count); margin-left: 6px; padding: 0 6px;
+                  border-radius: 999px; font-size: 11px; color: var(--bg); background: var(--accent); }
 
   /*
    * Search toolbar: one row. Pico supplies the button and the switches, but its
@@ -526,6 +497,8 @@ const PAGE = /* html */ `<!doctype html>
   .linkbtn.restore:hover { color: var(--good); }
   .jobcard.is-dismissed { opacity: .5; }
   .jobcard.is-rulehidden { opacity: .62; }
+  .jobcard .newbadge { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px;
+                       color: var(--bg); background: var(--accent); }
   .jobcard .sig { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; color: var(--muted);
                   border: 1px solid var(--line); }
   .jobcard .sig.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
@@ -847,6 +820,10 @@ let searchTimer = null;
 // quick cache hit for a newer chip and overwrite it.
 let searchSeq = 0;
 let searchAbort = null;
+// Postings first seen after this are marked "new". Taken from the first search
+// of this page session (the server's last visit), then the visit is recorded.
+let pageNewSince;
+let visitMarked = false;
 /*
  * How many cards are drawn. The search returns a couple of hundred matches and
  * the page filters more of them out again, so rendering the lot up front is
@@ -1121,6 +1098,10 @@ function signalBadges(job) {
   return html;
 }
 
+function isNewJob(job) {
+  return Boolean(pageNewSince && job.firstSeenAt && job.firstSeenAt > pageNewSince);
+}
+
 /** A card my screening rules would hide (src/screening.ts); shown under its toggle. */
 function isRuleHidden(job) {
   return Boolean(job.screen && job.screen.bucket === "dismiss");
@@ -1239,6 +1220,9 @@ function renderSearch(payload) {
       + ' aria-label="Открыть вакансию: ' + esc(job.title) + '"></a>'
       + '<div class="row"><span class="lvl ' + esc(level) + '">' + esc(level) + "</span>"
       + '<span class="src">' + esc(job.source) + "</span>" + fitBadge + eligibilityBadge + signalBadges(job)
+      + (isNewJob(job) ? '<span class="newbadge" title="first seen since your last visit">новая</span>' : "")
+      + (job.repostedAt ? '<span class="sig" title="the board re-posted it on ' + esc(String(job.repostedAt).slice(0, 10))
+        + '; the age shown is from when it first appeared">перевыложена</span>' : "")
       + '<span class="when">' + esc(ageLabel(job.postedAt)) + "</span></div>"
       + '<h3>' + esc(job.title) + "</h3>"
       + '<div class="co">' + esc(job.company) + "</div>"
@@ -1360,20 +1344,26 @@ function stopSearchProgress() {
   $("searchprogress").hidden = true;
 }
 
-async function runSearch(event) {
+/*
+ * quiet: a background re-read while the server is still refreshing boards —
+ * no progress bar, no jump back to the first screenful.
+ */
+async function runSearch(event, quiet) {
   const forceRefresh = Boolean(event);
   if (event) event.preventDefault();
   const seq = ++searchSeq;
-  // The server keeps scraping and caches the result; aborting only stops this
+  // The server keeps fetching and stores the result; aborting only stops this
   // page from waiting for an answer it no longer wants.
   if (searchAbort) searchAbort.abort();
   const abort = typeof AbortController === "function" ? new AbortController() : null;
   searchAbort = abort;
   const button = $("searchbtn");
-  $("view-search").classList.add("is-loading");
-  button.disabled = true;
-  button.textContent = "Ищу…";
-  startSearchProgress();
+  if (!quiet) {
+    $("view-search").classList.add("is-loading");
+    button.disabled = true;
+    button.textContent = "Ищу…";
+    startSearchProgress();
+  }
   try {
     // What to look for is fully profile-driven (see src/profile.ts); the only
     // parameters are the two things the page itself can change.
@@ -1383,8 +1373,9 @@ async function runSearch(event) {
     // so the URL can narrow the search but never widen it.
     params.push("sources=" + [...activeSources].join(","));
     params.push("hoursOld=" + maxAgeDays * 24);
-    // Automatic loads and filter changes may use the server cache. Submitting
-    // the Refresh form is the explicit escape hatch for fresh board data.
+    // Searches read what the background refresh stored. Submitting the
+    // Refresh form also asks the fast boards again first (LinkedIn keeps its
+    // own daily pace — see src/refresh.ts).
     if (forceRefresh) params.push("refresh=1");
     const response = await fetch("/api/search" + (params.length ? "?" + params.join("&") : ""),
       abort ? { signal: abort.signal } : undefined);
@@ -1392,21 +1383,49 @@ async function runSearch(event) {
     if (seq !== searchSeq) return;
     if (!response.ok) throw new Error(payload.error || response.statusText);
     lastSearchPayload = payload;
-    // A new result set starts at one screenful again.
-    renderLimit = RENDER_BATCH;
+    // "New" is relative to the previous visit, fixed for this page session.
+    if (pageNewSince === undefined) pageNewSince = payload.newSince || null;
+    // A new result set starts at one screenful again; a quiet re-read keeps
+    // the scroll.
+    if (!quiet) renderLimit = RENDER_BATCH;
     renderSearch(payload);
     searchLoaded = true;
+    showFreshness(payload.freshness);
+    if (!visitMarked) {
+      visitMarked = true;
+      fetch("/api/visit", { method: "POST" }).catch(() => {});
+    }
+    // Boards still being fetched in the background: read again shortly.
+    if (payload.freshness && payload.freshness.refreshing) {
+      setTimeout(() => {
+        if (seq === searchSeq) runSearch(null, true);
+      }, 10000);
+    }
   } catch (error) {
-    if (seq !== searchSeq) return;
+    if (seq !== searchSeq || quiet) return;
     toast("Search failed: " + error.message, true);
   } finally {
     // A superseded search leaves the progress bar to the one still running.
-    if (seq !== searchSeq) return;
-    stopSearchProgress();
-    $("view-search").classList.remove("is-loading");
-    button.disabled = false;
-    button.textContent = "↻ Обновить";
+    if (seq === searchSeq && !quiet) {
+      stopSearchProgress();
+      $("view-search").classList.remove("is-loading");
+      button.disabled = false;
+      button.textContent = "↻ Обновить";
+    }
   }
+}
+
+/** Per-board age of the stored data, on the Refresh button's tooltip. */
+function showFreshness(freshness) {
+  if (!freshness || !freshness.sources) return;
+  const parts = Object.entries(freshness.sources).map(([source, state]) => {
+    if (!state.lastSuccessAt) return source + ": " + (state.lastError ? "ошибка" : "ещё не загружен");
+    const hours = Math.floor((Date.now() - Date.parse(state.lastSuccessAt)) / 3600000);
+    return source + ": " + (hours < 1 ? "<1 ч" : hours + " ч") + " назад"
+      + (state.lastError ? " (последняя попытка — ошибка)" : "");
+  });
+  $("searchbtn").title = "Обновлено — " + parts.join(", ")
+    + (freshness.refreshing ? ". Сейчас обновляется в фоне." : "");
 }
 
 /* ---------------- tabs, filters, boot ---------------- */
@@ -1526,6 +1545,23 @@ async function load() {
   } catch (error) {
     toast("Load failed: " + error.message, true);
   }
+  showNewCount();
+}
+
+/*
+ * "(N) Job Hunt" in the browser tab: postings the background refresh found
+ * since the Search tab was last opened. Rides the 15-second poll; never asks a
+ * board.
+ */
+async function showNewCount() {
+  try {
+    const { count } = await fetch("/api/new-count").then((r) => r.json());
+    document.title = (count > 0 ? "(" + count + ") " : "") + "Job Hunt";
+    const tab = document.querySelector('.tab[data-view="search"]');
+    if (tab) tab.dataset.count = count > 0 ? String(count) : "";
+  } catch {
+    // The count is a nicety; a failed poll leaves the title as it was.
+  }
 }
 
 /*
@@ -1558,6 +1594,50 @@ setInterval(load, 15000);
 /* ------------------------------------------------------------------ */
 /* Server                                                             */
 /* ------------------------------------------------------------------ */
+
+/**
+ * One page of the stored feed as the Search tab shows it: cut to the date
+ * window, without hidden jobs (unless asked), with my screening rules applied
+ * against the funnel and the hidden list as they are right now.
+ */
+function feedView(sources: readonly SourceName[], hoursOld: number | undefined, includeDismissed: boolean) {
+  const result = storedFeed(sources);
+
+  // Narrower windows are cut from the stored month before the page limit, so
+  // fresh jobs are ranked against each other, as a dedicated search would.
+  // Postings with no date stay; the page decides about those.
+  const windowStart = Date.now() - (hoursOld ?? SEARCH_DEFAULTS.hoursOld) * 3_600_000;
+  const inWindow = result.jobs.filter((job) => !job.postedAt || Date.parse(job.postedAt) >= windowStart);
+
+  // Read on every request, so dismissals written by the MCP or funnel.mjs
+  // while the page is open apply at once.
+  const dismissedKeys = new Set(listDismissedKeys());
+  const keyed = inWindow.map((job) => ({ job, key: jobKey(job.url) }));
+  const kept = includeDismissed ? keyed : keyed.filter(({ key }) => !dismissedKeys.has(key));
+
+  // Rule hits stay in the payload with their reason; the page keeps them
+  // behind the "скрыто правилами" toggle.
+  const context = buildContext(listApplications(), listDismissed());
+  const screened = screenAll(
+    kept.map(({ job, key }) => ({ ...job, key, dismissed: dismissedKeys.has(key) })),
+    context,
+  );
+  const page = screened.slice(0, SEARCH_DEFAULTS.limit);
+  const hiddenByRules: Record<string, number> = {};
+  const levelCounts: Record<string, number> = {};
+  for (const row of page) {
+    if (row.bucket === "dismiss") hiddenByRules[row.reason] = (hiddenByRules[row.reason] ?? 0) + 1;
+    levelCounts[row.job.eligibility.level] = (levelCounts[row.job.eligibility.level] ?? 0) + 1;
+  }
+  return {
+    result,
+    page,
+    hiddenByRules,
+    levelCounts,
+    dismissedCount: dismissedKeys.size,
+    hiddenForDismissed: keyed.length - kept.length,
+  };
+}
 
 function sendJson(response: ServerResponse, status: number, payload: unknown): void {
   const body = JSON.stringify(payload);
@@ -1646,6 +1726,36 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    /*
+     * New postings since the Search tab was last opened, counted the way the
+     * tab shows them (default boards, month window, minus hidden, applied and
+     * rule hits). Polled with the stats, for the "(N)" in the page title.
+     * Never fetches: it only reads what the background refresh stored.
+     */
+    if (request.method === "GET" && path === "/api/new-count") {
+      const since = getMeta(LAST_VISIT);
+      const sources = [...SEARCH_DEFAULTS.sources];
+      const stored = sources.some((source) => lastFetch(source).lastSuccessAt !== null);
+      const count =
+        since === null || !stored
+          ? 0
+          : feedView(sources, undefined, false).page.filter(
+              ({ job, bucket }) =>
+                (bucket === "apply" || bucket === "check" || bucket === "needs-you") &&
+                (job.firstSeenAt ?? "") > since,
+            ).length;
+      sendJson(response, 200, { count, since });
+      return;
+    }
+
+    // The Search tab was opened: what is there now is no longer "new".
+    if (request.method === "POST" && path === "/api/visit") {
+      const previous = getMeta(LAST_VISIT);
+      setMeta(LAST_VISIT, new Date().toISOString());
+      sendJson(response, 200, { previous });
+      return;
+    }
+
     if (request.method === "GET" && path === "/api/applications") {
       const statusParam = url.searchParams.get("status");
       const staleDays = Number(url.searchParams.get("staleDays") ?? DEFAULT_STALE_DAYS);
@@ -1704,78 +1814,33 @@ const server = createServer(async (request, response) => {
       const forceRefresh = ["1", "true", "on", "yes"].includes(
         (url.searchParams.get("refresh") ?? "").toLowerCase(),
       );
-      const cached = await cachedProfileSearch(
-        profileCacheKey(sources),
-        {
-          // The cache holds the whole month, hidden jobs included; the date
-          // window and the hidden list are applied below, per request, so
-          // neither a date chip nor a dismissal re-scrapes the boards.
-          excludeUrls: [],
-          limit: FEED_LIMIT,
-          sources,
-        },
-        forceRefresh,
-      );
-      const result = cached.result;
-
-      // Narrower windows are cut from the cached month before the page limit,
-      // so fresh jobs are ranked against each other, as a dedicated search
-      // would. Postings with no date stay; the page decides about those.
-      const windowStart = Date.now() - (hoursOld ?? SEARCH_DEFAULTS.hoursOld) * 3_600_000;
-      const inWindow = result.jobs.filter(
-        (job) => !job.postedAt || Date.parse(job.postedAt) >= windowStart,
-      );
-
-      // Read on every request, so dismissals written by the MCP or funnel.mjs
-      // while the page is open apply at once.
-      const dismissedKeys = new Set(listDismissedKeys());
-      const keyed = inWindow.map((job) => ({ job, key: jobKey(job.url) }));
-      const kept = includeDismissed ? keyed : keyed.filter(({ key }) => !dismissedKeys.has(key));
-
-      // My screening rules (src/screening.ts), against the funnel and the hidden
-      // list as they are right now. Rule hits stay in the payload with their
-      // reason; the page keeps them behind the "скрыто правилами" toggle.
-      const context = buildContext(listApplications(), listDismissed());
-      const screened = screenAll(
-        kept.map(({ job, key }) => ({ ...job, key, dismissed: dismissedKeys.has(key) })),
-        context,
-      );
-      const page = screened.slice(0, SEARCH_DEFAULTS.limit);
-      const hiddenByRules: Record<string, number> = {};
-      for (const row of page) {
-        if (row.bucket === "dismiss") hiddenByRules[row.reason] = (hiddenByRules[row.reason] ?? 0) + 1;
-      }
-
-      const levelCounts: Record<string, number> = {};
-      for (const { job } of page) {
-        levelCounts[job.eligibility.level] = (levelCounts[job.eligibility.level] ?? 0) + 1;
-      }
+      if (forceRefresh) await refreshDue({ force: true, sources });
+      else await ensureStored(sources);
+      const view = feedView(sources, hoursOld, includeDismissed);
 
       sendJson(response, 200, {
         // `key` is the job's identity (src/jobkey.ts): the page compares it with
         // the funnel's url_key. `dismissed` renders a restore button.
-        jobs: page.map(({ job, bucket, reason, flags }) => ({
+        jobs: view.page.map(({ job, bucket, reason, flags }) => ({
           ...presentJob(job),
           key: job.key,
           dismissed: job.dismissed,
           screen: { bucket, reason, flags },
         })),
-        dismissedCount: dismissedKeys.size,
-        sourceCounts: result.sourceCounts,
-        reports: result.reports,
+        dismissedCount: view.dismissedCount,
+        sourceCounts: view.result.sourceCounts,
+        reports: view.result.reports,
         counts: {
-          ...result.counts,
-          hiddenForDismissed: keyed.length - kept.length,
-          hiddenByRules,
-          returned: page.length,
+          ...view.result.counts,
+          hiddenForDismissed: view.hiddenForDismissed,
+          hiddenByRules: view.hiddenByRules,
+          returned: view.page.length,
         },
-        levelCounts,
-        cache: {
-          hit: cached.hit,
-          stale: cached.stale,
-          ageSeconds: Math.floor(cached.ageMs / 1000),
-          ttlSeconds: Math.floor(SEARCH_CACHE_TTL_MS / 1000),
-        },
+        levelCounts: view.levelCounts,
+        // How old each board's data is, and whether a refresh is running now.
+        freshness: freshness(sources),
+        // Postings first seen after this are "new" (see POST /api/visit).
+        newSince: getMeta(LAST_VISIT),
         // Echo the profile so the page can show what it searched for.
         profile: {
           queries: TARGET_QUERIES,
@@ -1943,20 +2008,28 @@ server.listen(PORT, HOST, () => {
   console.log(`Reading database     →  ${resolveDbPath()}`);
 
   /*
-   * Warm the default search, so the first click on Search joins a pass that is
-   * already running instead of starting one. Identical requests share the
-   * cached promise, so there is never a second pass. JOBHUNT_WARM=0 turns it
-   * off (the UI tests do, to keep their board traffic to what they assert on).
+   * Keep the postings table current while the dashboard runs: whatever is due
+   * at start, then a check every 15 minutes (src/refresh.ts decides per board
+   * — fast boards every 6 h, LinkedIn daily). A search never waits for this,
+   * except the very first one on an empty table. JOBHUNT_BACKGROUND=0 turns
+   * the schedule off; searches then fill the table on demand.
    */
-  if (process.env["JOBHUNT_WARM"] !== "0") {
-    const sources = [...SEARCH_DEFAULTS.sources];
-    cachedProfileSearch(
-      profileCacheKey(sources),
-      { excludeUrls: [], limit: FEED_LIMIT, sources },
-      false,
-    ).catch((error: unknown) => {
-      console.error(`Warm-up search failed: ${error instanceof Error ? error.message : error}`);
-    });
+  if (process.env["JOBHUNT_BACKGROUND"] !== "0") {
+    const tick = () => {
+      refreshDue()
+        .then((outcomes) => {
+          for (const outcome of outcomes) {
+            if (outcome.status === "fetched" || outcome.status === "failed") {
+              console.log(`refresh  ${describe(outcome)}`);
+            }
+          }
+        })
+        .catch((error: unknown) => {
+          console.error(`Refresh failed: ${error instanceof Error ? error.message : error}`);
+        });
+    };
+    tick();
+    setInterval(tick, 15 * 60_000);
   }
 });
 

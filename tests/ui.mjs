@@ -507,11 +507,21 @@ async function main() {
   console.log("\n(running a live profile search through the page's own code path…)");
   await page.runSearch();
 
-  const cachedSearch = await (
+  const storedSearch = await (
     await fetch(`${BASE}/api/search?sources=indeed,himalayas&hoursOld=720`)
   ).json();
-  check("an identical search is served from the server cache", cachedSearch.cache?.hit === true);
-  check("the search cache defaults to one hour", cachedSearch.cache?.ttlSeconds === 3600);
+  const fetchedAt = storedSearch.freshness?.sources?.indeed?.lastSuccessAt;
+  check("the search reads the stored postings and says when each board was fetched",
+    Boolean(fetchedAt) && Boolean(storedSearch.freshness?.sources?.himalayas?.lastSuccessAt), fetchedAt);
+  check("stored postings carry when they were first seen",
+    storedSearch.jobs.length > 0 && storedSearch.jobs.every((job) => Boolean(job.firstSeenAt)));
+  const again = await (await fetch(`${BASE}/api/search?sources=indeed,himalayas&hoursOld=168`)).json();
+  check("a narrower date window does not fetch the boards again",
+    again.freshness?.sources?.indeed?.lastSuccessAt === fetchedAt);
+  check("the first visit was recorded, so later postings count as new",
+    Boolean((await (await fetch(`${BASE}/api/search`)).json()).newSince));
+  const newCount = await (await fetch(`${BASE}/api/new-count`)).json();
+  check("nothing is new right after a visit", newCount.count === 0, JSON.stringify(newCount));
 
   const grid = registry.get("jobgrid").innerHTML;
   check("cards render", page.searchResults.length > 0, `${page.searchResults.length} jobs`);
@@ -583,11 +593,15 @@ async function main() {
 
   // Boards append tracking parameters that come and go (Himalayas added
   // ?utm_source=api in October 2026). The same job must not become a second row.
+  // Through the URL API: a link with a #fragment must get the parameter in
+  // its query, not glued onto the fragment.
+  const tracked = new URL(job.applyUrl);
+  tracked.searchParams.set("utm_source", "api");
   const variant = await (await fetch(`${BASE}/api/applications`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      url: job.applyUrl + (job.applyUrl.includes("?") ? "&" : "?") + "utm_source=api",
+      url: tracked.href,
       title: job.title,
       company: job.company,
     }),
@@ -617,8 +631,8 @@ async function main() {
   const afterHide = await (await fetch(`${BASE}/api/search`)).json();
   check("a hidden job is gone from a fresh search",
     !afterHide.jobs.some((row) => row.applyUrl === toHide.applyUrl));
-  check("hiding a job does not throw away the cached search",
-    afterHide.cache?.hit === true);
+  check("hiding a job does not fetch the boards again",
+    afterHide.freshness?.sources?.indeed?.lastSuccessAt === fetchedAt);
 
   /*
    * The counter only counts dismissed jobs the search actually ran into, and

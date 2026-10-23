@@ -18,13 +18,14 @@ import {
   undismissJob,
   getStats,
   insertApplication,
+  lastFetch,
   listApplications,
   resolveDbPath,
   updateStatus,
   type Application,
   type Status,
 } from "./db.ts";
-import { presentJob, searchForProfile } from "./pipeline.ts";
+import { presentJob, searchForProfile, searchStored } from "./pipeline.ts";
 import { buildContext, screenAll } from "./screening.ts";
 import { SEARCH_DEFAULTS, TARGET_QUERIES } from "./profile.ts";
 import { formatSourceReports } from "./sources.ts";
@@ -165,6 +166,7 @@ server.tool(
     const useProfile = !query && !seniority && !location && minSalary === undefined && !worldwideOnly;
 
     let result;
+    let fromStore = false;
     try {
       /*
        * Everything goes through the profile search, with the arguments as
@@ -173,7 +175,7 @@ server.tool(
        * remote-only, no fit filter and no dismissed list — "dismiss_job hides it
        * from every future search" did not hold there.
        */
-      result = await searchForProfile({
+      const overrides = {
         queries: query ? [query] : undefined,
         seniority,
         worldwideOnly,
@@ -183,14 +185,33 @@ server.tool(
         hoursOld,
         onlyEligible,
         limit: limit ?? DEFAULT_TOOL_LIMIT,
-        // Without an explicit list, minus the boards that cannot answer inside
-        // the MCP request timeout — see SEARCH_DEFAULTS.slowSources.
-        sources: sources?.length
-          ? sources
-          : SEARCH_DEFAULTS.sources.filter(
-              (source) => !SEARCH_DEFAULTS.slowSources.includes(source),
-            ),
-      });
+      };
+      /*
+       * A plain profile search answers from the postings the dashboard's
+       * background refresh stored (src/refresh.ts), when every board asked for
+       * was fetched in the last day: instant, and LinkedIn included. Anything
+       * else — a different query or place, or stale data — asks the boards,
+       * minus the ones that cannot answer inside the MCP request timeout (see
+       * SEARCH_DEFAULTS.slowSources) unless `sources` names them.
+       */
+      const wanted = sources?.length ? sources : [...SEARCH_DEFAULTS.sources];
+      const storedFresh =
+        useProfile &&
+        wanted.every((source) => {
+          const at = lastFetch(source).lastSuccessAt;
+          return at !== null && Date.now() - Date.parse(at) < 24 * 3_600_000;
+        });
+      fromStore = storedFresh;
+      result = storedFresh
+        ? searchStored({ ...overrides, sources: wanted })
+        : await searchForProfile({
+            ...overrides,
+            sources: sources?.length
+              ? sources
+              : SEARCH_DEFAULTS.sources.filter(
+                  (source) => !SEARCH_DEFAULTS.slowSources.includes(source),
+                ),
+          });
     } catch (error) {
       return replyError(
         `every source failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -212,6 +233,7 @@ server.tool(
       `Found ${kept.length} job(s) you can apply to from Poland` +
         (counts.queries.length > 0 ? ` for ${counts.queries.map((q) => `"${q}"`).join(", ")}` : "") +
         (useProfile ? " (saved profile)" : "") +
+        (fromStore ? " — from the postings stored by the background refresh" : "") +
         ".",
       `Sources: ${formatSourceReports(result.reports)}`,
       `Pipeline: ${counts.fetched} fetched -> ${counts.deduped} after dedupe -> ${counts.afterEligibility} after eligibility${
