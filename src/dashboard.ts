@@ -24,11 +24,13 @@ import {
   insertApplication,
   listApplications,
   listDismissed,
+  listDismissedKeys,
   resolveDbPath,
   undismissJob,
   updateStatus,
   type Status,
 } from "./db.ts";
+import { jobKey } from "./jobkey.ts";
 import { presentJob, searchForProfile } from "./pipeline.ts";
 import { SEARCH_DEFAULTS, TARGET_QUERIES } from "./profile.ts";
 
@@ -45,44 +47,89 @@ const SEARCH_CACHE_TTL_MS = 60_000 * (
     : DEFAULT_SEARCH_CACHE_MINUTES
 );
 
+type SearchResult = Awaited<ReturnType<typeof searchForProfile>>;
+
 type SearchCacheEntry = {
   createdAt: number;
-  result: ReturnType<typeof searchForProfile>;
+  result: Promise<SearchResult>;
+  /** Set once the search has finished, so an expired entry can still be served. */
+  value?: SearchResult;
+  /** A background refresh of an expired entry, so only one runs at a time. */
+  refreshing?: Promise<unknown>;
 };
 
 /**
  * Server-owned rather than browser-owned: page reloads share it, concurrent
  * identical searches share the same promise, and API responses can remain
  * `no-store` so a browser never serves stale application/dismissal state.
+ *
+ * The key is only what changes the boards' answer: sources and hoursOld. The
+ * dismissed list used to be part of it, so every "скрыть" made the next date
+ * chip, source pill or reload re-scrape every board — about 80 s with
+ * LinkedIn. Entries now hold the whole ranked feed, hidden jobs included, and
+ * /api/search drops the hidden ones per request.
  */
 const searchCache = new Map<string, SearchCacheEntry>();
+
+function startSearch(overrides: Parameters<typeof searchForProfile>[0]): SearchCacheEntry {
+  const entry: SearchCacheEntry = { createdAt: Date.now(), result: searchForProfile(overrides) };
+  entry.result.then(
+    (value) => {
+      entry.value = value;
+    },
+    () => {},
+  );
+  return entry;
+}
 
 async function cachedProfileSearch(
   key: string,
   overrides: Parameters<typeof searchForProfile>[0],
   forceRefresh: boolean,
-): Promise<{ result: Awaited<ReturnType<typeof searchForProfile>>; hit: boolean; ageMs: number }> {
+): Promise<{ result: SearchResult; hit: boolean; ageMs: number; stale: boolean }> {
   const now = Date.now();
   const existing = searchCache.get(key);
-  if (!forceRefresh && existing && now - existing.createdAt < SEARCH_CACHE_TTL_MS) {
-    return { result: await existing.result, hit: true, ageMs: now - existing.createdAt };
+  if (!forceRefresh && existing) {
+    const ageMs = now - existing.createdAt;
+    if (ageMs < SEARCH_CACHE_TTL_MS) {
+      return { result: await existing.result, hit: true, ageMs, stale: false };
+    }
+    // Expired but finished: answer with it now and refresh behind the scenes,
+    // rather than making the page wait a full pass because an hour went by.
+    if (existing.value) {
+      if (!existing.refreshing) {
+        const next = startSearch(overrides);
+        existing.refreshing = next.result.then(
+          () => searchCache.set(key, next),
+          () => {
+            existing.refreshing = undefined;
+          },
+        );
+      }
+      return { result: existing.value, hit: true, ageMs, stale: true };
+    }
   }
 
-  // Keep uncommon filter combinations from accumulating forever.
-  for (const [cachedKey, entry] of searchCache) {
-    if (now - entry.createdAt >= SEARCH_CACHE_TTL_MS) searchCache.delete(cachedKey);
-  }
-
-  const result = searchForProfile(overrides);
-  const entry = { createdAt: now, result };
+  const entry = startSearch(overrides);
   searchCache.set(key, entry);
   try {
-    return { result: await result, hit: false, ageMs: 0 };
+    return { result: await entry.result, hit: false, ageMs: 0, stale: false };
   } catch (error) {
     // A transient board failure must not poison every request for the next hour.
     if (searchCache.get(key) === entry) searchCache.delete(key);
     throw error;
   }
+}
+
+/**
+ * The cached feed is not sliced: hidden jobs are removed per request, and the
+ * page's own limit applies after that. Any number above what a pass can return
+ * works; oversample() in pipeline.ts caps the fetch size on its own.
+ */
+const FEED_LIMIT = 10_000;
+
+function profileCacheKey(sources: readonly string[], hoursOld: number): string {
+  return JSON.stringify({ sources: [...sources].sort(), hoursOld });
 }
 
 /**
@@ -761,7 +808,9 @@ let applications = [];
 let sort = { key: "applied", dir: "desc" };
 let statusFilter = "";
 let applicationQuery = "";
-// URLs already in the funnel, so search cards can render as "already added".
+// Job keys (src/jobkey.ts) already in the funnel, so search cards render as
+// "already added". Keys, not raw URLs: a tracking parameter appended by a board
+// must not turn a job you applied to back into a fresh card.
 let trackedUrls = new Set();
 let searchResults = [];
 // Search only runs on demand, so remember whether the tab has loaded once.
@@ -775,6 +824,10 @@ let matchFilter = "";
 // how you drop LinkedIn and get a fast search back.
 let activeSources = new Set(SOURCES);
 let searchTimer = null;
+// Only the newest search may paint: a slow cold search must not land after a
+// quick cache hit for a newer chip and overwrite it.
+let searchSeq = 0;
+let searchAbort = null;
 /*
  * How many cards are drawn. The search returns a couple of hundred matches and
  * the page filters more of them out again, so rendering the lot up front is
@@ -1041,7 +1094,7 @@ function renderSearch(payload) {
   // external boards again.
   let visible = all.filter((job) => {
     if (job.dismissed && !showDismissed) return false;
-    if (hideApplied && trackedUrls.has(job.applyUrl)) return false;
+    if (hideApplied && trackedUrls.has(job.key)) return false;
     if (matchFilter && professionalLevel(job) !== matchFilter) return false;
     if (jobQuery) {
       const haystack = [job.title, job.company, job.location, job.source, job.salary,
@@ -1095,7 +1148,7 @@ function renderSearch(payload) {
 
   $("jobgrid").innerHTML = shown.map((job) => {
     const index = all.indexOf(job);
-    const tracked = trackedUrls.has(job.applyUrl);
+    const tracked = trackedUrls.has(job.key);
     // HIGH/MEDIUM is professional match. Eligibility is separate: incomplete
     // LinkedIn metadata must not make a strong Senior React role look mediocre.
     const level = professionalLevel(job);
@@ -1208,7 +1261,7 @@ async function addToFunnel(index, button) {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || response.statusText);
 
-    trackedUrls.add(job.applyUrl);
+    trackedUrls.add(job.key);
     toast(payload.result === "already_tracked"
       ? job.company + " already in the funnel"
       : job.company + " logged as applied");
@@ -1244,6 +1297,12 @@ function stopSearchProgress() {
 async function runSearch(event) {
   const forceRefresh = Boolean(event);
   if (event) event.preventDefault();
+  const seq = ++searchSeq;
+  // The server keeps scraping and caches the result; aborting only stops this
+  // page from waiting for an answer it no longer wants.
+  if (searchAbort) searchAbort.abort();
+  const abort = typeof AbortController === "function" ? new AbortController() : null;
+  searchAbort = abort;
   const button = $("searchbtn");
   $("view-search").classList.add("is-loading");
   button.disabled = true;
@@ -1261,8 +1320,10 @@ async function runSearch(event) {
     // Automatic loads and filter changes may use the server cache. Submitting
     // the Refresh form is the explicit escape hatch for fresh board data.
     if (forceRefresh) params.push("refresh=1");
-    const response = await fetch("/api/search" + (params.length ? "?" + params.join("&") : ""));
+    const response = await fetch("/api/search" + (params.length ? "?" + params.join("&") : ""),
+      abort ? { signal: abort.signal } : undefined);
     const payload = await response.json();
+    if (seq !== searchSeq) return;
     if (!response.ok) throw new Error(payload.error || response.statusText);
     lastSearchPayload = payload;
     // A new result set starts at one screenful again.
@@ -1270,8 +1331,11 @@ async function runSearch(event) {
     renderSearch(payload);
     searchLoaded = true;
   } catch (error) {
+    if (seq !== searchSeq) return;
     toast("Search failed: " + error.message, true);
   } finally {
+    // A superseded search leaves the progress bar to the one still running.
+    if (seq !== searchSeq) return;
     stopSearchProgress();
     $("view-search").classList.remove("is-loading");
     button.disabled = false;
@@ -1386,7 +1450,7 @@ async function load() {
       fetch("/api/applications").then((r) => r.json()),
     ]);
     applications = list.applications || [];
-    trackedUrls = new Set(applications.map((a) => a.url).filter(Boolean));
+    trackedUrls = new Set(applications.map((a) => a.url_key).filter(Boolean));
     renderStats(stats);
     renderRows();
   } catch (error) {
@@ -1570,36 +1634,52 @@ const server = createServer(async (request, response) => {
       const forceRefresh = ["1", "true", "on", "yes"].includes(
         (url.searchParams.get("refresh") ?? "").toLowerCase(),
       );
-      const dismissedRows = listDismissed();
-      const dismissedUrls = new Set(dismissedRows.map((row) => row.url));
-      const cacheKey = JSON.stringify({
-        sources: [...sources].sort(),
-        hoursOld: hoursOld ?? SEARCH_DEFAULTS.hoursOld,
-        includeDismissed,
-        // Normal searches depend on this DB state. Including it in the key also
-        // notices dismissals written by the MCP while the dashboard is open.
-        dismissed: includeDismissed ? [] : [...dismissedUrls].sort(),
-      });
-      const cached = await cachedProfileSearch(cacheKey, {
-        ...(includeDismissed ? { excludeUrls: [] } : {}),
-        ...(hoursOld === undefined ? {} : { hoursOld }),
-        sources,
-      }, forceRefresh);
+      const cached = await cachedProfileSearch(
+        profileCacheKey(sources, hoursOld ?? SEARCH_DEFAULTS.hoursOld),
+        {
+          // The cache holds everything; hidden jobs are dropped below, per
+          // request, so a dismissal never invalidates it.
+          excludeUrls: [],
+          limit: FEED_LIMIT,
+          ...(hoursOld === undefined ? {} : { hoursOld }),
+          sources,
+        },
+        forceRefresh,
+      );
       const result = cached.result;
 
+      // Read on every request, so dismissals written by the MCP or funnel.mjs
+      // while the page is open apply at once.
+      const dismissedKeys = new Set(listDismissedKeys());
+      const keyed = result.jobs.map((job) => ({ job, key: jobKey(job.url) }));
+      const kept = includeDismissed ? keyed : keyed.filter(({ key }) => !dismissedKeys.has(key));
+      const page = kept.slice(0, SEARCH_DEFAULTS.limit);
+
+      const levelCounts: Record<string, number> = {};
+      for (const { job } of page) {
+        levelCounts[job.eligibility.level] = (levelCounts[job.eligibility.level] ?? 0) + 1;
+      }
+
       sendJson(response, 200, {
-        // `dismissed` lets the page render a restore button on hidden cards.
-        jobs: result.jobs.map((job) => ({
+        // `key` is the job's identity (src/jobkey.ts): the page compares it with
+        // the funnel's url_key. `dismissed` renders a restore button.
+        jobs: page.map(({ job, key }) => ({
           ...presentJob(job),
-          dismissed: dismissedUrls.has(job.url),
+          key,
+          dismissed: dismissedKeys.has(key),
         })),
-        dismissedCount: dismissedUrls.size,
+        dismissedCount: dismissedKeys.size,
         sourceCounts: result.sourceCounts,
         reports: result.reports,
-        counts: result.counts,
-        levelCounts: result.levelCounts,
+        counts: {
+          ...result.counts,
+          hiddenForDismissed: keyed.length - kept.length,
+          returned: page.length,
+        },
+        levelCounts,
         cache: {
           hit: cached.hit,
+          stale: cached.stale,
           ageSeconds: Math.floor(cached.ageMs / 1000),
           ttlSeconds: Math.floor(SEARCH_CACHE_TTL_MS / 1000),
         },
@@ -1653,6 +1733,9 @@ const server = createServer(async (request, response) => {
         location: text(body["location"]),
         salary: text(body["salary"]),
         status,
+        // apply.mjs records what went out (CV version, cover letter, route), so
+        // reply rates can later be compared per variant.
+        notes: text(body["notes"]),
       });
 
       // Re-adding is a no-op, not an error — the UI shows "already in funnel".
@@ -1765,6 +1848,23 @@ server.listen(PORT, HOST, () => {
   console.log(`Job Hunt dashboard  →  http://localhost:${PORT}`);
   console.log(`Listening on         →  ${HOST}:${PORT}`);
   console.log(`Reading database     →  ${resolveDbPath()}`);
+
+  /*
+   * Warm the default search, so the first click on Search joins a pass that is
+   * already running instead of starting one. Identical requests share the
+   * cached promise, so there is never a second pass. JOBHUNT_WARM=0 turns it
+   * off (the UI tests do, to keep their board traffic to what they assert on).
+   */
+  if (process.env["JOBHUNT_WARM"] !== "0") {
+    const sources = [...SEARCH_DEFAULTS.sources];
+    cachedProfileSearch(
+      profileCacheKey(sources, SEARCH_DEFAULTS.hoursOld),
+      { excludeUrls: [], limit: FEED_LIMIT, sources },
+      false,
+    ).catch((error: unknown) => {
+      console.error(`Warm-up search failed: ${error instanceof Error ? error.message : error}`);
+    });
+  }
 });
 
 server.on("error", (error: NodeJS.ErrnoException) => {

@@ -11,7 +11,8 @@
  * twice.
  */
 
-import { listDismissedUrls } from "./db.ts";
+import { listDismissedKeys } from "./db.ts";
+import { jobKey } from "./jobkey.ts";
 import { scoreEligibility, levelRank, type Eligibility } from "./eligibility.ts";
 import {
   SEARCH_DEFAULTS,
@@ -44,8 +45,9 @@ export type SearchParams = {
   /** Drop jobs above this fit tier (2 = neutral, 3 = wrong/junior/non-engineering). */
   maxFitTier?: number;
   /**
-   * Exact URLs to drop — the "not interested" list. searchForProfile fills this
-   * from the database, so a job dismissed in the dashboard also disappears from
+   * Jobs to drop — the "not interested" list, compared by jobKey so a tracking
+   * parameter cannot bring a hidden job back. searchForProfile fills this from
+   * the database, so a job dismissed in the dashboard also disappears from
    * `find_jobs`. Pass [] to include dismissed jobs again.
    */
   excludeUrls?: string[];
@@ -186,8 +188,9 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
   const deduped = dedupeJobs(outcome.jobs);
 
   // Dismissed jobs go first: no point scoring what will never be shown.
-  const excluded = new Set(params.excludeUrls ?? []);
-  const kept = excluded.size === 0 ? deduped : deduped.filter((job) => !excluded.has(job.url));
+  const excluded = new Set((params.excludeUrls ?? []).map(jobKey));
+  const kept =
+    excluded.size === 0 ? deduped : deduped.filter((job) => !excluded.has(jobKey(job.url)));
   const hiddenForDismissed = deduped.length - kept.length;
 
   const scored: RankedJob[] = kept.map((job) => ({
@@ -273,7 +276,7 @@ export async function searchJobs(params: SearchParams = {}): Promise<SearchResul
 export function searchForProfile(overrides: SearchParams = {}): Promise<SearchResult> {
   // Read the "not interested" list here, so every caller of the profile search
   // — dashboard and find_jobs — honours it without having to remember.
-  const dismissed = listDismissedUrls();
+  const dismissed = listDismissedKeys();
 
   // Strip undefined before spreading. A caller forwarding optional arguments
   // passes `{ limit: undefined, remoteOnly: undefined, ... }`, and a plain

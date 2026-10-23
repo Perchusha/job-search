@@ -544,12 +544,15 @@ async function main() {
 
   /* ---- add to funnel ---- */
   const buttons = addButtons("data-add");
-  const index = page.searchResults.findIndex((job) => !page.trackedUrls.has(job.applyUrl));
+  const index = page.searchResults.findIndex((job) => !page.trackedUrls.has(job.key));
   check("found an untracked card", index >= 0);
   const button = buttons.find((el) => Number(el.dataset.add) === index);
   check("its click handler is attached", typeof button?._handlers.click === "function");
 
   const before = page.applications.length;
+  // Applied jobs are hidden by default; turn that off so the card stays on
+  // screen and its added state can be seen. "Hide applied" is checked below.
+  page.setHideApplied(false);
   await button._handlers.click();
 
   const job = page.searchResults[index];
@@ -560,6 +563,20 @@ async function main() {
   const added = page.applications.find((row) => row.url === job.applyUrl);
   check("the new row is in the tracker", Boolean(added));
   check("added straight as 'applied' — no bookmark stage", added?.status === "applied");
+
+  // Boards append tracking parameters that come and go (Himalayas added
+  // ?utm_source=api in October 2026). The same job must not become a second row.
+  const variant = await (await fetch(`${BASE}/api/applications`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      url: job.applyUrl + (job.applyUrl.includes("?") ? "&" : "?") + "utm_source=api",
+      title: job.title,
+      company: job.company,
+    }),
+  })).json();
+  check("a tracking-parameter variant of an applied job is already tracked",
+    variant.result === "already_tracked", variant.result);
 
   /* ---- hide a job from search ---- */
   const hideButtons = addButtons("data-hide");
@@ -583,6 +600,8 @@ async function main() {
   const afterHide = await (await fetch(`${BASE}/api/search`)).json();
   check("a hidden job is gone from a fresh search",
     !afterHide.jobs.some((row) => row.applyUrl === toHide.applyUrl));
+  check("hiding a job does not throw away the cached search",
+    afterHide.cache?.hit === true);
 
   /*
    * The counter only counts dismissed jobs the search actually ran into, and
@@ -647,7 +666,7 @@ async function main() {
   const liveButtons = addButtons("data-add");
   const untracked = liveButtons
     .map((el) => Number(el.dataset.add))
-    .find((i) => !page.trackedUrls.has(page.searchResults[i].applyUrl));
+    .find((i) => !page.trackedUrls.has(page.searchResults[i].key));
   if (untracked === undefined) {
     console.log("SKIP  every visible card is already tracked — nothing left to add");
   } else {

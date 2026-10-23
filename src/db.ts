@@ -14,6 +14,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { jobKey } from "./jobkey.ts";
+
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
 /* ------------------------------------------------------------------ */
@@ -71,6 +73,8 @@ export type ApplicationRow = {
   company: string;
   title: string;
   url: string | null;
+  /** jobKey(url): the identity used for every "is this the same job?" check. */
+  url_key: string | null;
   source: string | null;
   location: string | null;
   salary: string | null;
@@ -176,6 +180,36 @@ function migrate(database: Database.Database): void {
    * it in a bucket that no longer exists.
    */
   database.exec("UPDATE applications SET status = 'applied' WHERE status = 'saved'");
+
+  /*
+   * url_key: the job's identity, independent of tracking parameters (see
+   * jobkey.ts). Both tables used to match on the exact URL, so when Himalayas
+   * started appending ?utm_source=api every hidden and applied Himalayas job
+   * came back as new, and "В воронку" on one inserted a second application.
+   * The url column stays as the link to open; url_key is what gets compared.
+   *
+   * Not UNIQUE: two stored rows may legitimately collapse to one key, and the
+   * migration must not fail on them. Rows written by an older process without
+   * a key are filled in on the next open, and lookups fall back to url.
+   */
+  for (const table of ["applications", "dismissed"]) {
+    const columns = database.prepare<[], { name: string }>(`PRAGMA table_info(${table})`).all();
+    if (!columns.some((column) => column.name === "url_key")) {
+      database.exec(`ALTER TABLE ${table} ADD COLUMN url_key TEXT`);
+    }
+    database.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_url_key ON ${table}(url_key)`);
+    const missing = database
+      // Aliased: on a table with an INTEGER PRIMARY KEY, SQLite reports a bare
+      // `rowid` under that key's name, and row.rowid would be undefined.
+      .prepare<[], { rid: number; url: string }>(
+        `SELECT rowid AS rid, url FROM ${table} WHERE url IS NOT NULL AND url_key IS NULL`,
+      )
+      .all();
+    const fill = database.prepare(`UPDATE ${table} SET url_key = ? WHERE rowid = ?`);
+    database.transaction(() => {
+      for (const row of missing) fill.run(jobKey(row.url), row.rid);
+    })();
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -237,10 +271,13 @@ export type NewApplication = {
   appliedAt?: string;
 };
 
+/** Matches on jobKey, so a tracking-parameter variant finds the same row. */
 export function findByUrl(url: string): Application | null {
   const row = getDb()
-    .prepare<[string], ApplicationRow>("SELECT * FROM applications WHERE url = ?")
-    .get(url);
+    .prepare<[string, string], ApplicationRow>(
+      "SELECT * FROM applications WHERE url_key = ? OR url = ? ORDER BY id LIMIT 1",
+    )
+    .get(jobKey(url), url);
   return row ? decorate(row, DEFAULT_STALE_DAYS) : null;
 }
 
@@ -270,13 +307,14 @@ export function insertApplication(
   const result = getDb()
     .prepare(
       `INSERT INTO applications
-         (company, title, url, source, location, salary, status, applied_at, response_at, last_update, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+         (company, title, url, url_key, source, location, salary, status, applied_at, response_at, last_update, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
     )
     .run(
       input.company,
       input.title,
       input.url ?? null,
+      input.url ? jobKey(input.url) : null,
       input.source ?? "manual",
       input.location ?? null,
       input.salary ?? null,
@@ -393,6 +431,7 @@ export function getStats(options: { staleDays?: number } = {}): Stats {
 
 export type DismissedJob = {
   url: string;
+  url_key: string | null;
   company: string | null;
   title: string | null;
   reason: string | null;
@@ -411,18 +450,20 @@ export type NewDismissal = {
  * original timestamp rather than erroring, so a double click is harmless.
  */
 export function dismissJob(input: NewDismissal): { dismissed: DismissedJob; alreadyHidden: boolean } {
+  const key = jobKey(input.url);
   const existing = getDb()
-    .prepare<[string], DismissedJob>("SELECT * FROM dismissed WHERE url = ?")
-    .get(input.url);
+    .prepare<[string, string], DismissedJob>("SELECT * FROM dismissed WHERE url_key = ? OR url = ?")
+    .get(key, input.url);
   if (existing) return { dismissed: existing, alreadyHidden: true };
 
   getDb()
     .prepare(
-      `INSERT INTO dismissed (url, company, title, reason, dismissed_at)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO dismissed (url, url_key, company, title, reason, dismissed_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.url,
+      key,
       input.company ?? null,
       input.title ?? null,
       input.reason ?? null,
@@ -436,17 +477,24 @@ export function dismissJob(input: NewDismissal): { dismissed: DismissedJob; alre
   return { dismissed, alreadyHidden: false };
 }
 
-/** Un-hide a job. Returns false when it was not hidden in the first place. */
+/**
+ * Un-hide a job. Returns false when it was not hidden in the first place.
+ * Removes every stored variant of the job, so a restore cannot leave a second
+ * row behind that keeps it hidden.
+ */
 export function undismissJob(url: string): boolean {
-  return getDb().prepare("DELETE FROM dismissed WHERE url = ?").run(url).changes > 0;
+  return (
+    getDb().prepare("DELETE FROM dismissed WHERE url_key = ? OR url = ?").run(jobKey(url), url)
+      .changes > 0
+  );
 }
 
-/** Exact URLs, matching how the funnel dedupes — see findByUrl. */
-export function listDismissedUrls(): string[] {
+/** jobKeys of every hidden job — compare them with jobKey(job.url). */
+export function listDismissedKeys(): string[] {
   return getDb()
-    .prepare<[], { url: string }>("SELECT url FROM dismissed")
+    .prepare<[], { url: string; url_key: string | null }>("SELECT url, url_key FROM dismissed")
     .all()
-    .map((row) => row.url);
+    .map((row) => row.url_key ?? jobKey(row.url));
 }
 
 export function listDismissed(): DismissedJob[] {

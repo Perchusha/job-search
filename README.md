@@ -89,7 +89,8 @@ There is no build step; `tsx` runs the TypeScript directly.
 | `JOBHUNT_DB`                   | `~/.job-hunt/jobs.db` | SQLite file (dir auto-created)         |
 | `JOBHUNT_PORT`                 | `4321`               | Dashboard port                         |
 | `JOBHUNT_HOST`                 | `127.0.0.1`          | Bind address; use `0.0.0.0` for LAN   |
-| `JOBHUNT_SEARCH_CACHE_MINUTES` | `60`                 | Dashboard search cache TTL, in minutes |
+| `JOBHUNT_SEARCH_CACHE_MINUTES` | `60`                 | Dashboard search cache TTL, in minutes. An expired entry is still served while a fresh pass runs in the background |
+| `JOBHUNT_WARM`                 | on                   | `0` skips the search the dashboard starts at boot to warm its cache |
 
 ### Windows app
 
@@ -294,7 +295,7 @@ is what feeds the response-rate and days-to-response stats. `dropped` is the exc
 | `POST /api/applications`             | `{ url, title, company, source?, location?, salary?, status? }` → adds as `applied` |
 | `POST /api/applications/:id/status`  | `{ status, responseAt? }`                                   |
 
-`POST /api/applications` is idempotent on `url`: re-adding returns `200` with
+`POST /api/applications` is idempotent on the job's key (below): re-adding returns `200` with
 `result: "already_tracked"` instead of an error, which is why the Search tab can safely show
 a card as "✓ В воронке" rather than failing.
 
@@ -315,6 +316,24 @@ widget dropped onto it.
 
 If the rest of the page should move onto Pico too, that is a separate pass — a bigger one,
 because it means giving up the current card and funnel styling, not adding to it.
+
+### Job identity and the search cache
+
+Jobs are compared by `jobKey(url)` ([src/jobkey.ts](src/jobkey.ts)), never by the
+raw URL: host + path + query without tracking parameters (`utm_*`, `source`,
+`ref`, `gh_src`, …), lowercased. Boards add and drop those parameters — Himalayas
+started appending `?utm_source=api` to every link in October 2026, which brought
+every job hidden or applied to before that back as new. Identifying parameters
+(`?id=`, `?oid=`, `career_job_req_id=`) are kept, because stripping the whole
+query merged distinct roles. Both tables carry a `url_key` column, filled on open
+for older rows; dedupe, the dismissed filter and "already applied" all use it.
+
+The `/api/search` cache is keyed only on what changes the boards' answer —
+sources and `hoursOld` — and holds the whole ranked feed, hidden jobs included.
+Hidden jobs are dropped per request, so hiding a card never forces a re-scrape
+(it used to: the key contained every dismissed URL, and with LinkedIn on the
+next date chip or reload cost ~80 s). The dashboard warms the default search at
+boot, and an expired entry is served while a fresh pass runs behind it.
 
 ## Using the Search tab
 
@@ -424,7 +443,9 @@ off the slow boards.
 a request out at 60s and a pass with LinkedIn takes ~80s, so including it would
 fail outright rather than answer slowly. The dashboard can afford it — it shows
 progress and the pill drops the board in one click. Name `sources` explicitly on
-`find_jobs` if you want LinkedIn from an assistant and can wait.
+`find_jobs` if you want LinkedIn from an assistant and can wait — the rest of the
+profile (queries, remote-only, fit filter, hidden jobs) still applies; every
+argument is an override of the profile search, not a separate search.
 
 ## Tuning what gets found
 

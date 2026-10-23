@@ -8,6 +8,7 @@
  * Field shapes below were verified against the live endpoints, not docs.
  */
 
+import { jobKey } from "./jobkey.ts";
 import {
   JobSpyUnavailable,
   fetchJobSpy,
@@ -295,7 +296,10 @@ function normalizeHimalayas(raw: unknown): Job | null {
 
   const title = asString(job["title"]);
   const company = asString(job["companyName"]);
-  const url = asString(job["applicationLink"]) ?? asString(job["guid"]);
+  // guid first: it is the posting's own page and carries no tracking. Since
+  // October 2026 applicationLink always ends in ?utm_source=api, and every
+  // job hidden or applied to before that was stored without it.
+  const url = asString(job["guid"]) ?? asString(job["applicationLink"]);
   if (!title || !company || !url) return null;
 
   // Verified live field names: `timezoneRestrictions` and `categories` are
@@ -470,25 +474,14 @@ function filterByQuery(jobs: Job[], query?: string): Job[] {
   });
 }
 
-/** Strip protocol/www/query/hash/trailing slash so the same job matches. */
-function normalizeUrl(url: string): string {
-  return url
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
-    .replace(/[?#].*$/, "")
-    .replace(/\/+$/, "");
-}
-
 function companyTitleKey(job: Job): string {
   const squash = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
   return `${squash(job.company)}|${squash(job.title)}`;
 }
 
 /**
- * Dedupe by normalized URL first, then by company+title. Source order decides
- * the winner, so callers should pass Himalayas first — its records carry the
- * eligibility metadata the scorer depends on.
+ * Dedupe by jobKey first (tracking parameters ignored, job ids in the query
+ * kept — see jobkey.ts), then by company+title. The first copy wins.
  */
 export function dedupeJobs(jobs: Job[]): Job[] {
   const seenUrls = new Set<string>();
@@ -496,7 +489,7 @@ export function dedupeJobs(jobs: Job[]): Job[] {
   const unique: Job[] = [];
 
   for (const job of jobs) {
-    const urlKey = normalizeUrl(job.url);
+    const urlKey = jobKey(job.url);
     const nameKey = companyTitleKey(job);
     if (seenUrls.has(urlKey) || seenCompanyTitle.has(nameKey)) continue;
     seenUrls.add(urlKey);

@@ -24,11 +24,14 @@ import {
   type Application,
   type Status,
 } from "./db.ts";
-import { presentJob, searchForProfile, searchJobs } from "./pipeline.ts";
+import { presentJob, searchForProfile } from "./pipeline.ts";
 import { SEARCH_DEFAULTS, TARGET_QUERIES } from "./profile.ts";
 import { formatSourceReports } from "./sources.ts";
 
 const server = new McpServer({ name: "job-hunt", version: "1.0.0" });
+
+/** find_jobs page size: a full profile pass keeps ~100 matches, too many for one reply. */
+const DEFAULT_TOOL_LIMIT = 30;
 
 /* ------------------------------------------------------------------ */
 /* Response helpers                                                    */
@@ -88,12 +91,12 @@ const sourceEnum = z.enum([
 ]);
 
 /* ------------------------------------------------------------------ */
-/* 1. find_jobs — a thin wrapper over searchJobs()                     */
+/* 1. find_jobs — a thin wrapper over searchForProfile()               */
 /* ------------------------------------------------------------------ */
 
 server.tool(
   "find_jobs",
-  "Find jobs worth applying to. Called with NO arguments it searches the saved profile in src/profile.ts (my target searches, Poland, remote-only, neutral/wrong-stack and junior roles dropped) — that is the normal way to use it. The profile search skips LinkedIn: it takes ~80s on its own and would blow the request timeout. The dashboard queries it; this tool does not unless you name it in `sources`. Pass arguments only for a one-off, different search. Returns separate professional-match and work-eligibility levels plus the apply URL. Scraped boards give volume and descriptions but no salary; Himalayas is the only source with published salaries.",
+  "Find jobs worth applying to. Called with NO arguments it searches the saved profile in src/profile.ts (my target searches, Poland, remote-only, neutral/wrong-stack and junior roles dropped) — that is the normal way to use it. The profile search skips LinkedIn: it takes ~80s on its own and would blow the request timeout. The dashboard queries it; this tool does not unless you name it in `sources`. Arguments override parts of the profile for one call (e.g. `sources` to add LinkedIn, `query` for a different search term); hidden jobs, remote-only and the fit filter still apply. Returns separate professional-match and work-eligibility levels plus the apply URL. Scraped boards give volume and descriptions but no salary; Himalayas is the only source with published salaries.",
   {
     query: z.string().optional().describe("Free-text search, e.g. 'senior react typescript'"),
     seniority: z
@@ -125,12 +128,18 @@ server.tool(
       .int()
       .positive()
       .optional()
-      .describe("Scraped boards only: only postings newer than this many hours (default 336 = 14d)"),
+      .describe("Scraped boards only: only postings newer than this many hours (default 720 = 30d, the profile window)"),
     onlyEligible: z
       .boolean()
       .optional()
       .describe("Drop jobs scored 'low' (cannot apply from Poland). Default true"),
-    limit: z.number().int().positive().max(100).optional().describe("Max jobs to return, default 20"),
+    limit: z
+      .number()
+      .int()
+      .positive()
+      .max(200)
+      .optional()
+      .describe(`Max jobs to return, default ${DEFAULT_TOOL_LIMIT}`),
   },
   async ({
     query,
@@ -149,35 +158,35 @@ server.tool(
      * target searches, Poland, remote-only, wrong-stack roles dropped. The
      * stack does not change between runs, so "find me jobs" needs no arguments.
      */
-    const useProfile =
-      !query && !seniority && !location && minSalary === undefined && !sources?.length;
+    const useProfile = !query && !seniority && !location && minSalary === undefined && !worldwideOnly;
 
     let result;
     try {
-      result = useProfile
-        ? await searchForProfile({
-            limit,
-            onlyEligible,
-            remoteOnly,
-            hoursOld,
-            // Minus the boards that cannot answer inside the MCP request
-            // timeout — see SEARCH_DEFAULTS.slowSources for the measurement.
-            sources: SEARCH_DEFAULTS.sources.filter(
+      /*
+       * Everything goes through the profile search, with the arguments as
+       * overrides. Passing `sources` (which the README suggests for LinkedIn)
+       * used to switch to a bare one-off search: no profile queries, no
+       * remote-only, no fit filter and no dismissed list — "dismiss_job hides it
+       * from every future search" did not hold there.
+       */
+      result = await searchForProfile({
+        queries: query ? [query] : undefined,
+        seniority,
+        worldwideOnly,
+        minSalary,
+        location,
+        remoteOnly,
+        hoursOld,
+        onlyEligible,
+        limit: limit ?? DEFAULT_TOOL_LIMIT,
+        // Without an explicit list, minus the boards that cannot answer inside
+        // the MCP request timeout — see SEARCH_DEFAULTS.slowSources.
+        sources: sources?.length
+          ? sources
+          : SEARCH_DEFAULTS.sources.filter(
               (source) => !SEARCH_DEFAULTS.slowSources.includes(source),
             ),
-          })
-        : await searchJobs({
-            query,
-            seniority,
-            worldwideOnly,
-            minSalary,
-            sources,
-            location,
-            remoteOnly,
-            hoursOld,
-            onlyEligible,
-            limit,
-          });
+      });
     } catch (error) {
       return replyError(
         `every source failed: ${error instanceof Error ? error.message : String(error)}`,
