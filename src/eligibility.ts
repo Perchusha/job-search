@@ -12,7 +12,7 @@
  * Run `npm run sanity` to execute the checks at the bottom of this file.
  */
 
-import { fitTier, stackFit } from "./profile.ts";
+import { fitTier, officeAcceptable, stackFit } from "./profile.ts";
 import { workSignals } from "./workmode.ts";
 import type { Job } from "./sources.ts";
 
@@ -63,11 +63,19 @@ function matchToken(haystack: string, token: string): boolean {
   return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(haystack);
 }
 
+/**
+ * Polish cities, metro areas and voivodeships: a place in Poland, said without
+ * the country. LinkedIn writes "Wroclaw Metropolitan Area", company boards
+ * "Warsaw"; read as no-Poland, such a row scored `low` and was never shown.
+ */
+const POLISH_PLACE =
+  /(^|[^a-z0-9ąćęłńóśźż])(warsaw|warszaw\w*|krak[oó]w|cracow|wroc[lł]aw|gda[nń]sk|gdynia|sopot|tricity|tr[oó]jmiasto|pozna[nń]|[lł][oó]d[zź]|katowice|szczecin|lublin|bydgoszcz|bia[lł]ystok|rzesz[oó]w|olsztyn|kielce|opole|toru[nń]|gliwice|silesia|mazowieckie|ma[lł]opolskie|dolno[sś]l[aą]skie|pomorskie|wielkopolskie|[lł][oó]dzkie|[sś]l[aą]skie|lubelskie|podkarpackie|podlaskie|opolskie|lubuskie)([^a-z0-9ąćęłńóśźż]|$)/i;
+
 function firstFriendly(text: string): string | null {
   for (const token of FRIENDLY_TOKENS) {
     if (matchToken(text, token)) return token;
   }
-  return null;
+  return POLISH_PLACE.test(text) ? "poland" : null;
 }
 
 function mentionsNorthAmerica(text: string): boolean {
@@ -94,6 +102,16 @@ function scoreHimalayas(job: Job): Eligibility {
   const restrictions = job.locationRestrictions.filter((country) => country.trim().length > 0);
 
   if (restrictions.length === 0) {
+    // Its timezoneRestrictions (kept among the tags as UTC offsets): a
+    // worldwide role that must work American hours is not one for Poland.
+    const zones = job.tags.filter((tag) => /^[-+]?\d{1,2}(\.\d+)?$/.test(tag.trim())).map(Number);
+    if (zones.length > 0 && !zones.some((zone) => zone >= -1 && zone <= 4)) {
+      return {
+        eligible: true,
+        level: "medium",
+        reason: `Open worldwide, but only in UTC${Math.min(...zones) >= 0 ? "+" : ""}${Math.min(...zones)}…${Math.max(...zones)} — Poland is UTC+1/+2`,
+      };
+    }
     return { eligible: true, level: "high", reason: "No location restriction — open worldwide" };
   }
 
@@ -190,8 +208,31 @@ function scoreArbeitnow(job: Job): Eligibility {
  * (e.g. Blue Card) is not EU-wide work authorisation, so an onsite role in
  * another EU country is still `low` — it would need relocation and a new permit.
  */
+/**
+ * A LinkedIn card that names only a country or a region ("Poland", "European
+ * Union", "EMEA"), or no place at all — JobSpy used to drop exactly those, and
+ * the search itself is scoped to Poland. On LinkedIn's remote search such a
+ * card is a remote role open to the whole country: 14 of 22 judged so were
+ * remote by their text and none asked for an office, while cards naming a
+ * city held 17 of the 18 "не remote" skips.
+ */
+function linkedinCountryWide(job: Job): boolean {
+  const location = (job.location ?? "").trim();
+  return (
+    job.source === "linkedin" &&
+    (location.length === 0 || (!location.includes(",") && !POLISH_PLACE.test(location) && firstFriendly(location) !== null))
+  );
+}
+
 function scoreScraped(job: Job): Eligibility {
   const location = (job.location ?? "").trim();
+  if (linkedinCountryWide(job)) {
+    return {
+      eligible: true,
+      level: "high",
+      reason: `LinkedIn, remote search, ${location || "Poland"} as a whole — not a city; the text has the last word`,
+    };
+  }
   const friendly = location.length > 0 ? firstFriendly(location) : null;
   // JobSpy occasionally loses `is_remote` even when the posting itself says
   // "Remote" or the normalized location is literally "zdalnie, PL".
@@ -277,6 +318,20 @@ function scoreWatchlist(job: Job): Eligibility {
 
 /** Score one job for a Poland-based applicant. */
 export function scoreEligibility(job: Job): Eligibility {
+  const scored = scoreBySource(job);
+  // Not remote is what holds an office role in Warsaw at `medium`; at one of
+  // the giants in profile.ts OFFICE_OK that is no reason to doubt it.
+  if (scored.level === "medium" && officeAcceptable(job)) {
+    return {
+      eligible: true,
+      level: "high",
+      reason: `Office in "${job.location ?? job.locationRestrictions.join("; ")}" — not remote, but fine at ${job.company}`,
+    };
+  }
+  return scored;
+}
+
+function scoreBySource(job: Job): Eligibility {
   switch (job.source) {
     case "nofluffjobs":
     case "justjoin":
@@ -332,6 +387,16 @@ function runSanityChecks(): void {
     {
       label: "himalayas, no restrictions -> high",
       job: stub({ source: "himalayas", locationRestrictions: [] }),
+      expect: "high",
+    },
+    {
+      label: "himalayas, worldwide but only American time zones -> medium",
+      job: stub({ source: "himalayas", locationRestrictions: [], tags: ["React", "-8", "-7", "-6", "-5"] }),
+      expect: "medium",
+    },
+    {
+      label: "himalayas, worldwide with European time zones -> high",
+      job: stub({ source: "himalayas", locationRestrictions: [], tags: ["React", "0", "1", "2"] }),
       expect: "high",
     },
     {
@@ -457,6 +522,62 @@ function runSanityChecks(): void {
       expect: "medium",
     },
     {
+      label: "indeed, Google onsite 'Warszawa, MZ, PL' -> high (a giant's office in Warsaw is fine)",
+      job: stub({ source: "indeed", company: "Google", remote: false, location: "Warszawa, MZ, PL" }),
+      expect: "high",
+    },
+    {
+      label: "linkedin, Amazon Web Services 'remote' with office days in Warsaw -> high",
+      job: stub({
+        source: "linkedin",
+        company: "Amazon Web Services",
+        remote: true,
+        location: "Warsaw, Mazowieckie, Poland",
+        description: "This is a hybrid role: 3 days a week in our Warsaw office.",
+      }),
+      expect: "high",
+    },
+    {
+      label: "justjoin, Microsoft hybrid in Warsaw -> high",
+      job: stub({ source: "justjoin", company: "Microsoft", remote: false, workMode: "hybrid", location: "Warszawa, PL" }),
+      expect: "high",
+    },
+    {
+      label: "indeed, Google onsite 'Kraków, ML, PL' -> medium (no relocation, even for a giant)",
+      job: stub({ source: "indeed", company: "Google", remote: false, location: "Kraków, ML, PL" }),
+      expect: "medium",
+    },
+    {
+      label: "indeed, 'Metaverse Labs' onsite Warsaw -> medium (Meta is a whole word)",
+      job: stub({ source: "indeed", company: "Metaverse Labs", remote: false, location: "Warszawa, MZ, PL" }),
+      expect: "medium",
+    },
+    {
+      label: "linkedin, the card says only 'Poland' -> high (remote search, the whole country)",
+      job: stub({ source: "linkedin", remote: false, location: "Poland" }),
+      expect: "high",
+    },
+    {
+      label: "linkedin, no place on the card -> high (JobSpy dropped 'Poland'; the search is Poland)",
+      job: stub({ source: "linkedin", remote: false, location: null }),
+      expect: "high",
+    },
+    {
+      label: "linkedin, 'Wroclaw Metropolitan Area' -> medium (a Polish city, not the whole country)",
+      job: stub({ source: "linkedin", remote: false, location: "Wroclaw Metropolitan Area" }),
+      expect: "medium",
+    },
+    {
+      label: "watchlist, the company board says 'Warsaw' -> high",
+      job: stub({ source: "watchlist", remote: false, locationRestrictions: ["Warsaw"] }),
+      expect: "high",
+    },
+    {
+      label: "linkedin, the card says only 'United States' -> low",
+      job: stub({ source: "linkedin", remote: false, location: "United States" }),
+      expect: "low",
+    },
+    {
       label: "linkedin, onsite 'Cracow, Małopolskie, Poland' -> medium",
       job: stub({ source: "linkedin", remote: false, location: "Cracow, Małopolskie, Poland" }),
       expect: "medium",
@@ -545,6 +666,21 @@ function runSanityChecks(): void {
     { title: "Frontend Developer - Angular/TypeScript", expect: 3 },
   ];
 
+  // A giant in Warsaw reaches Claude whatever its stack score; its title gate still stands.
+  const giant = (title: string, description: string) =>
+    stub({ source: "indeed", company: "Google", title, location: "Warszawa, MZ, PL", remote: false, description });
+  const giantCases: Array<{ job: Job; expect: number; label: string }> = [
+    { job: giant("Software Engineer III, Front End, Google Cloud", "Experience with one or more programming languages: Java, C++, Python, JavaScript or Go."), expect: 1, label: "Google Warsaw, front end, languages list" },
+    { job: giant("Senior Software Engineer, Android", "Kotlin and Java."), expect: 3, label: "Google Warsaw, Android title" },
+  ];
+  for (const { job, expect, label } of giantCases) {
+    const tier = fitTier(job);
+    const ok = tier === expect;
+    if (!ok) failed++;
+    console.log(`${ok ? "PASS" : "FAIL"}  giant fit tier ${expect}: ${label}`);
+    if (!ok) console.log(`      -> got tier ${tier} (score ${stackFit(job)})`);
+  }
+
   for (const { title, expect } of fitCases) {
     const job = stub({ source: "indeed", title, remote: true, location: "zdalnie, PL" });
     const tier = fitTier(job);
@@ -599,7 +735,7 @@ function runSanityChecks(): void {
     if (!ok) console.log(`      -> got tier ${tier} (score ${stackFit(job)})`);
   }
 
-  const total = cases.length + fitCases.length + descriptionCases.length;
+  const total = cases.length + fitCases.length + descriptionCases.length + 2;
   console.log(`\n${total - failed}/${total} checks passed.`);
   if (failed > 0) process.exitCode = 1;
 }

@@ -22,14 +22,23 @@ in prose, with the reasoning behind each answer.
 ```
 node scripts/apply.mjs <applyUrl> --url <postingUrl> --company "<co>" --title "<title>" \
      --source <indeed|linkedin|himalayas> --cover auto --stack "<comma list from jobs-fetch>" \
-     [--location ".."] [--salary ".."] [--answers <json>] [--dry-run] [--headed] [--debug]
+     [--location ".."] [--salary ".."] [--pay '<PayRange[] json>'] [--answers <json>] [--office-ok] [--dry-run] [--headed] [--debug]
 ```
+
+- `--office-ok`: the company is one of the giants in Настройки → «Мои условия»
+  (Google, Apple, Netflix, Meta, Microsoft, Amazon, Nvidia, …; `OFFICE_OK` in
+  src/profile.ts reads them) and the office is in the city named there (Warsaw). Then LinkedIn's Hybrid/On-site tag does not stop the run. The
+  dashboard's «Подать» passes it itself.
 
 - `applyUrl` is the ATS page (`applyUrl` from `jobs-fetch`), `--url` is the
   posting as the dashboard knows it — that is the funnel's dedupe key.
 - `--cover auto` writes a four-paragraph letter from a template, adding one
   sentence per stack hint (LLM, GraphQL, Electron, Next.js, accessibility).
   Pass a file path or text instead to write your own.
+- `--pay` is the posting's published ranges (the dashboard's `pay`, e.g.
+  `[{"contract":"b2b","min":5800,"max":8300,"currency":"USD","unit":"month"}]`):
+  a salary field asks for the top of the range on its contract and currency
+  when that beats profile.json's figure. Without it the profile's figures stand.
 - `--dry-run` fills everything, submits nothing, saves a full-page screenshot
   under `~/.job-hunt/shots/` and prints the field→value map. Use it the first
   time a new board shows up.
@@ -40,12 +49,12 @@ Result line (stdout, JSON) and exit code:
 | --- | --- | --- |
 | `applied` | 0 | Submitted and confirmed; `funnel` says `#id inserted`. Done. |
 | `dry-run` | 0 | Filled, not sent. Read `filled`, then run again without `--dry-run`. |
-| `missing-answers` | 2 | A required field matched no rule. `missing[]` lists label, type and options. Write `{"label substring": "answer"}` into a JSON file and re-run with `--answers`. For dropdowns the answer may be `"a|b|c"` — alternatives in order of preference. |
+| `missing-answers` | 2 | A required field matched no rule. `missing[]` lists label (cut at 200 characters: the `--answers` key), the whole `question`, type and options. Write `{"label substring": "answer"}` into a JSON file and re-run with `--answers`. For dropdowns the answer may be `"a|b|c"` — alternatives in order of preference. Open questions: 3–4 sentences, plain words, facts from the CV only. From the dashboard the «Подать» panel does this itself, with Claude's drafts. |
 | `submit-failed` | 3 | Submit clicked, no confirmation. `errors[]` has the validation text; `screenshot` shows the page. Fix the rule, re-run. |
 | `no-form` / `needs-account` / `captcha` | 4 | Nothing to fill, or the board wants an account or a CAPTCHA. Hand the URL to the user — never create accounts, never solve CAPTCHAs. |
 | `board-form` | 4 | A job board's posting whose application only its own form takes: justjoin.it offers without an employer link, every NoFluffJobs posting (both its modes sit behind a CAPTCHA), Himalayas. Answered at once, no browser opened. Hand the posting to the user. |
 | `closed` | 4 | The board says the offer is gone. Hide the job; not recorded as an attempt. |
-| `not-remote` | 5 | LinkedIn's own tag says hybrid/on-site. Hide the job with that reason. |
+| `not-remote` | 5 | LinkedIn's own tag says hybrid/on-site. Hide the job with that reason — unless it is a giant's Warsaw office: re-run with `--office-ok`. |
 | `needs-code` | 6 | The board e-mailed a "confirm you're a human" code (Greenhouse does). Re-run with `--headed`: the window stays open and the **user** types the code. The script never reads the mailbox. |
 
 Rules live in `answerFor()` in the script: label regex → value. When a

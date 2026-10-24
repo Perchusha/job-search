@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { discussionBrief, limitStop, resetTime } from "../src/verdict.ts";
+import { discussionBrief, limitStop, resetTime, verdictView } from "../src/verdict.ts";
 
 const at = (iso) => new Date(iso);
 const local = (y, mo, d, h, mi) => new Date(y, mo, d, h, mi).getTime() + 60_000;
@@ -86,5 +86,25 @@ try {
   rmSync(dir, { recursive: true, force: true });
 }
 console.log("PASS  and the CV: its text from the PDF, or a word that it could not be read");
+
+/* ---- Настройки → «Не убирать, если единственная причина»: a policy over the stored verdict, no new run ---- */
+const stored = (verdict, factors) => ({
+  job_key: "k", url: "https://example.com/k", company: "Acme", title: "Frontend Engineer", verdict, score: 25,
+  summary: "", session_id: null, model: "opus", criteria: "v1", requested: "auto", text_chars: 3000,
+  evaluated_at: "2026-10-24T10:00:00Z",
+  details: JSON.stringify({ dealbreakers: factors.map((factor) => ({ factor, text: `${factor} says no` })) }),
+});
+const formatOnly = verdictView(stored("skip", ["format"]), "v1", undefined, ["format", "level"]);
+assert.equal(formatOnly.verdict, "maybe", "a skip on a softened kind shows in «Проверить»");
+assert.deepEqual(formatOnly.softened, ["format"], "named by its kind");
+assert.deepEqual(formatOnly.dealbreakers, ["format says no"], "the stop factor itself stays on the card");
+assert.equal(verdictView(stored("skip", ["format", "stack"]), "v1", undefined, ["format"]).verdict, "skip", "one kind not softened keeps the skip");
+assert.equal(verdictView(stored("skip", ["poland"]), "v1", undefined, ["format", "level", "stack", "role", "language"]).verdict, "skip", "Poland is never softened");
+assert.equal(verdictView(stored("skip", ["format"]), "v1").softened, null, "nothing softened by default");
+assert.equal(verdictView(stored("skip", []), "v1", undefined, ["format"]).verdict, "skip", "a skip with no typed stop factor stays");
+const oldFormat = { ...stored("skip", []), details: JSON.stringify({ dealbreakers: ["remote only in the US"] }) };
+assert.equal(verdictView(oldFormat, "v1", undefined, ["format"]).verdict, "skip", "an untyped stop factor (before FORMAT 3) stays");
+assert.equal(verdictView(stored("apply", []), "v1", undefined, ["format"]).softened, null, "only skips are softened");
+console.log("PASS  softened stop factors: a skip on softened kinds reads «Проверить», any other kind keeps it");
 
 console.log("\nVERDICT TESTS PASSED");

@@ -25,15 +25,21 @@ import {
   type Application,
   type Status,
 } from "./db.ts";
-import { presentJob, searchForProfile, searchStored } from "./pipeline.ts";
-import { buildContext, screenAll } from "./screening.ts";
+import { fetchJobs, presentJob, profileParams, rankFetched, searchStored } from "./pipeline.ts";
+import { screenAll } from "./screening.ts";
+import { storedContext } from "./screen-context.ts";
 import { SEARCH_DEFAULTS, TARGET_QUERIES } from "./profile.ts";
+import { loadPreferences } from "./preferences.ts";
 import { formatSourceReports } from "./sources.ts";
 
 const server = new McpServer({ name: "job-hunt", version: "1.0.0" });
+// «Мои условия» saved in the dashboard (the floor, the offices, Polish): read now and before each search.
+loadPreferences();
 
 /** find_jobs page size: a full profile pass keeps ~100 matches, too many for one reply. */
 const DEFAULT_TOOL_LIMIT = 30;
+/** Rank everything; find_jobs cuts to its limit after screening. */
+const RANK_ALL = 10_000;
 
 /* ------------------------------------------------------------------ */
 /* Response helpers                                                    */
@@ -169,6 +175,8 @@ server.tool(
 
     let result;
     let fromStore = false;
+    const wantedLimit = limit ?? DEFAULT_TOOL_LIMIT;
+    loadPreferences();
     try {
       /*
        * Everything goes through the profile search, with the arguments as
@@ -186,7 +194,7 @@ server.tool(
         remoteOnly,
         hoursOld,
         onlyEligible,
-        limit: limit ?? DEFAULT_TOOL_LIMIT,
+        limit: wantedLimit,
       };
       /*
        * A plain profile search answers from the postings the dashboard's
@@ -204,16 +212,21 @@ server.tool(
           return at !== null && Date.now() - Date.parse(at) < 24 * 3_600_000;
         });
       fromStore = storedFresh;
-      result = storedFresh
-        ? searchStored({ ...overrides, sources: wanted })
-        : await searchForProfile({
-            ...overrides,
-            sources: sources?.length
-              ? sources
-              : SEARCH_DEFAULTS.sources.filter(
-                  (source) => !SEARCH_DEFAULTS.slowSources.includes(source),
-                ),
-          });
+      // Ranked uncut: the limit applies after the screening rules below, as on
+      // the dashboard. Cut first, 20 of the 30 rows were rule hits or jobs
+      // already applied to, and the answer carried 10. `limit` still sizes what
+      // a live search asks each board for.
+      if (storedFresh) {
+        result = searchStored({ ...overrides, sources: wanted, limit: RANK_ALL });
+      } else {
+        const params = profileParams({
+          ...overrides,
+          sources: sources?.length
+            ? sources
+            : SEARCH_DEFAULTS.sources.filter((source) => !SEARCH_DEFAULTS.slowSources.includes(source)),
+        });
+        result = rankFetched(await fetchJobs(params), { ...params, limit: RANK_ALL });
+      }
     } catch (error) {
       return replyError(
         `every source failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -222,8 +235,13 @@ server.tool(
 
     // My screening rules, as the dashboard applies them: rule hits are left out
     // and counted by reason; already-applied jobs are left out too.
-    const screened = screenAll(result.jobs, buildContext(listApplications(), listDismissed()));
-    const kept = screened.filter((row) => row.bucket !== "dismiss" && row.bucket !== "skip");
+    const screened = screenAll(
+      result.jobs,
+      storedContext(),
+    );
+    const kept = screened.filter((row) => row.bucket !== "dismiss" && row.bucket !== "skip").slice(0, wantedLimit);
+    const levelCounts: Record<string, number> = {};
+    for (const { job } of kept) levelCounts[job.eligibility.level] = (levelCounts[job.eligibility.level] ?? 0) + 1;
     const byRule: Record<string, number> = {};
     for (const row of screened) {
       if (row.bucket === "dismiss") byRule[row.reason] = (byRule[row.reason] ?? 0) + 1;
@@ -240,9 +258,9 @@ server.tool(
       `Sources: ${formatSourceReports(result.reports)}`,
       `Pipeline: ${counts.fetched} fetched -> ${counts.deduped} after dedupe -> ${counts.afterEligibility} after eligibility${
         counts.afterFit === counts.afterEligibility ? "" : ` -> ${counts.afterFit} after stack fit`
-      }${minSalary === undefined ? "" : ` -> ${counts.afterSalary} after minSalary`} -> ${counts.returned} returned.`,
+      }${minSalary === undefined ? "" : ` -> ${counts.afterSalary} after minSalary`} -> ${screened.length} ranked -> ${kept.length} returned after screening.`,
       `Eligibility mix: ${
-        Object.entries(result.levelCounts)
+        Object.entries(levelCounts)
           .map(([level, count]) => `${level}=${count}`)
           .join(", ") || "none"
       }.`,

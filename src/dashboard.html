@@ -22,9 +22,9 @@
   leaves, and the card's size follows the room it has.
 
   Some of the navigation is borrowed from Discord's patterns, in this page's
-  own look: a rail on the left with the two sections, Claude's score as a
-  badge on the queue's company tiles, Ctrl K to jump anywhere, a right-click
-  menu on a queue row.
+  own look: a rail on the left with the two sections, Claude's score as the
+  queue's tiles, Ctrl K to jump anywhere (an icon in the header), a
+  right-click menu on a queue row.
 
   No native select or checkbox is drawn: a select is a button whose options
   open in one shared listbox (#selpop), placed by the script so neither the
@@ -144,10 +144,6 @@
   .mark { width: 42px; height: 42px; border-radius: 14px; background: var(--accent); color: var(--on-accent);
           display: grid; place-items: center; font: 700 18px/1 var(--display); }
   .word { font: 600 20px/1 var(--display); letter-spacing: -0.01em; }
-  .find { display: flex; align-items: center; gap: 10px; width: min(320px, 34vw); height: 44px; padding: 0 9px 0 15px; border: 0;
-          border-radius: 999px; background: var(--soft); color: var(--muted); font-size: 14px; text-align: left; cursor: pointer; }
-  .find:hover { background: var(--soft-2); color: var(--ink-2); }
-  .find span { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tools { display: flex; align-items: center; gap: 6px; }
 
   /* ---------- rail: the two sections ---------- */
@@ -183,16 +179,18 @@
   .iconbtn[disabled] { cursor: wait; }
   .iconbtn.is-spinning svg { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .avatar { width: 44px; height: 44px; border: 0; border-radius: 999px; background: var(--accent-tint); color: var(--accent-ink);
-            font-weight: 700; font-size: 14px; cursor: pointer; }
-  .avatar:hover { box-shadow: inset 0 0 0 1.5px var(--accent-ring); }
+  .avatar { width: 44px; height: 44px; padding: 0; border: 0; border-radius: 999px; overflow: hidden; background: var(--accent-tint);
+            cursor: pointer; transition: box-shadow .15s; }
+  .avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .avatar:hover, .avatar[aria-expanded="true"] { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-ring); }
   .menuwrap { position: relative; }
-  .menu { position: absolute; z-index: 30; top: calc(100% + 8px); right: 0; width: 290px; padding: 8px; border-radius: 18px;
+  .menu { position: absolute; z-index: 30; top: calc(100% + 8px); right: 0; width: 320px; padding: 8px; border-radius: 18px;
           background: var(--raised); box-shadow: var(--pop); display: flex; flex-direction: column; }
   .menuitem { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; padding: 0 12px;
               border: 0; border-radius: 12px; background: transparent; text-align: left; cursor: pointer; }
   .menuitem:hover { background: var(--soft-2); }
-  .menuitem small { color: var(--muted); font-size: 13px; }
+  /* One line, flush right: «Claude, тема, приложение» used to wrap under itself. */
+  .menuitem small { color: var(--muted); font-size: 13px; white-space: nowrap; text-align: right; }
   .menuitem.is-copied small { color: var(--good); }
   .menuitem.strong { font-weight: 600; }
   .menusep { height: 1px; margin: 6px 4px; background: var(--line); }
@@ -278,24 +276,21 @@
   .q .cc { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .q .st { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--muted); }
   .q .st.new { color: var(--accent-ink); }
-  /*
-   * A company's tile with Claude's score as a badge in its corner, in the
-   * verdict's colour (green подходит, amber проверить, grey не подходит),
-   * an empty pulsing one while Claude reads. The tile is cut round the badge
-   * (an SVG mask anchored at the corner, so a smaller tile cuts the same
-   * hole), so the badge needs no ring in the row's colour.
-   */
-  .av { position: relative; flex: 0 0 auto; }
-  .mono { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: var(--c-bg); color: var(--c);
+  /* An application's tile in Ctrl K: the company's two letters in its tone. */
+  .mono { width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 11px; background: var(--c-bg); color: var(--c);
           font-size: 13px; font-weight: 700; line-height: 1; }
-  .av.has-sb .mono {
-    --cut: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Cpath fill-rule='evenodd' d='M0 0h36v36H0zM28.5 24.5h9a10 10 0 0 1 0 20h-9a10 10 0 0 1 0-20z'/%3E%3C/svg%3E");
-    -webkit-mask: var(--cut) right bottom / 36px 36px no-repeat; mask: var(--cut) right bottom / 36px 36px no-repeat; }
-  .sb { position: absolute; right: -9px; bottom: -6px; width: 24px; height: 15px; border-radius: 999px; color: var(--on-accent);
-        font: 800 10px/15px var(--font); font-variant-numeric: tabular-nums; text-align: center; letter-spacing: -.02em; }
-  .sb.apply, .sg.apply { background: var(--good-dot); } .sb.maybe, .sg.maybe { background: var(--warn-dot); }
-  .sb.skip, .sg.skip { background: var(--skip-dot); }
-  .sb.busy { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+  /*
+   * A posting's tile: Claude's score in it, in the verdict's colour (green
+   * подходит, amber проверить, grey не подходит), pulsing while Claude reads,
+   * a dash before.
+   */
+  .pts { width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 11px; background: var(--soft-2);
+         color: var(--muted); font: 700 14px/1 var(--font); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .pts.apply { background: var(--good-bg); color: var(--good); }
+  .pts.maybe { background: var(--warn-bg); color: var(--warn); }
+  .pts.skip { background: var(--skip-bg); color: var(--skip); }
+  .pts.busy { background: var(--accent-tint); animation: pulse 1.4s ease-in-out infinite; }
+  .sg.apply { background: var(--good-dot); } .sg.maybe { background: var(--warn-dot); } .sg.skip { background: var(--skip-dot); }
   /* A stack's glyph in Ctrl K: ✓ подходят, ? проверить, × убрал Claude. */
   .sg { width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%; color: var(--on-accent); }
   .sg svg { width: 10px; height: 10px; }
@@ -353,6 +348,7 @@
   .fact .k { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
   .fact .v { font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
   .fact .v.low { color: var(--bad); }
+  .fact .v.midlow { color: var(--warn); }
   .tags { display: flex; flex-wrap: wrap; gap: 8px; }
   .tag { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 999px; background: var(--soft);
          font-size: 13px; font-weight: 600; color: var(--ink-2); }
@@ -360,6 +356,8 @@
   .claude.apply { background: var(--good-tint); } .claude.maybe { background: var(--warn-tint); }
   .claude .k { margin: 0 0 6px; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
   .claude p.say { margin: 0; font-size: clamp(14px, min(2.1cqh, 2cqw), 17px); line-height: 1.55; }
+  .claude .fb { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+  .claude .fb .on { color: var(--ink-2); font-weight: 600; }
   .claude .foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 10px; font-size: 13px; color: var(--muted); }
   .linkbtn { padding: 0; border: 0; background: none; color: var(--accent-ink); font-size: 14px; font-weight: 600; cursor: pointer;
              text-decoration: underline; text-underline-offset: 3px; }
@@ -468,6 +466,11 @@
   .setrow small { display: block; color: var(--muted); font-size: 13px; }
   .setrow input[type=number], .setrow input[type=time] { width: 110px; min-height: 40px; padding: 0 12px; border: 0; border-radius: 12px;
              background: var(--soft); color: var(--ink); text-align: right; }
+  .setrow input[type=text], .prefs textarea { min-height: 40px; padding: 8px 12px; border: 0; border-radius: 12px;
+             background: var(--soft); color: var(--ink); font: inherit; font-size: 14px; }
+  .setrow input[type=text] { width: min(260px, 100%); }
+  .prefs textarea { width: 100%; min-height: 64px; resize: vertical; box-sizing: border-box; }
+  .prefs .pair { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
   .switch { position: relative; width: 46px; height: 28px; flex: 0 0 auto; }
   .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
   .switch i { position: absolute; inset: 0; border-radius: 999px; background: var(--soft-2); transition: background .15s; pointer-events: none; }
@@ -477,6 +480,20 @@
   .switch input:checked + i::after { transform: translateX(18px); background: var(--on-accent); }
   .switch input:focus-visible + i { outline: 3px solid var(--accent); outline-offset: 2px; }
   .stat { font-size: 14px; color: var(--ink-2); }
+  .factors { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; color: var(--ink-2); }
+  .modal h4.sub { margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--ink-2); }
+  .crithist { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 14px; color: var(--ink-2); }
+  .crithist li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+  .crithist .now { color: var(--muted); }
+  .rulelist { display: grid; gap: 4px; }
+  .rulelist .setrow { min-height: 40px; }
+  .rulelist .n { color: var(--muted); font-size: 14px; }
+  .rulelist .ex { color: var(--ink-2); }
+  .rulelist .off b { color: var(--muted); }
+  .critdiff { margin: 4px 0 0; padding: 12px 14px; border-radius: 14px; background: var(--line); font: 13px/1.5 inherit;
+              white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
+  .critdiff .add { color: var(--good); }
+  .critdiff .del { color: var(--bad); text-decoration: line-through; }
   .modal .foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .modal .foot .saved { color: var(--muted); font-size: 14px; }
   .modal .btn { min-height: 44px; font-size: 15px; padding: 0 18px; }
@@ -497,7 +514,8 @@
   .jr.is-on { background: var(--accent-tint); box-shadow: inset 0 0 0 1.5px var(--accent-ring); }
   .jr .jl { flex: 1 1 auto; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .jr .jm { flex: 0 1 auto; max-width: 42%; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .jr .mono { width: 32px; height: 32px; border-radius: 10px; font-size: 12px; }
+  .jr .mono, .jr .pts { width: 32px; height: 32px; border-radius: 10px; font-size: 12px; }
+  .jr .pts { font-size: 13px; }
   .jr .glyph { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; background: var(--soft); color: var(--muted); }
   .jumphint { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 12px 4px; font-size: 13px; color: var(--muted); }
 
@@ -536,10 +554,29 @@
   .applypanel p { margin: 0; }
   .applypanel .muted { color: var(--muted); font-size: 14px; }
   .applypanel .warn { color: var(--bad); }
-  .applypanel .log { font: 12px/1.5 ui-monospace, monospace; color: var(--muted); }
+  .applypanel .sweep { border-radius: 999px; }
   .applypanel ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 14px; }
-  .applypanel .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .applypanel .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .applypanel .btn { min-height: 44px; font-size: 15px; }
+  /* The buttons stay in reach while a long dry run or long answers scroll above them. */
+  .applypanel:has(> .foot) { padding-bottom: 0; }
+  .applypanel > .foot { position: sticky; bottom: 0; margin: 0 -22px; padding: 14px 22px 22px; background: var(--raised);
+                        border-top: 1px solid var(--line); }
+  /* The form's open questions: room to read a question and write three or four sentences. */
+  .applypanel.wide { width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px); }
+  .applypanel .qa { display: grid; gap: 8px; }
+  .applypanel .ql { font-size: 14px; font-weight: 600; line-height: 1.45; color: var(--ink-2); }
+  /* Grows with the draft (field-sizing), so four sentences read without scrolling inside the field. */
+  .applypanel textarea { width: 100%; min-height: 128px; max-height: 340px; field-sizing: content; padding: 12px 14px; border: 0;
+                         border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line);
+                         color: var(--ink); font: 14px/1.55 var(--font); resize: vertical; }
+  .applypanel textarea:hover { box-shadow: inset 0 0 0 1px var(--faint); }
+  .applypanel textarea:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--accent-ring); }
+  .applypanel textarea::placeholder { color: var(--muted); }
+  .applypanel .seg span { white-space: normal; }
+  .applypanel dl { margin: 0; font-size: 14px; }
+  .applypanel dt { color: var(--muted); }
+  .applypanel dd { margin: 2px 0 10px; color: var(--ink-2); white-space: pre-wrap; }
   .toast { position: fixed; left: 50%; bottom: 24px; z-index: 70; transform: translate(-50%, 12px); max-width: min(560px, calc(100vw - 32px));
            padding: 14px 18px; border-radius: 16px; background: var(--ink); color: var(--bg); font-size: 15px; opacity: 0;
            pointer-events: none; transition: opacity .18s, transform .18s; }
@@ -568,8 +605,6 @@
   @media (max-width: 600px) {
     .wrap { padding: 0 16px; }
     header.top { padding: 14px 16px 10px; }
-    .find { width: 44px; padding: 0; justify-content: center; }
-    .find span, .find kbd { display: none; }
     .fresh, .hint { display: none; }
     .card { padding: 20px; border-radius: 22px; }
     .hero h1 { font-size: 28px; }
@@ -584,17 +619,18 @@
 <body>
 <header class="top">
   <div class="brand"><span class="mark" aria-hidden="true">J</span><span class="word">Job Hunt</span></div>
-  <button class="find" id="findbtn" type="button" aria-haspopup="dialog" aria-controls="jump">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
-    <span>Найти вакансию, компанию, стопку</span><kbd>Ctrl K</kbd>
-  </button>
   <div class="tools">
+    <!-- An icon, not a field: it only opens the Ctrl K dialog. -->
+    <button class="iconbtn" id="findbtn" type="button" aria-haspopup="dialog" aria-controls="jump" aria-keyshortcuts="Control+K"
+            aria-label="Найти вакансию, компанию, стопку" data-tip="Поиск · Ctrl K" data-tip-at="below">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+    </button>
     <span class="fresh" id="freshness"></span>
     <button class="iconbtn" id="searchbtn" type="button" aria-label="Обновить площадки">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 4v5h-5"></path></svg>
     </button>
     <div class="menuwrap">
-      <button class="avatar" id="linksbtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="linksmenu" aria-label="Меню: настройки и мои ссылки">АП</button>
+      <button class="avatar" id="linksbtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="linksmenu" aria-label="Меню: настройки и мои ссылки"><img src="/avatar.jpg" alt="" width="44" height="44"></button>
       <div class="menu" id="linksmenu" hidden>
         <button class="menuitem strong" id="opensettings" type="button">Настройки <small>Claude, тема, приложение</small></button>
         <div class="menusep"></div>
@@ -660,7 +696,7 @@
               </fieldset>
               <div>
                 <h3>Порядок</h3>
-                <button type="button" class="select wide" id="jobsort" data-select="jobsort" data-label="Порядок в очереди" value="match" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+                <button type="button" class="select wide" id="jobsort" data-select="jobsort" data-label="Порядок в очереди" value="claude" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
                   <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
               </div>
             </div>
@@ -740,6 +776,25 @@
           <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
       </div>
     </section>
+    <section class="prefs">
+      <h3>Мои условия</h3>
+      <p class="lead">Одно место для того, что читают и правила, и Claude: порог денег, где офис допустим, мой польский. Критерии Claude получают их отдельным разделом в конце, поэтому после смены оценки пересчитаются по настройке «После правки критериев».</p>
+      <div class="setrow"><span>Порог, PLN нетто в месяц на B2B<small>вилка с верхом ниже — «ниже порога»: пометка, вниз в списке, «Всё равно подать?»</small></span>
+        <input type="number" id="pref-floor" min="1000" max="200000" step="500" aria-label="Порог B2B"></div>
+      <div class="setrow"><span>Трудовой договор (UoP)<small>сколько брутто на UoP стоят для меня сколько на B2B</small></span>
+        <span class="pair"><input type="number" id="pref-uop-gross" min="1000" max="200000" step="500" aria-label="UoP брутто"> брутто =
+          <input type="number" id="pref-uop-b2b" min="1000" max="200000" step="500" aria-label="B2B нетто"> B2B</span></div>
+      <div class="setrow"><span>Часов в месяце<small>для почасовых ставок</small></span>
+        <input type="number" id="pref-hours" min="100" max="200" step="1" aria-label="Часов в месяце"></div>
+      <p class="stat" id="pref-derived"></p>
+      <div class="setrow"><span>Офис и гибрид допустимы у<small>через запятую, дочерние компании называй отдельно</small></span></div>
+      <textarea id="pref-companies" aria-label="Компании, у которых офис допустим"></textarea>
+      <div class="setrow"><span>…и только в городе<small>через запятую, разные написания одного города</small></span>
+        <input type="text" id="pref-cities" aria-label="Город офиса"></div>
+      <div class="setrow"><span>Мой польский<small>требование выше — стоп-фактор</small></span>
+        <button type="button" class="select" id="pref-polish" data-select="pref-polish" data-label="Мой польский" value="B1" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+    </section>
     <section>
       <h3>Claude</h3>
       <p class="lead">Claude читает каждую вакансию из ленты и раскладывает по стопкам. Работает на подписке Claude Code этого компьютера — без API-ключа.</p>
@@ -753,8 +808,70 @@
           <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
       <div class="setrow"><span>Запусков в день<small>для фона; то, что вы просите сами, не считается</small></span>
         <input type="number" id="cl-daily" min="0" max="1000" step="1" aria-label="Запусков в день"></div>
+      <div class="setrow"><span>Дочитывать общие заголовки<small>«Senior Software Engineer» без стека в названии и без текста на площадке: Claude читает вакансию в фоне, на экран она попадает, только если подходит. Не больше четверти дневного лимита</small></span>
+        <label class="switch"><input type="checkbox" id="cl-soft" aria-label="Дочитывать общие заголовки"><i></i></label></div>
+      <div class="setrow"><span>Не убирать, если единственная причина — …<small>такие skip покажутся в «Проверить» с пометкой; без нового прогона Claude</small></span></div>
+      <div class="factors" id="cl-soften">
+        <label class="check"><input type="checkbox" value="format"><i aria-hidden="true"></i>формат</label>
+        <label class="check"><input type="checkbox" value="level"><i aria-hidden="true"></i>уровень</label>
+        <label class="check"><input type="checkbox" value="stack"><i aria-hidden="true"></i>стек</label>
+        <label class="check"><input type="checkbox" value="role"><i aria-hidden="true"></i>роль</label>
+        <label class="check"><input type="checkbox" value="language"><i aria-hidden="true"></i>язык</label>
+      </div>
+      <div class="setrow"><span>После правки критериев<small>что пересчитывать в фоне; четверть дневного лимита всегда остаётся новым вакансиям</small></span>
+        <button type="button" class="select" id="cl-rejudge" data-select="cl-rejudge" data-label="После правки критериев" value="all" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
       <p class="stat" id="cl-stat"></p>
+      <p class="stat" id="cl-crit"></p>
       <div class="foot"><button class="btn soft" type="button" id="cl-now">Оценить оставшиеся сейчас</button></div>
+      <h4 class="sub">История критериев</h4>
+      <ul class="crithist" id="cl-history"></ul>
+      <h4 class="sub">Сверка с эталоном</h4>
+      <p class="lead">Текущие критерии на вакансиях, где правильный ответ известен: твои «Верно / Мимо», скрытия с причиной из текста, отклики, калибровка 23.10. Или пограничные оценки (20–70) — что из них перевернётся. Ничего не перезаписывает; идёт мимо дневного лимита.</p>
+      <div class="foot"><button class="btn soft" type="button" id="cl-eval-labels">Сверить с твоими решениями</button>
+        <button class="btn soft" type="button" id="cl-eval-border">Пересчитать пограничные</button></div>
+      <p class="stat" id="cl-eval"></p>
+      <ul class="crithist" id="cl-misses"></ul>
+    </section>
+    <section>
+      <h3>Правила</h3>
+      <p class="lead">Правила прячут карточку ещё до Claude — по заголовку, тексту или возрасту. Спрятанные лежат в «Фильтры → Скрытые правилами», с причиной на карточке. Выключенное правило перестаёт прятать: его карточки пойдут в стопки и к Claude.</p>
+      <div class="rulelist" id="rules-list"></div>
+      <h4 class="sub">Правило ошиблось</h4>
+      <p class="lead">Карточки, про которые ты так сказал (кнопка в причине на карточке): их не прячет ни одно правило.</p>
+      <ul class="crithist" id="rules-freed"></ul>
+      <h4 class="sub">Ещё до правил: фильтр по стеку</h4>
+      <p class="lead">Ранжирование убирает то, что по заголовку и тексту точно не твоё: джуниора, чужой стек. Он не выключается — здесь видно, что он убрал за месяц.</p>
+      <ul class="crithist" id="rules-fit"></ul>
+    </section>
+    <section>
+      <h3>Компании и память</h3>
+      <p class="lead">Что правила помнят о твоих скрытиях: компании, которые ты не смотришь, и роли, которые ты уже скрыл, — их копии на других площадках прячутся сами. Скрытия, которые написали сами правила, не считаются.</p>
+      <div class="setrow"><span>Помнить мои скрытия<small>более старые не прячут копии и не блокируют компанию; «не интересна компания» помнится всегда</small></span>
+        <button type="button" class="select" id="pref-memory" data-select="pref-memory" data-label="Помнить мои скрытия" value="0" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+      <h4 class="sub">Компании, которые я не смотрю</h4>
+      <ul class="crithist" id="mem-companies"></ul>
+      <h4 class="sub">Скрытия, которые прячут копии</h4>
+      <p class="stat" id="mem-roles-stat"></p>
+      <ul class="crithist" id="mem-roles"></ul>
+      <h4 class="sub">Забытое</h4>
+      <ul class="crithist" id="mem-forgotten"></ul>
+      <h4 class="sub">Доски компаний</h4>
+      <p class="stat" id="mem-boards-stat"></p>
+      <ul class="crithist" id="mem-boards"></ul>
+    </section>
+    <section>
+      <h3>Поиск</h3>
+      <p class="lead">Что ищется и что из этого выходит. Запросы, площадки и окно задаются в src/profile.ts — здесь только посмотреть.</p>
+      <p class="stat" id="search-setup"></p>
+      <h4 class="sub">От базы до экрана</h4>
+      <ul class="crithist" id="search-funnel"></ul>
+      <h4 class="sub">Запросы</h4>
+      <p class="lead">Сколько вакансий нашёл каждый запрос на Indeed, LinkedIn и Himalayas, сколько из них не нашёл ни один другой, сколько сейчас на экране, у скольких Claude сказал «подходит» или «проверить», на сколько ты откликнулся. Счёт идёт с обновлений после 24.10.</p>
+      <ul class="crithist" id="search-queries"></ul>
+      <h4 class="sub">Площадки</h4>
+      <ul class="crithist" id="search-boards"></ul>
     </section>
     <section id="appsettings" hidden>
       <h3>Приложение Job Hunt</h3>
@@ -810,12 +927,16 @@ const SOURCE_NAME = {
 };
 // The selects' options, by their data-select; a row's status takes STATUSES instead.
 const SELECT_OPTIONS = {
-  jobsort: [["match", "лучшие по профилю"], ["claude", "оценка Claude"], ["newest", "новые сначала"], ["company", "компания А–Я"]],
+  jobsort: [["claude", "лучшие по Claude"], ["match", "лучшие по профилю"], ["newest", "новые сначала"], ["company", "компания А–Я"]],
   themepick: [["dark", "тёмная"], ["light", "светлая"], ["auto", "как в системе"]],
   "cl-model": [["sonnet", "Sonnet"], ["opus", "Opus"]],
   "cl-effort": [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"]],
+  "cl-rejudge": [["all", "все карточки"], ["active", "только Подходят и Проверить"], ["none", "ничего, только новые"]],
+  "pref-polish": [["A2", "A2"], ["B1", "B1"], ["B2", "B2"], ["C1", "C1 и выше"]],
+  "pref-memory": [["0", "всегда"], ["30", "30 дней"], ["60", "60 дней"], ["90", "90 дней"], ["180", "полгода"], ["365", "год"]],
 };
 const VERDICT_WORD = { apply: "Подходит", maybe: "Проверить", skip: "Не подходит" };
+const FACTOR_WORD = { format: "формат", level: "уровень", stack: "стек", role: "роль", language: "язык", poland: "не из Польши", citizenship: "гражданство", closed: "закрыта" };
 const STATE_WORD = { queued: "ждёт очереди", reading: "читает вакансию…", thinking: "думает…" };
 const WORKMODE_WORD = { remote: "удалённо", hybrid: "гибрид", onsite: "офис", office: "офис", unclear: "не ясно" };
 const LEVEL_WORD = { junior: "Junior", mid: "Mid", senior: "Senior", lead: "Lead / Staff", unclear: "не указан" };
@@ -832,8 +953,15 @@ const STACKS = [
   { id: "good", label: "Подходят", test: (job) => job.verdict && job.verdict.verdict === "apply" },
   { id: "maybe", label: "Проверить", test: (job) => job.verdict && job.verdict.verdict === "maybe" },
   { id: "all", label: "Все", test: (job) => !isClaudeSkip(job) },
+  // Claude's skips that were close: the score keeps them apart from the obvious misses.
+  { id: "near", label: "Почти подошли", test: (job) => isClaudeSkip(job) && job.verdict.score >= NEAR_SCORE },
   { id: "skipped", label: "Убрал Claude", test: (job) => isClaudeSkip(job) },
 ];
+/*
+ * A skip scored this or higher was close (scores of skips run 0–30). All six
+ * disputable skips of the 2026-10-24 audit scored 20 or more.
+ */
+const NEAR_SCORE = 20;
 
 /* ---------------- state ---------------- */
 
@@ -856,7 +984,8 @@ let hideApplied = true;
 let showDismissed = false;
 let showRuleHidden = false;
 let jobQuery = "";
-let jobSort = "match";
+// Claude's score first, best to worst: what the queue is read for. The profile's ranking breaks ties.
+let jobSort = "claude";
 let activeSources = new Set(SOURCES);
 // Always a real window: the widest option is a month, SEARCH_DEFAULTS.hoursOld.
 let maxAgeDays = 30;
@@ -872,6 +1001,8 @@ const decided = new Map();
 // "Потом": these go to the end of the stack, in the order they were put off.
 let deferred = [];
 let hideOpen = false;
+// «Мимо» opened on the card: the three verdicts to pick the right one from.
+let feedbackOpen = false;
 // What #focus holds now, so a redraw that changes nothing is skipped.
 let lastFocusHtml = "";
 let lastFocusKey = undefined;
@@ -970,6 +1101,16 @@ async function copyContactLink(button) {
 
 /* ---------------- search: what is in a stack ---------------- */
 
+/**
+ * Applied to: this job's own key is in the funnel, or the server found the
+ * application on a copy of it from another board (screening: "already in the
+ * funnel" through a dedupe alias), whose key the funnel holds instead.
+ */
+function isTracked(job) {
+  return trackedUrls.has(job.key)
+    || Boolean(job.screen && job.screen.bucket === "skip" && job.screen.reason === "already in the funnel");
+}
+
 /** A card my screening rules would hide (src/screening.ts); shown under its toggle. */
 function isRuleHidden(job) {
   return Boolean(job.screen && job.screen.bucket === "dismiss");
@@ -1004,7 +1145,7 @@ function visibleJobs() {
     const mine = decided.has(job.key);
     if (job.dismissed && !showDismissed && !mine) return false;
     if (isRuleHidden(job) && !showRuleHidden) return false;
-    if (hideApplied && trackedUrls.has(job.key) && !mine) return false;
+    if (hideApplied && isTracked(job) && !mine) return false;
     if (jobQuery) {
       const haystack = [job.title, job.company, job.location, job.source, job.salary,
         job.verdict && job.verdict.mainStack && job.verdict.mainStack.join(" ")]
@@ -1014,8 +1155,10 @@ function visibleJobs() {
     // hoursOld only reaches the scraped boards; the free feeds ignore it, so
     // the window is enforced again here. A posting that will not say how old
     // it is cannot be shown to be inside the window, so it goes.
+    // An offer its board still lists (job.listed) is open whatever its date:
+    // it stays in the full month window, not in the narrower ones.
     const age = ageInDays(job.postedAt);
-    if (age === null || age > maxAgeDays) return false;
+    if (age === null || (age > maxAgeDays && !(job.listed && maxAgeDays >= 30))) return false;
     return true;
   });
 }
@@ -1027,8 +1170,19 @@ function orderJobs(list) {
   } else if (jobSort === "company") {
     out.sort((a, b) => String(a.company || "").localeCompare(String(b.company || "")));
   } else if (jobSort === "claude") {
+    // Verdict, then score. Most cards share a score with another (39 of 48 in
+    // «Подходят» and «Проверить» on 2026-10-24), and the profile rank that
+    // broke those ties has nothing to do with Claude's read. So: a verdict made
+    // under the current criteria before an old one, fewer things Claude could
+    // not tell (Poland, work mode, level) first, then the newer posting.
     const rank = (job) => (job.verdict ? { apply: 0, maybe: 1, skip: 3 }[job.verdict.verdict] : 2);
-    out.sort((a, b) => rank(a) - rank(b) || (b.verdict ? b.verdict.score : 0) - (a.verdict ? a.verdict.score : 0));
+    const stale = (job) => Number(Boolean(job.verdict && job.verdict.stale));
+    const unclear = (job) => (job.verdict
+      ? ["canWorkFromPoland", "workMode", "seniority"].filter((field) => job.verdict[field] === "unclear").length : 0);
+    out.sort((a, b) => rank(a) - rank(b) || stale(a) - stale(b)
+      || (b.verdict ? b.verdict.score : 0) - (a.verdict ? a.verdict.score : 0)
+      || unclear(a) - unclear(b)
+      || String(b.firstSeenAt || "").localeCompare(String(a.firstSeenAt || "")));
   }
   const later = out.filter((job) => deferred.includes(job.key))
     .sort((a, b) => deferred.indexOf(a.key) - deferred.indexOf(b.key));
@@ -1058,6 +1212,7 @@ function advance() {
   const next = after.find((job) => !decided.has(job.key) && job.key !== currentKey) || null;
   currentKey = next ? next.key : (decided.has(currentKey) ? null : currentKey);
   hideOpen = false;
+  feedbackOpen = false;
   renderSearch();
 }
 
@@ -1067,6 +1222,7 @@ function step(delta) {
   const at = Math.max(0, jobs.findIndex((job) => job.key === currentKey));
   currentKey = jobs[(at + delta + jobs.length) % jobs.length].key;
   hideOpen = false;
+  feedbackOpen = false;
   renderSearch();
 }
 
@@ -1116,7 +1272,7 @@ function renderSearch() {
   const ruleHiddenTotal = searchResults.filter((j) => !j.dismissed && isRuleHidden(j)).length;
   $("ruleHiddenCount").textContent = ruleHiddenTotal ? String(ruleHiddenTotal) : "";
   $("filterdot").hidden = !(jobQuery || maxAgeDays !== 30 || activeSources.size !== SOURCES.length
-    || !hideApplied || showDismissed || showRuleHidden || jobSort !== "match");
+    || !hideApplied || showDismissed || showRuleHidden || jobSort !== "claude");
   renderClaudeLine();
 }
 
@@ -1125,15 +1281,13 @@ const DECIDED_WORD = { applying: "подаю…", applied: "подано", funne
 
 function queueItem(job, current) {
   const v = job.verdict;
-  const state = verdictState(job);
   const status = decided.get(job.key);
-  const badge = state && !v ? "busy" : v ? v.verdict : "";
   const tail = status ? DECIDED_WORD[status] || status
     : deferred.includes(job.key) ? "потом"
       : isNewJob(job) ? "новая" : "";
   return '<button type="button" class="q' + (current && job.key === current.key ? " is-on" : "") + (status ? " is-done" : "")
     + '" data-key="' + esc(job.key) + '"' + (current && job.key === current.key ? ' aria-current="true"' : "") + ">"
-    + avatarHtml(job.company, badge, v ? v.score : "")
+    + scoreTile(job)
     + '<span class="txt"><span class="tt">' + esc(job.title) + '</span><span class="cc">'
     + (v ? '<span class="sr">' + esc(VERDICT_WORD[v.verdict]) + ", " + v.score + ", </span>" : "") + esc(job.company || "") + "</span></span>"
     + (tail ? '<span class="st' + (tail === "новая" ? " new" : "") + '">' + esc(tail) + "</span>" : "")
@@ -1164,17 +1318,33 @@ function toneOf(name) {
   return h % 6;
 }
 
-/** A company's tile with Claude's score as a badge in its corner, coloured by the verdict; no badge = no verdict. */
-function avatarHtml(company, badge, score) {
-  return '<span class="av' + (badge ? " has-sb" : "") + '" aria-hidden="true"><span class="mono t' + toneOf(company) + '">' + esc(initials(company)) + "</span>"
-    + (badge ? '<span class="sb ' + badge + '">' + esc(badge === "busy" ? "" : score) + "</span>" : "") + "</span>";
+/** A company's tile, two letters in its tone: for applications, which have no score. */
+function avatarHtml(company) {
+  return '<span class="mono t' + toneOf(company) + '" aria-hidden="true">' + esc(initials(company)) + "</span>";
+}
+
+/**
+ * A posting's tile: Claude's score inside it, in the verdict's colour —
+ * pulsing while Claude reads, a dash before anyone has. It replaced the
+ * company's two letters with a score badge in the corner: the number is what
+ * I scan the queue for.
+ */
+function scoreTile(job) {
+  const v = job.verdict;
+  if (v) return '<span class="pts ' + esc(v.verdict) + '" aria-hidden="true">' + esc(v.score) + "</span>";
+  return verdictState(job) ? '<span class="pts busy" aria-hidden="true"></span>' : '<span class="pts" aria-hidden="true">—</span>';
 }
 
 /** What the posting says, beside what Claude read into it. */
 function facts(job) {
   const v = job.verdict || {};
   const signals = job.signals || {};
-  const salary = job.salary || v.salary || "не указана";
+  // Hourly, yearly or foreign figures also in one unit, so they compare at a glance.
+  const monthly = job.payMonthly && job.salary && !/PLN[^·]*\/\s*(mo|monthly)\b/.test(job.salary)
+    ? [job.payMonthly.min, job.payMonthly.max].filter((n) => n !== null && n !== undefined)
+      .map((n) => (n / 1000).toFixed(1).replace(/\.0$/, "")).filter((n, i, all) => all.indexOf(n) === i).join("–")
+    : "";
+  const salary = (job.salary ? job.salary + (monthly ? " · ≈ " + monthly + "k PLN/мес B2B" : "") : v.salary) || "не указана";
   const mode = v.workModeQuote ? "«" + v.workModeQuote + "»"
     : WORKMODE_WORD[v.workMode] || WORKMODE_WORD[job.workMode]
       || (signals.mode === "onsite" ? "офис" : signals.mode === "hybrid" ? "офис N дней" : "не ясно");
@@ -1182,7 +1352,7 @@ function facts(job) {
   const poland = POLAND_WORD[v.canWorkFromPoland]
     || (job.eligibility && job.eligibility.level === "high" ? "да" : "проверить");
   return [
-    ["Вилка", salary, job.belowSalaryFloor ? "low" : ""],
+    ["Вилка", salary, job.belowSalaryFloor ? "low" : job.payState === "midlow" ? "midlow" : ""],
     ["Формат", mode, ""],
     ["Уровень", level, ""],
     ["Из Польши", poland, ""],
@@ -1192,15 +1362,63 @@ function facts(job) {
 function notesHtml(job) {
   const notes = [];
   if (job.dismissed) notes.push(["plain", "Вы скрыли эту вакансию" ]);
-  if (trackedUrls.has(job.key)) notes.push(["plain", "Вы уже откликнулись на неё"]);
-  if (isRuleHidden(job)) notes.push(["plain", "Правило скрининга: " + job.screen.reason]);
+  if (isTracked(job)) notes.push(["plain", "Вы уже откликнулись на неё"]);
+  if (isRuleHidden(job)) {
+    notes.push(["plain", "Правило скрининга: " + job.screen.reason,
+      ' <button type="button" class="linkbtn" data-act="rule-wrong">правило ошиблось</button>']);
+  }
   for (const flag of (job.screen && job.screen.flags) || []) notes.push(["", flag]);
+  if (job.verdict && job.verdict.softened) {
+    notes.push(["", "Claude убрал бы её (" + job.verdict.softened.map((kind) => FACTOR_WORD[kind] || kind).join(", ")
+      + ") — показана в «Проверить» по твоей настройке"]);
+  }
   const signals = job.signals || {};
   if (signals.mode) notes.push(["", (signals.mode === "onsite" ? "В тексте — работа в офисе" : "В тексте — дни в офисе")
     + (signals.context ? ": «" + signals.context + "»" : "")]);
   if (signals.polishRequired) notes.push(["", "В тексте просят свободный польский"]);
   if (job.repostedAt) notes.push(["plain", "Площадка перевыложила её " + shortDate(job.repostedAt) + "; возраст — с первого появления"]);
-  return notes.map(([kind, text]) => '<p class="note ' + kind + '">' + esc(text) + "</p>").join("");
+  return notes.map(([kind, text, button]) => '<p class="note ' + kind + '">' + esc(text) + (button || "") + "</p>").join("");
+}
+
+/*
+ * «Верно» / «Мимо»: whether the verdict is the one I would give. «Мимо» asks
+ * which one it should have been. Kept on the server as the label the criteria
+ * are checked against (Настройки → Claude → «Сверить с эталоном»).
+ */
+
+function feedbackHtml(job) {
+  const v = job.verdict;
+  const mark = v.feedback;
+  if (mark && !feedbackOpen) {
+    const said = mark.expected === mark.verdict
+      ? "ты отметил: верно"
+      : "ты отметил: должно быть «" + VERDICT_WORD[mark.expected] + "»";
+    return '<span class="fb"><span class="on">' + esc(said) + "</span>"
+      + (mark.verdict !== v.verdict ? "<span>(для прошлой оценки)</span>" : "")
+      + '<button type="button" class="linkbtn" data-act="fb-open">изменить</button></span>';
+  }
+  if (feedbackOpen) {
+    return '<span class="fb"><span>Должно быть:</span>'
+      + ["apply", "maybe", "skip"].map((verdict) => '<button type="button" class="linkbtn" data-act="fb" data-reason="' + verdict + '">'
+        + esc(VERDICT_WORD[verdict]) + (verdict === v.verdict ? " (как сейчас)" : "") + "</button>").join("")
+      + '<button type="button" class="linkbtn" data-act="fb-close">отмена</button></span>';
+  }
+  return '<span class="fb"><span>Claude прав?</span>'
+    + '<button type="button" class="linkbtn" data-act="fb" data-reason="' + esc(v.verdict) + '">Верно</button>'
+    + '<button type="button" class="linkbtn" data-act="fb-open">Мимо</button></span>';
+}
+
+async function markVerdict(job, expected) {
+  try {
+    const { response, payload } = await postJson("/api/verdict/feedback", { key: job.key, expected });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    if (payload.verdict) job.verdict = payload.verdict;
+    feedbackOpen = false;
+    toast(expected === job.verdict.verdict ? "Отметил: Claude прав" : "Отметил: должно быть «" + VERDICT_WORD[expected] + "»");
+    renderSearch();
+  } catch (error) {
+    toast("Не сохранилось: " + error.message, true);
+  }
 }
 
 function claudeHtml(job) {
@@ -1217,9 +1435,10 @@ function claudeHtml(job) {
       + '<div class="foot"><button type="button" class="linkbtn" data-act="ask">'
       + (failure ? "Попробовать ещё раз" : "Спросить Claude — секунд 10") + "</button></div></div>";
   }
-  const queueTakes = claudeStatus.auto && !job.dismissed && !trackedUrls.has(job.key) && !isRuleHidden(job) && !failure;
+  const queueTakes = claudeStatus.auto && !job.dismissed && !isTracked(job) && !isRuleHidden(job) && !failure;
   return '<div class="claude ' + esc(v.verdict) + '"><p class="k">Claude</p>'
     + '<p class="say">' + esc(v.summary) + "</p>"
+    + '<div class="foot">' + feedbackHtml(job) + "</div>"
     + '<div class="foot"><span>' + esc(modelName(v.model)) + " · " + esc(ageLabel(v.at)) + "</span>"
     + (v.stale ? "<span>" + (queueTakes ? "по старым критериям, пересчитаю" : "по старым критериям") + "</span>" : "")
     + (failure && !state ? '<span style="color: var(--bad)">не удалось пересчитать: ' + esc(failure) + "</span>" : "")
@@ -1230,7 +1449,7 @@ function claudeHtml(job) {
 function cardHtml(job) {
   const v = job.verdict;
   const state = verdictState(job);
-  const tracked = trackedUrls.has(job.key);
+  const tracked = isTracked(job);
   const chip = v
     ? '<span class="chip ' + esc(v.verdict) + (v.stale ? " is-stale" : "") + '"><span class="dot ' + esc(v.verdict) + '"></span>'
       + esc(VERDICT_WORD[v.verdict]) + " · " + v.score + "</span>"
@@ -1290,7 +1509,7 @@ function hideMenuHtml(job) {
 
 /** No card to show: the stack is done, or there is nothing in it yet. */
 function emptyHtml(jobs, counts) {
-  const nextStack = stack === "good" ? "maybe" : stack === "maybe" ? "all" : null;
+  const nextStack = stack === "good" ? "maybe" : stack === "maybe" ? "all" : stack === "all" ? "near" : null;
   const next = nextStack ? STACKS.find((s) => s.id === nextStack) : null;
   const nextBtn = next && counts[next.id]
     ? '<button type="button" class="btn main" data-stack-go="' + next.id + '">Дальше — «' + esc(next.label) + "» · " + counts[next.id] + "</button>"
@@ -1351,6 +1570,33 @@ async function act(name, arg) {
     advance();
   } else if (name === "ask") {
     await askClaude(job);
+  } else if (name === "fb") {
+    await markVerdict(job, arg);
+  } else if (name === "fb-open" || name === "fb-close") {
+    feedbackOpen = name === "fb-open";
+    renderSearch();
+  } else if (name === "rule-wrong") {
+    await ruleWrong(job);
+  }
+}
+
+/*
+ * «Правило ошиблось»: no hiding rule applies to this card any more (the
+ * server keeps it in rule_overrides); it goes to the stacks and to Claude.
+ * Настройки → Правила lists such cards and gives one back to the rules.
+ */
+async function ruleWrong(job) {
+  try {
+    const { response, payload } = await postJson("/api/rules/override",
+      { key: job.key, reason: job.screen.reason, title: job.title, company: job.company });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    job.screen = payload.screen
+      || { bucket: job.eligibility && job.eligibility.level === "high" ? "apply" : "check", reason: "", flags: job.screen.flags || [] };
+    toast("Правило больше не прячет " + job.company + ": карточка в стопках");
+    renderSearch();
+    pollVerdicts();
+  } catch (error) {
+    toast("Не сохранилось: " + error.message, true);
   }
 }
 
@@ -1358,12 +1604,14 @@ function pickStack(id) {
   stack = STACKS.some((s) => s.id === id) ? id : "good";
   currentKey = null;
   hideOpen = false;
+  feedbackOpen = false;
   renderSearch();
 }
 
 function pickJob(key) {
   currentKey = key;
   hideOpen = false;
+  feedbackOpen = false;
   renderSearch();
 }
 
@@ -1603,9 +1851,9 @@ function renderAttempts(attempts) {
  * server refuses a submit without that dry run. The stack moves on meanwhile;
  * the panel keeps the run.
  */
-async function startApplyRun(job, mode, acceptLowPay) {
+async function startApplyRun(job, mode, acceptLowPay, answers) {
   try {
-    const { response, payload } = await postJson("/api/apply", { key: job.key, mode, acceptLowPay: Boolean(acceptLowPay) });
+    const { response, payload } = await postJson("/api/apply", { key: job.key, mode, acceptLowPay: Boolean(acceptLowPay), answers: answers || {} });
     if (response.status === 409 && payload.lowPay) {
       // Published pay under the floor: ask, do not guess.
       applyState = { job, id: null, timer: null, acceptLowPay: false };
@@ -1662,36 +1910,117 @@ function renderApplyPanel(state) {
   const panel = $("applypanel");
   const job = applyState.job;
   const r = state.result || {};
+  applyState.state = state;
   // The form where apply.mjs found it: for a board's posting, the employer's page, not the card's link.
   const formUrl = r.applyUrl || job.applyUrl;
+  const answered = Object.entries(state.answers || {});
   let body = "";
+  let wide = false;
   if (!state.done) {
     const waitingForCode = (state.log || []).some((line) => /verification code|e-mailed/i.test(line));
+    // The script's own log lines (board → form URL, earlier applications) stay out: they read as noise here.
     body = '<p class="muted">' + (state.mode === "submit" ? "Отправляю…" : "Заполняю форму без отправки…") + "</p>"
-      + (waitingForCode ? '<p class="warn">На почту пришёл код — введите его в открытом окне Chrome и нажмите Submit.</p>' : "")
-      + '<div class="log">' + (state.log || []).slice(-6).map(esc).join("<br>") + "</div>";
+      + '<div class="sweep" aria-hidden="true"><span></span></div>'
+      + (waitingForCode ? '<p class="warn">На почту пришёл код — введите его в открытом окне Chrome и нажмите Submit.</p>' : "");
   } else if (r.result === "dry-run" && (r.filled || []).length) {
     body = "<p>Заполнено полей: " + (r.filled || []).length + ". Проверьте и отправьте:</p>"
       + "<ul>" + (r.filled || []).map((field) => "<li>" + esc(field) + "</li>").join("") + "</ul>"
+      // The list above cuts each value at 40 characters; what was written for the questions goes out whole.
+      + (answered.length ? '<p>Ответы на вопросы анкеты:</p><dl class="answers">'
+          + answered.map(([label, text]) => "<dt>" + esc(label) + "</dt><dd>" + esc(text) + "</dd>").join("") + "</dl>" : "")
       + (r.screenshot ? '<p class="muted">Скриншот: ' + esc(r.screenshot) + "</p>" : "")
-      + '<div class="row"><button type="button" class="btn main" data-apply="submit">Отправить отклик</button>'
+      + '<div class="row foot"><button type="button" class="btn main" data-apply="submit">Отправить отклик</button>'
       + '<a class="btn soft" href="' + esc(formUrl) + '" target="_blank" rel="noreferrer noopener" style="text-decoration: none">Открыть форму</a></div>';
   } else if (r.result === "applied") {
     body = "<p>Отклик отправлен и записан: " + esc(r.funnel || "") + "</p>";
+  } else if (r.result === "missing-answers" && (r.missing || []).length) {
+    wide = true;
+    body = questionsBody(r, formUrl);
   } else {
     body = '<p class="warn">' + esc(ATTEMPT_LABEL[r.result] || r.result || "?") + "</p>"
       + (r.reason ? '<p class="muted">' + esc(r.reason) + "</p>" : "")
-      + (r.missing ? "<ul>" + r.missing.map((field) => "<li>" + esc(field.label)
-          + (field.options && field.options.length ? " [" + esc(field.options.slice(0, 5).join(" / ")) + "]" : "")
-          + "</li>").join("") + '</ul><p class="muted">Повторяющийся вопрос можно ответить один раз: '
-          + 'node scripts/apply.mjs --remember "вопрос" "ответ"</p>' : "")
       + (r.errors && r.errors.length ? '<p class="muted">' + esc(r.errors.join("; ")) + "</p>" : "")
       + (r.result === "closed" ? ""
         : '<p><a href="' + esc(formUrl) + '" target="_blank" rel="noreferrer noopener">'
           + (r.result === "board-form" ? "открыть вакансию и подать там" : "открыть форму") + "</a></p>");
   }
+  // A redraw while I type in an answer keeps me there.
+  const typing = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.answer : undefined;
   panel.hidden = false;
+  panel.className = "applypanel" + (wide ? " wide" : "");
   panel.innerHTML = panelHead(job) + body;
+  if (typing !== undefined) {
+    const field = panel.querySelector('textarea[data-answer="' + typing + '"]');
+    if (field) field.focus();
+  }
+}
+
+/*
+ * The questions the form asks and apply.mjs has no rule for: a field each,
+ * which Claude fills with a draft from the CV (POST /api/apply/draft) while I
+ * wait, and I correct. "Заполнить с ответами" runs the dry run again with
+ * them; the submit after it sends exactly those.
+ */
+function questionsBody(r, formUrl) {
+  if (!applyState.questions) {
+    applyState.questions = r.missing.map((field) => ({ label: field.label, question: field.question || field.label, options: field.options || [] }));
+    applyState.answers = {};
+    requestDrafts(false);
+  }
+  const questions = applyState.questions;
+  const filled = (r.filled || []).length;
+  const status = applyState.drafting ? "Claude пишет черновики по резюме…"
+    : applyState.draftError ? "Черновика нет: " + applyState.draftError
+    : "Черновики Claude по резюме — проверьте и поправьте.";
+  return "<p>" + (filled ? "Заполнено полей: " + filled + ". " : "") + "Осталось ответить на "
+      + questions.length + " " + plural(questions.length, "вопрос", "вопроса", "вопросов") + " анкеты.</p>"
+    + '<p class="' + (applyState.draftError ? "warn" : "muted") + '">' + esc(status) + "</p>"
+    + questions.map((q, i) => {
+      const answer = applyState.answers[q.label] || "";
+      const head = esc(q.question);
+      if (q.options.length) {
+        return '<div class="qa" role="radiogroup" aria-label="' + head + '"><span class="ql">' + head + '</span><div class="seg">'
+          + q.options.map((option) => '<label><input type="radio" name="qa-' + i + '" value="' + esc(option) + '" data-answer="' + i + '"'
+            + (option === answer ? " checked" : "") + "><span>" + esc(option) + "</span></label>").join("") + "</div></div>";
+      }
+      return '<div class="qa"><label class="ql" for="qa-' + i + '">' + head + "</label>"
+        + '<textarea id="qa-' + i + '" data-answer="' + i + '" rows="5"'
+        + (applyState.drafting && !answer ? ' placeholder="Claude пишет…"' : "") + ">" + esc(answer) + "</textarea></div>";
+    }).join("")
+    + '<div class="row foot"><button type="button" class="btn main" data-apply="rerun">Заполнить с ответами</button>'
+    + '<button type="button" class="btn soft" data-apply="redraft"' + (applyState.drafting ? " disabled" : "") + ">Набросать заново</button>"
+    + '<a class="btn ghost" href="' + esc(formUrl) + '" target="_blank" rel="noreferrer noopener" style="text-decoration: none">Открыть форму</a></div>';
+}
+
+/**
+ * Claude's drafts into the empty fields — or into all of them, `fresh`, for
+ * "Набросать заново". The first call comes from inside the panel's render,
+ * which then draws the waiting state itself.
+ */
+async function requestDrafts(fresh) {
+  const current = applyState;
+  current.drafting = true;
+  current.draftError = "";
+  if (fresh) renderApplyPanel(current.state);
+  try {
+    const { response, payload } = await postJson("/api/apply/draft", { key: current.job.key, questions: current.questions, fresh });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    for (const q of current.questions) {
+      const draft = (payload.answers || {})[q.label];
+      if (draft && (fresh || !(current.answers[q.label] || "").trim())) current.answers[q.label] = draft;
+    }
+  } catch (error) {
+    current.draftError = error.message;
+  }
+  current.drafting = false;
+  if (applyState === current && current.state) renderApplyPanel(current.state);
+}
+
+function onAnswerInput(event) {
+  const field = event.target;
+  if (!applyState || !applyState.questions || !field || !field.dataset || field.dataset.answer === undefined) return;
+  const q = applyState.questions[Number(field.dataset.answer)];
+  if (q) applyState.answers[q.label] = field.value;
 }
 
 function onApplyPanel(what) {
@@ -1699,6 +2028,12 @@ function onApplyPanel(what) {
   if (what === "close") $("applypanel").hidden = true;
   else if (what === "submit") startApplyRun(applyState.job, "submit", applyState.acceptLowPay);
   else if (what === "lowpay") startApplyRun(applyState.job, "dry-run", true);
+  else if (what === "redraft") requestDrafts(true);
+  else if (what === "rerun") {
+    const empty = applyState.questions.filter((q) => !(applyState.answers[q.label] || "").trim()).length;
+    if (empty) return toast("Нет ответа ещё на " + empty + " " + plural(empty, "вопрос", "вопроса", "вопросов"), true);
+    startApplyRun(applyState.job, "dry-run", applyState.acceptLowPay, applyState.answers);
+  }
 }
 
 /* ---------------- tracker ---------------- */
@@ -1821,7 +2156,7 @@ function setTabTip(view, text) {
   if (tab && tab.dataset) tab.dataset.tip = text;
 }
 
-/* One tooltip for every [data-tip]: beside the rail, under it when the rail is a row. */
+/* One tooltip for every [data-tip]: beside the rail, under it when the rail is a row or the element asks (data-tip-at="below"). */
 let tipFor = null;
 
 function showTip(el) {
@@ -1830,7 +2165,7 @@ function showTip(el) {
   tip.textContent = el.dataset.tip;
   const r = el.getBoundingClientRect();
   const w = tip.offsetWidth, h = tip.offsetHeight;
-  const beside = !(typeof matchMedia === "function" && matchMedia("(max-width: 900px)").matches);
+  const beside = el.dataset.tipAt !== "below" && !(typeof matchMedia === "function" && matchMedia("(max-width: 900px)").matches);
   const x = beside ? r.right + 12 : Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8));
   const y = beside ? r.top + r.height / 2 - h / 2 : r.bottom + 8;
   tip.style.left = Math.round(x) + "px";
@@ -1903,11 +2238,8 @@ function badgeHtml(kind) {
 }
 
 function jumpIcon(item) {
-  if (item.kind === "job") {
-    const v = item.job.verdict;
-    return avatarHtml(item.job.company, verdictState(item.job) && !v ? "busy" : v ? v.verdict : "", v ? v.score : "");
-  }
-  if (item.kind === "app") return avatarHtml(item.app.company, "");
+  if (item.kind === "job") return scoreTile(item.job);
+  if (item.kind === "app") return avatarHtml(item.app.company);
   const kind = { good: "apply", maybe: "maybe", skipped: "skip" }[item.id];
   return '<span class="glyph" aria-hidden="true">' + (kind ? badgeHtml(kind) : "≡") + "</span>";
 }
@@ -1931,6 +2263,7 @@ function goToJob(job) {
   stack = home.id;
   currentKey = job.key;
   hideOpen = false;
+  feedbackOpen = false;
   renderSearch();
 }
 
@@ -1956,7 +2289,7 @@ function jumpGo(index) {
 
 /** What the menu offers for a job; every action opens the job first, as a click on its row would. */
 function jobMenu(job) {
-  const tracked = trackedUrls.has(job.key);
+  const tracked = isTracked(job);
   const open = (fn) => () => { pickJob(job.key); return fn(); };
   const { suggested, reasons } = hideReasons(job);
   return [
@@ -1965,6 +2298,7 @@ function jobMenu(job) {
     { label: "Потом", key: "→", run: open(() => act("later")) },
     { label: "Обсудить с Claude", key: "C", disabled: !(job.verdict && job.verdict.session), run: open(() => act("discuss")) },
     { label: job.verdict ? "Спросить Claude заново" : "Спросить Claude", disabled: Boolean(verdictState(job)), run: open(() => act("ask")) },
+    ...(isRuleHidden(job) ? [{ label: "Правило ошиблось", run: open(() => act("rule-wrong")) }] : []),
     { sep: true },
     job.dismissed
       ? { label: "Вернуть", run: open(() => act("restore")) }
@@ -2215,6 +2549,48 @@ function toggleMenu(buttonId, menuId, open) {
 // Inside the desktop app its preload exposes the app's own settings; in a browser there are none.
 const appBridge = typeof window === "object" && window.jobHunt ? window.jobHunt : null;
 
+/*
+ * Фильтры survive a reload: the window, the boards switched off, the toggles,
+ * the order. Per browser, a convenience — not the text search, which is for
+ * the moment. Boards are kept as the ones switched off, so a board added to
+ * the profile later starts on.
+ */
+const FILTERS_KEY = "jobhunt-filters";
+
+function saveFilters() {
+  try {
+    localStorage.setItem(FILTERS_KEY, JSON.stringify({
+      maxAgeDays, sourcesOff: SOURCES.filter((source) => !activeSources.has(source)), hideApplied, showDismissed, showRuleHidden, jobSort,
+    }));
+  } catch {
+    // storage blocked: the filters last until the page reloads
+  }
+}
+
+function restoreFilters() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(FILTERS_KEY) || "null");
+  } catch {
+    return;
+  }
+  if (!saved || typeof saved !== "object") return;
+  const days = [...document.querySelectorAll("#datefilter input[type=radio]")].map((radio) => Number(radio.value));
+  if (days.includes(saved.maxAgeDays)) maxAgeDays = saved.maxAgeDays;
+  const off = Array.isArray(saved.sourcesOff) ? saved.sourcesOff : [];
+  const on = SOURCES.filter((source) => !off.includes(source));
+  if (on.length > 0) activeSources = new Set(on);
+  if (typeof saved.hideApplied === "boolean") hideApplied = saved.hideApplied;
+  if (typeof saved.showDismissed === "boolean") showDismissed = saved.showDismissed;
+  if (typeof saved.showRuleHidden === "boolean") showRuleHidden = saved.showRuleHidden;
+  if (SELECT_OPTIONS.jobsort.some(([value]) => value === saved.jobSort)) jobSort = saved.jobSort;
+  document.querySelectorAll("#datefilter input[type=radio]").forEach((radio) => { radio.checked = Number(radio.value) === maxAgeDays; });
+  $("hideApplied").checked = hideApplied;
+  $("showDismissed").checked = showDismissed;
+  $("showRuleHidden").checked = showRuleHidden;
+  setSelect($("jobsort"), jobSort);
+}
+
 function themePref() {
   try {
     return localStorage.getItem("jobhunt-theme") || "dark";
@@ -2238,13 +2614,364 @@ function setTheme(pref) {
   applyTheme(pref);
 }
 
+/** "через ≈ 7 мин" for n verdicts. */
+function verdictMinutes(n, secondsPerVerdict) {
+  const minutes = Math.max(1, Math.round((n * (secondsPerVerdict || 5)) / 60));
+  return "≈ " + minutes + " мин";
+}
+
+/*
+ * Where the criteria stand: how many shown cards were judged under an older
+ * text, what redoing them would take, and the kept versions — each with what
+ * it changed against the one before, and a way to put it back.
+ */
+function fillCriteria(state) {
+  if (!state) return;
+  const current = (state.history || []).find((v) => v.current);
+  const when = current ? new Date(current.firstSeenAt).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "?";
+  const todo = state.stale + state.missing;
+  $("cl-crit").textContent = "Критерии от " + when + " · "
+    + (state.stale
+      ? "по старым критериям " + state.stale + " из " + state.shown + " оценок (в «Подходят» и «Проверить» — " + state.staleActive + ")"
+      : "все оценки по текущим критериям")
+    + (state.missing ? " · без оценки " + state.missing : "")
+    + (todo ? " · пересчитать всё — " + verdictMinutes(todo, state.secondsPerVerdict) : "");
+  $("cl-now").textContent = todo ? "Оценить оставшиеся сейчас · " + todo : "Оценить оставшиеся сейчас";
+  const history = state.history || [];
+  $("cl-history").innerHTML = history.map((v, i) => {
+    const at = new Date(v.firstSeenAt).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const older = history[i + 1];
+    return '<li><span>' + esc(at) + (v.current ? ' <span class="now">· текущие</span>' : "") + "</span>"
+      + '<span class="now">' + v.verdicts + " " + plural(v.verdicts, "оценка", "оценки", "оценок") + "</span>"
+      + (older ? '<button type="button" class="linkbtn" data-critdiff="' + i + '">что изменилось</button>' : "")
+      + (v.current ? "" : '<button type="button" class="linkbtn" data-critrestore="' + esc(v.version) + '">вернуть этот текст</button>')
+      + '<div class="critdiff" id="critdiff-' + i + '" hidden></div></li>';
+  }).join("");
+  criteriaHistoryState = history;
+}
+
+let criteriaHistoryState = [];
+
+/* ---- Настройки → Правила: each screening rule, its hits, a switch; the freed cards; the fit gate ---- */
+let rulesLoaded = false;
+
+async function loadRules() {
+  try {
+    const response = await fetch("/api/rules");
+    const state = await response.json();
+    if (!response.ok) throw new Error(state.error || response.statusText);
+    fillRules(state);
+  } catch (error) {
+    rulesLoaded = false;
+    $("rules-list").textContent = "Правила не загрузились: " + error.message;
+  }
+}
+
+function ruleRowHtml(rule) {
+  const count = rule.on
+    ? (rule.hits ? "прячет " + rule.hits : "сейчас ничего")
+    : "выключено" + (rule.hits ? ", прятало бы " + rule.hits : "");
+  const what = [rule.words.join(", "), rule.note].filter(Boolean).join(" — ");
+  const examples = rule.examples.map((e) => e.title + " · " + e.company).join("; ");
+  return '<div class="setrow' + (rule.on ? "" : " off") + '"><span><b>' + esc(rule.label) + '</b> <span class="n">' + esc(count) + "</span>"
+    + (what ? "<small>" + esc(what) + "</small>" : "")
+    + (examples ? '<small class="ex">' + esc(examples) + (rule.hits > rule.examples.length ? "; …" : "") + "</small>" : "")
+    + '</span><label class="switch"><input type="checkbox" data-rule="' + esc(rule.id) + '"' + (rule.on ? " checked" : "")
+    + ' aria-label="' + esc(rule.label) + '"><i></i></label></div>';
+}
+
+function fillRules(state) {
+  if (!state || !Array.isArray(state.rules)) return;
+  $("rules-list").innerHTML = state.rules.map(ruleRowHtml).join("");
+  const freed = state.overrides || [];
+  $("rules-freed").innerHTML = freed.length
+    ? freed.map((row) => "<li><span>" + esc((row.title || row.job_key) + (row.company ? " · " + row.company : "")) + "</span>"
+      + '<span class="now">' + esc(row.label + " · " + shortDate(row.at)) + "</span>"
+      + '<button type="button" class="linkbtn" data-unrule="' + esc(row.job_key) + '">вернуть правилам</button></li>').join("")
+    : '<li class="now">пока ни одной</li>';
+  const fit = state.fitGate || { total: 0, groups: [] };
+  const groups = fit.groups.filter((group) => group.count > 0);
+  $("rules-fit").innerHTML = groups.length
+    ? groups.map((group) => "<li><b>" + esc(group.label) + '</b><span class="now">' + group.count + "</span><span>"
+      + esc(group.examples.map((e) => e.title + (e.term ? " (" + e.term + ")" : "") + " · " + e.company).join("; ")
+        + (group.count > group.examples.length ? "; …" : "")) + "</span></li>").join("")
+    : '<li class="now">ничего</li>';
+  rulesLoaded = true;
+}
+
+function ruleBoxes() {
+  const holder = $("rules-list");
+  return holder && holder.querySelectorAll ? Array.from(holder.querySelectorAll("input[data-rule]")) : [];
+}
+
+/* ---- Настройки → Компании и память ---- */
+async function loadMemory() {
+  try {
+    const response = await fetch("/api/memory");
+    const state = await response.json();
+    if (!response.ok) throw new Error(state.error || response.statusText);
+    fillMemory(state);
+  } catch (error) {
+    $("mem-companies").textContent = "Память не загрузилась: " + error.message;
+  }
+}
+
+function fillMemory(state) {
+  if (!state || !Array.isArray(state.companies)) return;
+  const hides = (n) => (n ? "прячет " + n : "сейчас ничего не прячет");
+  $("mem-companies").innerHTML = state.companies.length
+    ? state.companies.map((c) => "<li><b>" + esc(c.name) + '</b><span class="now">'
+      + esc((c.explicit ? "ты сказал «не интересна» · " : "") + hides(c.hides)) + "</span>"
+      + (c.explicit ? "" : "<span>" + esc(c.reason.replace(/^компания: /, "")) + "</span>")
+      + '<button type="button" class="linkbtn" data-forget="company" data-key="' + esc(c.key) + '" data-label="' + esc(c.name) + '">вернуть</button></li>').join("")
+    : '<li class="now">ни одной</li>';
+  $("mem-roles-stat").textContent = "Помню " + state.remembered + " " + plural(state.remembered, "скрытие", "скрытия", "скрытий")
+    + (state.memoryDays ? " за " + state.memoryDays + " дн." : "") + "; ниже — те, что сейчас прячут копию своей роли.";
+  $("mem-roles").innerHTML = state.roles.length
+    ? state.roles.map((r) => "<li><span>" + esc((r.title || "?") + " · " + (r.company || "?")) + '</span><span class="now">'
+      + esc((r.reason ? "«" + r.reason + "»" : "без причины") + " · " + shortDate(r.at) + " · " + hides(r.hides)) + "</span>"
+      + '<button type="button" class="linkbtn" data-forget="hide" data-key="' + esc(r.key) + '" data-label="'
+      + esc((r.title || "?") + " · " + (r.company || "?")) + '">забыть</button></li>').join("")
+    : '<li class="now">сейчас ни одно</li>';
+  $("mem-forgotten").innerHTML = state.forgotten.length
+    ? state.forgotten.map((f) => "<li><span>" + esc(f.label || f.key) + '</span><span class="now">'
+      + esc((f.kind === "company" ? "компания" : "скрытие") + " · " + shortDate(f.at)) + "</span>"
+      + '<button type="button" class="linkbtn" data-remember="' + esc(f.kind) + '" data-key="' + esc(f.key) + '">вспомнить</button></li>').join("")
+    : '<li class="now">ничего</li>';
+  const fetched = state.boardsFetched || {};
+  $("mem-boards-stat").textContent = fetched.at
+    ? "Прочитаны " + ageLabel(fetched.at) + (fetched.error ? "; последняя попытка не удалась: " + fetched.error : "")
+      + ". «Открыто» — ещё висит на доске, «в ленте» — показано в стопках."
+    : "Доски ещё не читались.";
+  $("mem-boards").innerHTML = state.boards.map((b) => "<li><b>" + esc(b.company) + '</b><span class="now">' + esc(b.vendor) + "</span><span>"
+    + esc("в базе " + b.stored + " · открыто " + b.open + " · в ленте " + b.shown + " · Claude за " + b.fits + " · откликов " + b.applied)
+    + "</span></li>").join("");
+}
+
+/* ---- Настройки → Поиск, read only ---- */
+async function loadSearchSetup() {
+  try {
+    const response = await fetch("/api/search-setup");
+    const state = await response.json();
+    if (!response.ok) throw new Error(state.error || response.statusText);
+    fillSearchSetup(state);
+  } catch (error) {
+    $("search-setup").textContent = "Не загрузилось: " + error.message;
+  }
+}
+
+function hoursAgo(iso) {
+  if (!iso) return "ещё не читалась";
+  const hours = Math.floor((Date.now() - Date.parse(iso)) / 3600000);
+  return hours < 1 ? "обновлено только что" : hours < 48 ? "обновлено " + hours + " ч назад" : "обновлено " + ageLabel(iso);
+}
+
+function fillSearchSetup(state) {
+  if (!state || !state.funnel) return;
+  const n = (x) => Number(x).toLocaleString("ru");
+  const s = state.settings;
+  $("search-setup").textContent = s.location + (s.remoteOnly ? ", только удалённо" : "") + " · окно " + s.days + " дн. · на экране до "
+    + s.limit + " карточек · " + s.watchlist + " досок компаний · офисы гигантов: " + s.giants.location;
+  const f = state.funnel;
+  const v = f.verdicts;
+  const steps = [
+    [f.stored, "в базе"],
+    [f.deduped, "без копий с других площадок"],
+    [f.inWindow, "за " + s.days + " дн."],
+    [f.eligible, "можно из Польши"],
+    [f.fit, "по стеку", f.noStack ? "+ " + n(f.noStack) + " без стека в названии: их дочитывает Claude, на экране " + n(f.softShown) : ""],
+    [null, "убрано", "скрыто тобой " + n(f.hiddenByMe) + " · правилами " + n(f.ruleHits) + " · уже отклики " + n(f.applied)],
+    [f.shown + f.softShown, "на экране", "Claude: " + n(v.apply) + " подходят · " + n(v.maybe) + " проверить · " + n(v.skip) + " убрал"
+      + (v.none ? " · " + n(v.none) + " ещё не читал" : "")],
+  ];
+  $("search-funnel").innerHTML = steps.map(([count, label, note]) => "<li><b>" + (count === null ? "" : n(count)) + "</b><span>" + esc(label) + "</span>"
+    + (note ? '<span class="now">' + esc(note) + "</span>" : "") + "</li>").join("");
+  $("search-queries").innerHTML = state.queries.map((q) => "<li><b>" + esc(q.giants ? "офисы гигантов (LinkedIn)" : "«" + q.query + "»") + "</b>"
+    + '<span class="now">' + esc("нашёл " + q.found + " · только он " + q.only + " · на экране " + q.shown + " · Claude за " + q.fits
+      + " · откликов " + q.applied) + "</span></li>").join("");
+  $("search-boards").innerHTML = state.boards.map((b) => "<li><b>" + esc(SOURCE_NAME[b.source] || b.source) + "</b>"
+    + '<span class="now">' + esc((b.perQuery ? "по запросам" : "читается целиком") + " · в базе " + b.stored + " · на экране " + b.shown + " · "
+      + hoursAgo(b.lastSuccessAt)) + "</span>"
+    + (b.lastError ? '<span style="color: var(--bad)">' + esc("последняя попытка: " + b.lastError) + "</span>" : "") + "</li>").join("");
+}
+
+/* «вернуть» a company, «забыть» a hide — or, with `back`, take that back. */
+async function forgetMemory(kind, key, label, back) {
+  try {
+    const { response, payload } = await postJson("/api/memory/forget", back ? { kind, key } : { kind, key, label }, back ? "DELETE" : "POST");
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    toast(back ? "Снова помню" : kind === "company" ? label + ": компания вернулась" : "Забыл: " + label);
+    await loadMemory();
+    runSearch(false, true);
+  } catch (error) {
+    toast("Не получилось: " + error.message, true);
+  }
+}
+
+async function unfreeRule(key) {
+  try {
+    const { response, payload } = await postJson("/api/rules/override", { key }, "DELETE");
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    toast("Карточка снова под правилами");
+    await loadRules();
+    runSearch(false, true);
+  } catch (error) {
+    toast("Не получилось: " + error.message, true);
+  }
+}
+
+function softenBoxes() {
+  const holder = $("cl-soften");
+  return holder && holder.querySelectorAll ? Array.from(holder.querySelectorAll("input[type=checkbox]")) : [];
+}
+
+/* «Мои условия»: the terms both the rules and Claude read (src/preferences.ts). */
+function fillPreferences(p) {
+  if (!p) return;
+  $("pref-floor").value = String(p.floorB2bPlnMonth);
+  $("pref-uop-gross").value = String(p.uopGross);
+  $("pref-uop-b2b").value = String(p.uopEqualsB2b);
+  $("pref-hours").value = String(p.hoursPerMonth);
+  $("pref-companies").value = (p.officeCompanies || []).join(", ");
+  $("pref-cities").value = (p.officeCities || []).join(", ");
+  setSelect($("pref-polish"), p.polish || "B1");
+  setSelect($("pref-memory"), String(p.memoryDays || 0));
+  const d = p.derived;
+  const n = (x) => Math.round(x).toLocaleString("ru");
+  const h = (x) => (Math.round(x * 10) / 10).toLocaleString("ru");
+  $("pref-derived").textContent = d
+    ? "Порог UoP ≈ " + n(d.uopPlnMonth) + " брутто · B2B ≈ " + n(d.b2b.eurMonth) + " EUR / " + n(d.b2b.usdMonth) + " USD в месяц · ≈ "
+      + h(d.b2b.plnHour) + " PLN / " + h(d.b2b.eurHour) + " EUR в час"
+    : "";
+}
+
+function preferencesInput() {
+  return {
+    floorB2bPlnMonth: Number($("pref-floor").value),
+    uopGross: Number($("pref-uop-gross").value),
+    uopEqualsB2b: Number($("pref-uop-b2b").value),
+    hoursPerMonth: Number($("pref-hours").value),
+    officeCompanies: $("pref-companies").value,
+    officeCities: $("pref-cities").value,
+    polish: $("pref-polish").value || "B1",
+    memoryDays: Number($("pref-memory").value || 0),
+    // Only once the list is drawn: an empty list would read as "every rule on".
+    ...(rulesLoaded && ruleBoxes().length > 0
+      ? { rulesOff: ruleBoxes().filter((box) => !box.checked).map((box) => box.dataset.rule) }
+      : {}),
+  };
+}
+
+const EXPECTED_WORD = { apply: "«Подходит»", maybe: "«Проверить»", skip: "«Не подходит»", fit: "не «Не подходит»" };
+let evalPoll = null;
+
+/* The last check of the criteria against the known answers, and the one running now. */
+function fillEval(st) {
+  if (!st) return;
+  const busy = Boolean(st.running);
+  $("cl-eval-labels").textContent = "Сверить с твоими решениями · " + st.sizes.labels;
+  $("cl-eval-border").textContent = "Пересчитать пограничные · " + st.sizes.borderline;
+  $("cl-eval-labels").disabled = busy || st.sizes.labels === 0;
+  $("cl-eval-border").disabled = busy || st.sizes.borderline === 0;
+  const last = st.last;
+  if (busy) {
+    $("cl-eval").textContent = "Сверяю: " + st.running.done + " из " + st.running.total + "…";
+  } else if (last) {
+    const at = new Date(last.at).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    $("cl-eval").textContent = "Последняя сверка " + at + (last.set === "borderline" ? " (пограничные)" : "") + ": "
+      + (last.set === "borderline"
+        ? "не изменилось " + last.ok + " из " + last.n
+        : "совпало " + last.ok + " из " + last.n + " · skip / не skip — " + last.skipAgree + " из " + last.n)
+      + (last.version === st.current ? " · по текущим критериям" : " · по прошлым критериям")
+      + (last.errors ? " · не прочиталось " + last.errors : "")
+      + (last.stopped ? " · остановлено: " + last.stopped : "")
+      + " · " + last.seconds + " с";
+  } else {
+    $("cl-eval").textContent = "Сверок ещё не было.";
+  }
+  const misses = !busy && last ? last.misses : [];
+  $("cl-misses").innerHTML = misses.map((m) => "<li><span><b>" + esc(m.company) + "</b> — " + esc(m.title) + "</span>"
+    + '<span class="now">' + (last.set === "borderline" ? "было" : "ждали") + " " + esc(EXPECTED_WORD[m.expected] || m.expected)
+    + " (" + esc(m.note) + "), Claude: " + esc(VERDICT_WORD[m.got] || m.got) + "/" + esc(m.score) + "</span>"
+    + '<span class="now">' + esc(m.summary) + "</span></li>").join("");
+  clearTimeout(evalPoll);
+  if (busy && !$("settings").hidden) evalPoll = setTimeout(refreshEval, 3000);
+}
+
+async function refreshEval() {
+  try {
+    fillEval(await fetch("/api/criteria/check").then((r) => r.json()));
+  } catch {
+    // the next open of Настройки shows it
+  }
+}
+
+async function startCriteriaCheck(set) {
+  try {
+    const { response, payload } = await postJson("/api/criteria/check", { set });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    fillEval(payload.status);
+  } catch (error) {
+    toast("Сверка не запустилась: " + error.message, true);
+  }
+}
+
+/** Lines removed and added between two texts (longest common subsequence over lines). */
+function lineDiff(before, after) {
+  const a = before.split("\n");
+  const b = after.split("\n");
+  const lcs = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+  const out = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) { i++; j++; continue; }
+    if (j < b.length && (i >= a.length || lcs[i][j + 1] >= lcs[i + 1][j])) out.push(["add", b[j++]]);
+    else out.push(["del", a[i++]]);
+  }
+  return out;
+}
+
+function toggleCriteriaDiff(index) {
+  const box = $("critdiff-" + index);
+  if (!box) return;
+  if (!box.hidden) { box.hidden = true; return; }
+  const v = criteriaHistoryState[index];
+  const older = criteriaHistoryState[index + 1];
+  const lines = lineDiff(older.text, v.text);
+  box.innerHTML = lines.length
+    ? lines.map(([kind, line]) => '<span class="' + kind + '">' + (kind === "add" ? "+ " : "− ") + esc(line) + "</span>").join("\n")
+    : "Текст файла тот же — изменились постоянные инструкции или схема ответа.";
+  box.hidden = false;
+}
+
+async function restoreCriteriaVersion(version) {
+  try {
+    const { response, payload } = await postJson("/api/criteria/restore", { version });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    fillCriteria(payload.criteria);
+    toast("Текст критериев возвращён — оценки пересчитаются по настройке «После правки критериев»");
+  } catch (error) {
+    toast("Не получилось вернуть: " + error.message, true);
+  }
+}
+
 function fillClaudeSettings(c) {
   $("cl-auto").checked = Boolean(c.auto);
   setSelect($("cl-model"), c.model);
   setSelect($("cl-effort"), c.effort);
+  setSelect($("cl-rejudge"), c.rejudge || "all");
+  $("cl-soft").checked = c.soft !== false;
+  for (const box of softenBoxes()) box.checked = (c.softenFactors || []).includes(box.value);
   $("cl-daily").value = String(c.daily);
   const left = (claudeStatus.queued || []).length + (claudeStatus.running || []).length;
   $("cl-stat").textContent = "Сегодня в фоне: " + c.runsToday + " из " + c.daily
+    + (c.softToday ? " (из них общих заголовков " + c.softToday + ")" : "")
     + (left ? " · сейчас в работе " + left : "")
     + (claudeStatus.pausedUntil ? " · " + (claudeStatus.pauseReason || "пауза") : "");
 }
@@ -2262,11 +2989,15 @@ async function openSettings() {
   $("settingssaved").textContent = "";
   setSelect($("themepick"), themePref());
   try {
-    const { claude } = await fetch("/api/settings").then((r) => r.json());
+    const { claude, criteria, preferences } = await fetch("/api/settings").then((r) => r.json());
+    fillPreferences(preferences);
     fillClaudeSettings(claude);
+    fillCriteria(criteria);
+    refreshEval();
   } catch (error) {
     toast("Настройки не загрузились: " + error.message, true);
   }
+  await Promise.all([loadRules(), loadMemory(), loadSearchSetup()]);
   if (appBridge) {
     try {
       const { settings, toastsOff } = await appBridge.get();
@@ -2298,10 +3029,17 @@ async function saveSettings() {
       model: $("cl-model").value,
       effort: $("cl-effort").value,
       daily: Number($("cl-daily").value),
+      rejudge: $("cl-rejudge").value || "all",
+      soft: $("cl-soft").checked,
+      softenFactors: softenBoxes().filter((box) => box.checked).map((box) => box.value),
     });
     if (!response.ok) throw new Error(payload.error || response.statusText);
     claudeStatus.auto = payload.claude.auto;
     fillClaudeSettings(payload.claude);
+    const prefs = await postJson("/api/settings/preferences", preferencesInput());
+    if (!prefs.response.ok) throw new Error(prefs.payload.error || prefs.response.statusText);
+    fillPreferences(prefs.payload.preferences);
+    fillCriteria(prefs.payload.criteria);
     if (appBridge && !$("appsettings").hidden) {
       const next = {};
       for (const name of APP_FIELDS) {
@@ -2315,6 +3053,11 @@ async function saveSettings() {
     $("settingssaved").textContent = "Сохранено";
     renderSearch();
     pollVerdicts();
+    // The floor, the offices, Polish and the rules change what the feed hides: read it again, and the rules' counts.
+    loadRules();
+    loadMemory();
+    loadSearchSetup();
+    runSearch(false, true);
   } catch (error) {
     $("settingssaved").textContent = "";
     toast("Не сохранилось: " + error.message, true);
@@ -2353,6 +3096,25 @@ function bindChrome() {
   });
   $("settingssave").addEventListener("click", () => saveSettings());
   $("cl-now").addEventListener("click", () => judgeRemaining());
+  $("cl-eval-labels").addEventListener("click", () => startCriteriaCheck("labels"));
+  $("cl-eval-border").addEventListener("click", () => startCriteriaCheck("borderline"));
+  for (const id of ["mem-companies", "mem-roles", "mem-forgotten"]) {
+    $(id).addEventListener("click", (event) => {
+      const data = (event.target && event.target.dataset) || {};
+      if (data.forget) forgetMemory(data.forget, data.key, data.label, false);
+      if (data.remember) forgetMemory(data.remember, data.key, null, true);
+    });
+  }
+  $("rules-freed").addEventListener("click", (event) => {
+    const target = event.target;
+    if (target && target.dataset && target.dataset.unrule) unfreeRule(target.dataset.unrule);
+  });
+  $("cl-history").addEventListener("click", (event) => {
+    const target = event.target;
+    if (!target || !target.dataset) return;
+    if (target.dataset.critdiff !== undefined) toggleCriteriaDiff(Number(target.dataset.critdiff));
+    if (target.dataset.critrestore) restoreCriteriaVersion(target.dataset.critrestore);
+  });
   $("themepick").addEventListener("change", (event) => setTheme(event.target.value));
   if (appBridge) {
     $("app-test").addEventListener("click", () => appBridge.testNotification());
@@ -2421,8 +3183,10 @@ function bindChrome() {
   });
   $("applypanel").addEventListener("click", (event) => {
     const button = event.target.closest && event.target.closest("[data-apply]");
-    if (button) onApplyPanel(button.dataset.apply);
+    if (button && !button.disabled) onApplyPanel(button.dataset.apply);
   });
+  $("applypanel").addEventListener("input", onAnswerInput);
+  $("applypanel").addEventListener("change", onAnswerInput);
 
   // The date window goes to the server: recency is not the first sort key,
   // so a local cut over the ranked list would mostly show nothing.
@@ -2431,6 +3195,7 @@ function bindChrome() {
       const days = Number(radio.value);
       if (days === maxAgeDays) return;
       maxAgeDays = days;
+      saveFilters();
       return searchLoaded ? runSearch() : renderSearch();
     });
   });
@@ -2446,13 +3211,15 @@ function bindChrome() {
       toast("Хотя бы одна площадка должна остаться", true);
       return;
     }
+    saveFilters();
     if (searchLoaded) runSearch();
   });
-  $("hideApplied").addEventListener("change", (event) => { hideApplied = event.target.checked; renderSearch(); });
-  $("showRuleHidden").addEventListener("change", (event) => { showRuleHidden = event.target.checked; renderSearch(); });
+  $("hideApplied").addEventListener("change", (event) => { hideApplied = event.target.checked; saveFilters(); renderSearch(); });
+  $("showRuleHidden").addEventListener("change", (event) => { showRuleHidden = event.target.checked; saveFilters(); renderSearch(); });
   // Hidden jobs are not in the payload at all unless asked for: re-run the search.
   $("showDismissed").addEventListener("change", (event) => {
     showDismissed = event.target.checked;
+    saveFilters();
     if (searchLoaded) runSearch();
   });
   $("jobsearch").addEventListener("input", (event) => {
@@ -2460,7 +3227,7 @@ function bindChrome() {
     currentKey = null;
     renderSearch();
   });
-  $("jobsort").addEventListener("change", (event) => { jobSort = event.target.value; renderSearch(); });
+  $("jobsort").addEventListener("change", (event) => { jobSort = event.target.value; saveFilters(); renderSearch(); });
 
   $("statuspills").addEventListener("click", (event) => {
     const button = event.target.closest && event.target.closest("[data-status]");
@@ -2549,7 +3316,7 @@ function onKey(event) {
     toggleMenu("linksbtn", "linksmenu", false);
     toggleMenu("filtersbtn", "filters", false);
     closeSettings();
-    if (hideOpen) { hideOpen = false; renderSearch(); }
+    if (hideOpen || feedbackOpen) { hideOpen = false; feedbackOpen = false; renderSearch(); }
     return;
   }
   // The card's keys are not for the settings dialog behind which it sits.
@@ -2617,6 +3384,7 @@ async function showNewCount() {
 applyTheme(themePref());
 // The static selects' words come from SELECT_OPTIONS, so the markup holds only their values.
 document.querySelectorAll("[data-select]").forEach((button) => setSelect(button, button.value));
+restoreFilters();
 bindChrome();
 renderSourceFilter();
 load();

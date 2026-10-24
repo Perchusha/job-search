@@ -22,13 +22,14 @@ age company — title [location] {salary} <reason> url`.
 | `apply` | geo confirmed (Indeed says remote, or Himalayas open to Poland) and nothing in the title disqualifies it | hand to `job-apply` |
 | `check` | LinkedIn rows: location unknown or "onsite/hybrid" — LinkedIn omits `is_remote`, so this is unverified, not a rejection | open the posting, decide (step 3) |
 | `needs-you` | marketplaces that need an account (lemon.io, Jobgether, GitStart, Proxify, Alignerr…) — accounts are never created by the skill | list for the user |
-| `dismiss` | rule hit: junior/mid, management, wrong stack, backend-only, another language, onsite per Indeed, stale, same role hidden before (by the user — rule-written hides do not count), company hidden for 2+ different roles by hand or marked "не интересна компания", second posting of a role already in this search | review, then commit |
+| `dismiss` | rule hit: junior/mid, management, wrong stack, backend-only, another language, onsite per Indeed, same role already applied to on another board, same role hidden before (by the user — rule-written hides do not count), company hidden for 2+ different roles by hand or marked "не интересна компания", second posting of a role already in this search | review; nothing to write — the dashboard already leaves them out |
 | `skip` | already in the funnel or already hidden | nothing |
 
 `claude:skip/12` (or `apply/86`, `maybe/60`) is Claude's verdict, made by the
 dashboard from the full posting text against `src/verdict-criteria.md`
-(src/verdict.ts). The rules do not act on it; treat a `skip` as a strong hint
-and read its reason on the card (or in `--json`, field `verdict`) before hiding.
+(src/verdict.ts). A `skip` is already out of the stacks («Убрал Claude»); do
+not hide it on top — a hide is permanent, and a criteria change may bring the
+card back. `maybe` is a card for the user to check, never a hide.
 
 `!…` after a line is a flag, not a verdict: an earlier application at the same
 company, or a role that looks like one already applied to. Same-role
@@ -42,19 +43,14 @@ dashboard runs the same rules on every search and keeps their hits behind the
 "скрыто правилами" toggle, so the Search tab already shows roughly the `apply`
 bucket. Edit the rules there, not in prose.
 
-## 2. Review the dismiss bucket, then commit
+## 2. Review the dismiss bucket
 
 Skim the `dismiss` lines for a reason that is wrong for this title (the rules
 are whole-word regexes on the title; a title like "Full Stack Engineer
-(Node.js, Preact)" has been mis-filed before). Fix the rule, re-run, then:
-
-```
-node scripts/funnel.mjs screen --commit
-```
-
-Every hidden job carries its reason, visible under "показать скрытые" in the
-dashboard and in `node scripts/funnel.mjs dismissed`. A mistake is one
-`node scripts/funnel.mjs undismiss <url>` away.
+(Node.js, Preact)" has been mis-filed before). Fix the rule in profile.ts and
+re-run. Nothing needs committing: the dashboard and `find_jobs` apply the rules
+on every read, and the hits sit under «Скрытые правилами» with their reason.
+`--commit` would make today's hits permanent hides — don't.
 
 ## 3. Decide the `check` bucket — without a browser
 
@@ -67,21 +63,21 @@ One line per posting, read from the board's own JSON (LinkedIn guest API,
 Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Himalayas search API)
 or from the stripped HTML:
 
-`idx | company — title | mode «context» | lock:US | senior/8y | +react,typescript | -angular×2 | lang:german | $salary | apply:<vendor> form:3req "…"`
+`idx | company — title | claude:apply/84 | !low-pay !applied-before | mode «context» | lock:US | senior/8y | +react,typescript | -angular×2 | lang:german | pay:… | apply:<vendor> form:3req "…"`
 
 Decide from the line, in this order:
 
-1. **mode** `hybrid «…»` / `onsite` → hide: `not remote (hybrid N days/week)`.
-   `remote?hybrid` means both words appear — read the 70-char context; "remote
-   or hybrid, your choice" is remote. "1 day a week, preferably" in Warsaw is
-   the user's call: put it on the needs-you list, do not hide it.
-2. **-neg** dominating **+stack** (`-angular×4`, `-python×15`, `-php×4`) → hide: `wrong stack: <x>`.
-3. **lang** `german|french|italian|polish` → hide: `requires <language>` (B1 Polish is not "fluent Polish").
-4. **lock** `US|UK|Canada|Germany` → hide: `remote but <country>-only`.
-5. `CLOSED` → hide: `posting closed`. `ERR` → `--retry`, then decide.
-6. **apply:** `portal` (Workday, Cognizant, EPAM, Luxoft), `himalayas-account`,
+1. **claude** `skip` → leave it (it is in «Убрал Claude»); `maybe`, `(old)` or
+   `—` → needs-you list. Only `claude:apply` goes on.
+2. **!low-pay** / **!applied-before** → needs-you list: the user's call.
+3. **mode**, **lock**, **lang**, **-neg** that Claude did not mention → read the
+   text of that one job and report what it says. The regexes misfire ("hybrid
+   cloud", "remote or hybrid, your choice"); do not hide on them. A giant's
+   office in Warsaw (Настройки → «Мои условия») is fine.
+4. `CLOSED` → hide: `posting closed`. `ERR` → `--retry`, then decide.
+5. **apply:** `portal` (Workday, Cognizant, EPAM, Luxoft), `himalayas-account`,
    `indeed` → cannot be scripted (account) → needs-you list, not hidden.
-7. Otherwise it is an `apply` row for `job-apply`.
+6. Otherwise it is an `apply` row for `job-apply`.
 
 When the line is ambiguous, print the text of that one job
 (`python -c` over `fetched.json`, or `--text` for a single URL) — never the
@@ -93,12 +89,14 @@ Hide with:
 node scripts/funnel.mjs dismiss "<url>" --reason "<reason>" --title "<title>" --company "<company>"
 ```
 
-Hidden means hidden from every future search and from `find_jobs`, so the
-reason must be true for the role, not for today's mood.
+Hidden means hidden from every future search and from `find_jobs`, and the
+screening rules learn from it (same role, same company), so hide only what is
+closed or what the user asked to hide.
 
 ## Don'ts
 
 - Do not hide a job only because the company rejected a *different* role
-  before; do hide it when the same role is already tracked (the script does).
+  before. The same role already applied to on another board is hidden by the
+  rules themselves.
 - Do not hide `needs-you` rows — the user may want to apply by hand.
 - Do not widen the search here (sources, hoursOld); that is profile.ts.

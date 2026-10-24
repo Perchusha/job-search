@@ -12,15 +12,16 @@
     "dashboard": "tsx src/dashboard.ts",
     "refresh": "tsx src/refresh.ts",
     "sanity": "tsx src/eligibility.ts",
-    "setup:jobspy": "python -m venv .venv && .venv/Scripts/python.exe -m pip install -q -U python-jobspy",
-    "setup:jobspy:unix": "python3 -m venv .venv && .venv/bin/python -m pip install -q -U python-jobspy",
+    "setup:jobspy": "python -m venv .venv && .venv/Scripts/python.exe -m pip install -q python-jobspy==1.1.82",
+    "setup:jobspy:unix": "python3 -m venv .venv && .venv/bin/python -m pip install -q python-jobspy==1.1.82",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && npm run sanity && npm run test:ranking && npm run test:boards && npm run test:verdict && npm run test:mcp && npm run test:ui",
     "test:ranking": "node --import tsx tests/ranking.mjs",
     "test:verdict": "node --import tsx tests/verdict.mjs",
     "test:boards": "node --import tsx tests/boards.mjs",
     "test:mcp": "node tests/mcp.mjs",
-    "test:ui": "node tests/ui.mjs"
+    "test:ui": "node tests/ui.mjs",
+    "eval:verdicts": "tsx scripts/verdict-eval.ts"
   },
   "dependencies": {
     "@fontsource-variable/onest": "^5.3.1",

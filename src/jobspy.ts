@@ -51,6 +51,21 @@ const DEFAULT_TIMEOUT_MS = 180_000;
 export class JobSpyUnavailable extends Error {}
 
 /**
+ * The scraper stopped part-way — LinkedIn's HTTP 429, or the bridge's time
+ * budget — and returned what it had read. A failure that still carries rows:
+ * the caller keeps them and records the run as failed, so an incremental
+ * board's next pass starts from its last complete one.
+ */
+export class PartialFetch extends Error {
+  constructor(
+    message: string,
+    readonly jobs: Job[],
+  ) {
+    super(message);
+  }
+}
+
+/**
  * Indeed is country-scoped: it searches a national domain (pl.indeed.com), so
  * `country_indeed` has to agree with the location or it returns zero results.
  * LinkedIn has no such constraint and happily takes "European Union".
@@ -113,7 +128,7 @@ export function isJobSpyAvailable(): boolean {
 
 type RawJob = Record<string, unknown>;
 
-function runScraper(options: JobSpyOptions): Promise<RawJob[]> {
+function runScraper(options: JobSpyOptions): Promise<{ jobs: RawJob[]; partial: string | null }> {
   const python = resolvePython();
   if (python === null) {
     throw new JobSpyUnavailable(
@@ -140,7 +155,7 @@ function runScraper(options: JobSpyOptions): Promise<RawJob[]> {
     proxies: options.proxies,
   };
 
-  return new Promise<RawJob[]>((resolvePromise, rejectPromise) => {
+  return new Promise<{ jobs: RawJob[]; partial: string | null }>((resolvePromise, rejectPromise) => {
     const child = spawn(python, [SCRIPT_PATH, outPath], {
       cwd: PROJECT_ROOT,
       env: {
@@ -162,7 +177,7 @@ function runScraper(options: JobSpyOptions): Promise<RawJob[]> {
       rejectPromise(new Error(`timed out after ${DEFAULT_TIMEOUT_MS / 1000}s`));
     }, DEFAULT_TIMEOUT_MS);
 
-    const finish = (error: Error | null, jobs: RawJob[] = []) => {
+    const finish = (error: Error | null, jobs: RawJob[] = [], partial: string | null = null) => {
       clearTimeout(timer);
       try {
         rmSync(workDir, { recursive: true, force: true });
@@ -170,7 +185,7 @@ function runScraper(options: JobSpyOptions): Promise<RawJob[]> {
         // A leftover temp dir is not worth failing a search over.
       }
       if (error) rejectPromise(error);
-      else resolvePromise(jobs);
+      else resolvePromise({ jobs, partial });
     };
 
     child.on("error", (error) => {
@@ -187,12 +202,13 @@ function runScraper(options: JobSpyOptions): Promise<RawJob[]> {
         const payload = JSON.parse(readFileSync(outPath, "utf8")) as {
           jobs?: RawJob[];
           error?: string;
+          partial?: string | null;
         };
         if (payload.error) {
           finish(new Error(payload.error));
           return;
         }
-        finish(null, payload.jobs ?? []);
+        finish(null, payload.jobs ?? [], payload.partial ?? null);
       } catch (error) {
         finish(new Error(`unreadable scraper output: ${(error as Error).message}`));
       }
@@ -337,6 +353,8 @@ function normalize(raw: RawJob): Job | null {
 
 /** Fetch and normalize. Throws on failure so the caller can record a skip. */
 export async function fetchJobSpy(options: JobSpyOptions): Promise<Job[]> {
-  const raw = await runScraper(options);
-  return raw.map((entry) => normalize(entry)).filter((job): job is Job => job !== null);
+  const { jobs: raw, partial } = await runScraper(options);
+  const jobs = raw.map((entry) => normalize(entry)).filter((job): job is Job => job !== null);
+  if (partial) throw jobs.length > 0 ? new PartialFetch(partial, jobs) : new Error(partial);
+  return jobs;
 }

@@ -6,20 +6,54 @@
  * "skip", anything else an "apply" — and one that says LIMIT-TEST gets the
  * plan's usage limit, word for word as Claude Code 2.1.287 reports it.
  *
- * FAKE_CLAUDE_LOG, when set, gets one JSON line per call — the arguments and
- * the prompt — so the test can check what the dashboard actually sent.
+ * FAKE_CLAUDE_LOG, when set, gets one JSON line per call — the arguments, the
+ * prompt and the system prompt — so the test can check what the dashboard
+ * actually sent.
+ *
+ * Asked for a form's answers (the schema has `answers`), it drafts one per
+ * numbered question in <form>: the first option of a choice, a sentence
+ * naming the question's number otherwise.
  */
 
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
+const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
 let prompt = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
   prompt += chunk;
 });
 process.stdin.on("end", () => {
-  if (process.env.FAKE_CLAUDE_LOG) appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({ args, prompt }) + "\n");
+  let system = "";
+  try {
+    system = readFileSync(flag("--system-prompt-file") ?? "", "utf8");
+  } catch {
+    // no file: logged as empty
+  }
+  if (process.env.FAKE_CLAUDE_LOG) appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({ args, prompt, system }) + "\n");
+  const reply = (output) =>
+    process.stdout.write(
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: JSON.stringify(output),
+        structured_output: output,
+        session_id: flag("--session-id"),
+        total_cost_usd: 0,
+        modelUsage: { "claude-test-1-0": {} },
+      }),
+    );
+  if (JSON.parse(flag("--json-schema") ?? "{}").properties?.answers) {
+    const form = prompt.slice(prompt.indexOf("<form>"), prompt.indexOf("</form>"));
+    const answers = [...form.matchAll(/^(\d+)\. .*(?:\n {3}Варианты: (.*))?$/gm)].map(([, n, options]) => ({
+      n: Number(n),
+      answer: options ? options.split(" | ")[0] : `Draft ${n}: I built the Google Maps event explorer at ITSharkz.`,
+    }));
+    reply({ answers });
+    return;
+  }
   if (prompt.includes("LIMIT-TEST")) {
     process.stdout.write(
       JSON.stringify({
@@ -49,16 +83,5 @@ process.stdin.on("end", () => {
     summary: skip ? "Angular, а не React." : "Подходит: React, удалённо.",
     hideReason: skip ? "не тот стек" : "",
   };
-  process.stdout.write(
-    JSON.stringify({
-      type: "result",
-      subtype: "success",
-      is_error: false,
-      result: JSON.stringify(output),
-      structured_output: output,
-      session_id: args[args.indexOf("--session-id") + 1],
-      total_cost_usd: 0,
-      modelUsage: { "claude-test-1-0": {} },
-    }),
-  );
+  reply(output);
 });

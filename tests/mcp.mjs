@@ -17,6 +17,13 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+// A giant's Warsaw office (profile.ts OFFICE_OK) passes the stack filter on purpose:
+// its postings list languages ("Java, C++, Python or Go") and name no stack.
+// Whole words: a substring test took "Internal Tools" for an internship.
+const JUNIOR_TITLE = /(?<![a-z])(?:intern(?:s|ship)?|junior|early careers?)(?![a-z])|praktyk|staż/i;
+const giantInWarsaw = (job) =>
+  /(?<![a-z0-9])(?:google|alphabet|youtube|deepmind|apple|netflix|meta|facebook|instagram|whatsapp|microsoft|github|linkedin|amazon|aws|nvidia)(?![a-z0-9])/i.test(job.company)
+  && /warsz?aw/i.test(job.location ?? "");
 const DB = join(tmpdir(), `job-hunt-test-mcp-${process.pid}.db`);
 function removeDb() {
   for (const suffix of ["", "-wal", "-shm"]) {
@@ -89,10 +96,11 @@ async function main() {
     jobs.every((job) => typeof job.applyUrl === "string" && job.applyUrl.startsWith("http")));
   check("no 'low' eligibility leaks through",
     jobs.every((job) => job.eligibility.level !== "low"));
-  check("no wrong-stack jobs (fit >= 0)",
-    jobs.every((job) => job.fit >= 0), `min fit ${Math.min(...jobs.map((job) => job.fit))}`);
+  check("no wrong-stack jobs (fit >= 0), a giant's Warsaw office aside",
+    jobs.every((job) => job.fit >= 0 || giantInWarsaw(job)), `min fit ${Math.min(...jobs.filter((job) => !giantInWarsaw(job)).map((job) => job.fit))}`);
   check("no junior/intern titles",
-    !jobs.some((job) => /intern|junior|praktyk|staż/i.test(job.title)));
+    !jobs.some((job) => JUNIOR_TITLE.test(job.title)),
+    jobs.filter((job) => JUNIOR_TITLE.test(job.title)).map((job) => job.title).join("; "));
   check("ranked best-fit first",
     jobs[0].fit >= jobs[jobs.length - 1].fit, `${jobs[0].fit} -> ${jobs[jobs.length - 1].fit}`);
   check("descriptions kept out of tool output",

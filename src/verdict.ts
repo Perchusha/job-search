@@ -38,9 +38,25 @@ import { fileURLToPath } from "node:url";
 
 import { extractText, getDocumentProxy } from "unpdf";
 
-import { belowSalaryFloor } from "./boards-pl.ts";
-import { findPostings, getMeta, listVerdicts, resolveDbPath, saveVerdict, setMeta, type VerdictRow } from "./db.ts";
-import type { Job } from "./sources.ts";
+import { payB2bPlnMonth, payVsFloor } from "./boards-pl.ts";
+import { derivedFloors, preferences, preferencesRevision } from "./preferences.ts";
+import { SALARY } from "./profile.ts";
+import {
+  findPostings,
+  getMeta,
+  getPostingText,
+  listCriteriaVersions,
+  listFeedback,
+  listVerdicts,
+  resolveDbPath,
+  saveCriteriaVersion,
+  savePostingText,
+  saveVerdict,
+  setMeta,
+  type FeedbackRow,
+  type VerdictRow,
+} from "./db.ts";
+import type { Job, PayRange } from "./sources.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CRITERIA_FILE = join(HERE, "verdict-criteria.md");
@@ -59,11 +75,43 @@ export type ClaudeSettings = {
   effort: string;
   /** Most background runs in a local-time day. */
   daily: number;
+  /**
+   * After a criteria change, which verdicts the background redoes: every
+   * shown card's, only the ones in «Подходят» and «Проверить», or none (new
+   * postings only; "Оценить оставшиеся сейчас" redoes the rest by hand).
+   */
+  rejudge: Rejudge;
+  /**
+   * Claude also reads the postings the stack filter cannot place — a title
+   * with no stack word ("Senior Software Engineer") and no text to look in
+   * (LinkedIn, nofluffjobs, justjoin.it) — and they show only when it says
+   * apply or maybe. Within SOFT_SHARE of the daily cap.
+   */
+  soft: boolean;
+  /**
+   * Stop-factor kinds that alone do not remove a card: a "skip" whose every
+   * stop factor is one of these shows in «Проверить» instead, labelled. Read
+   * from the stored verdicts' typed stop factors — changing it needs no run.
+   */
+  softenFactors: string[];
 };
+
+export type Rejudge = "all" | "active" | "none";
+/** The kinds a stop factor can be (the verdict schema's enum), softenable in Настройки. */
+export const SOFTENABLE = ["format", "level", "stack", "role", "language"];
 
 const SETTINGS_KEY = "claude_settings";
 const MODELS = ["sonnet", "opus"];
 const EFFORTS = ["low", "medium", "high"];
+const REJUDGE: Rejudge[] = ["all", "active", "none"];
+/**
+ * The share of the daily cap redoing old verdicts never takes: it stays for
+ * postings that appear later the same day. On 2026-10-24 two criteria edits
+ * used 193 of 200 runs on re-judging.
+ */
+const NEW_RESERVE = 0.25;
+/** The most of the daily cap the background reading of tier-2 postings takes. */
+const SOFT_SHARE = 0.25;
 
 /*
  * Measured on this machine (2026-10-23) over 28 postings already decided by
@@ -79,6 +127,9 @@ export function defaultClaudeSettings(): ClaudeSettings {
     model: process.env["JOBHUNT_CLAUDE_MODEL"]?.trim() || "sonnet",
     effort: process.env["JOBHUNT_CLAUDE_EFFORT"]?.trim() || "low",
     daily: Math.max(0, Number(process.env["JOBHUNT_CLAUDE_DAILY"] ?? 80) || 0),
+    rejudge: "all",
+    soft: true,
+    softenFactors: [],
   };
 }
 
@@ -96,6 +147,11 @@ export function claudeSettings(): ClaudeSettings {
     model: typeof saved.model === "string" && MODELS.includes(saved.model) ? saved.model : defaults.model,
     effort: typeof saved.effort === "string" && EFFORTS.includes(saved.effort) ? saved.effort : defaults.effort,
     daily: Number.isInteger(saved.daily) && (saved.daily as number) >= 0 ? (saved.daily as number) : defaults.daily,
+    rejudge: REJUDGE.includes(saved.rejudge as Rejudge) ? (saved.rejudge as Rejudge) : defaults.rejudge,
+    soft: typeof saved.soft === "boolean" ? saved.soft : defaults.soft,
+    softenFactors: Array.isArray(saved.softenFactors)
+      ? saved.softenFactors.filter((factor): factor is string => SOFTENABLE.includes(String(factor)))
+      : defaults.softenFactors,
   };
 }
 
@@ -119,6 +175,21 @@ export function saveClaudeSettings(input: Record<string, unknown>): ClaudeSettin
     if (!Number.isInteger(daily) || daily < 0 || daily > 1000) throw new Error("daily must be a whole number from 0 to 1000");
     next.daily = daily;
   }
+  if ("softenFactors" in input) {
+    const list = input["softenFactors"];
+    if (!Array.isArray(list) || !list.every((factor) => SOFTENABLE.includes(String(factor)))) {
+      throw new Error(`softenFactors must be a list of: ${SOFTENABLE.join(", ")}`);
+    }
+    next.softenFactors = [...new Set(list.map(String))];
+  }
+  if ("soft" in input) {
+    if (typeof input["soft"] !== "boolean") throw new Error("soft must be true or false");
+    next.soft = input["soft"];
+  }
+  if ("rejudge" in input) {
+    if (!REJUDGE.includes(input["rejudge"] as Rejudge)) throw new Error(`rejudge must be one of: ${REJUDGE.join(", ")}`);
+    next.rejudge = input["rejudge"] as Rejudge;
+  }
   setMeta(SETTINGS_KEY, JSON.stringify(next));
   return next;
 }
@@ -133,7 +204,7 @@ const MAX_AUTO_TRIES = 2;
 const STOP_MS = 10 * 60_000;
 
 /** Bumped when the schema or the fixed instructions change what a verdict means. */
-const FORMAT = 2;
+const FORMAT = 3;
 
 export type Verdict = "apply" | "maybe" | "skip";
 
@@ -180,6 +251,23 @@ const SCHEMA = {
       type: "string",
       description: "Вилка из текста или с площадки как есть, с валютой и периодом; пусто, если её нет",
     },
+    pay: {
+      type: "array",
+      description:
+        "Та же вилка цифрами, как опубликована, без пересчёта: по элементу на каждый тип договора. Пустой массив, если вилки нет",
+      items: {
+        type: "object",
+        properties: {
+          contract: { type: "string", enum: ["b2b", "uop", "mandate", "other"], description: "uop — umowa o pracę, mandate — zlecenie" },
+          min: { type: ["number", "null"] },
+          max: { type: ["number", "null"] },
+          currency: { type: "string", description: "Код ISO: PLN, EUR, USD…" },
+          unit: { type: "string", enum: ["hour", "day", "month", "year"] },
+        },
+        required: ["contract", "min", "max", "currency", "unit"],
+        additionalProperties: false,
+      },
+    },
     matches: {
       type: "array",
       items: { type: "string" },
@@ -188,12 +276,25 @@ const SCHEMA = {
     concerns: {
       type: "array",
       items: { type: "string" },
-      description: "Что неясно или настораживает: до 4 пунктов по несколько слов",
+      description:
+        "Что стоит проверить до отклика или что снижает шансы: 0–4 пункта по несколько слов. Не добивай до четырёх; чего карточка и так не знает — пиши, что знает (нет зарплаты) — нет",
     },
     dealbreakers: {
       type: "array",
-      items: { type: "string" },
-      description: "Стоп-факторы из критериев, каждый с короткой цитатой из текста в «ёлочках»; пусто, если их нет",
+      description: "Стоп-факторы из критериев; пусто, если их нет",
+      items: {
+        type: "object",
+        properties: {
+          factor: {
+            type: "string",
+            enum: ["format", "poland", "citizenship", "level", "stack", "role", "language", "closed"],
+            description: "Какой стоп-фактор из критериев",
+          },
+          text: { type: "string", description: "Стоп-фактор своими словами с короткой цитатой из текста в «ёлочках»" },
+        },
+        required: ["factor", "text"],
+        additionalProperties: false,
+      },
     },
     verdict: { type: "string", enum: ["apply", "maybe", "skip"] },
     score: { type: "integer", minimum: 0, maximum: 100, description: "Насколько вакансия подходит, 0–100" },
@@ -211,6 +312,7 @@ const SCHEMA = {
     "seniority",
     "mainStack",
     "salary",
+    "pay",
     "matches",
     "concerns",
     "dealbreakers",
@@ -231,7 +333,8 @@ const INSTRUCTIONS = `Ты разбираешь вакансии для одно
 - verdict: "apply" — подходит, стоп-факторов нет; "maybe" — в целом подходит, но есть неясность, которую ему стоит проверить самому; "skip" — есть хотя бы один стоп-фактор из критериев.
 - score: насколько вакансия подходит, 0–100. У "skip" — не выше 30, у "apply" — не ниже 70.
 - Пиши по-русски и коротко: пункты по несколько слов, без воды. Названия технологий — как в тексте.
-- Если потом попросят обсудить вакансию, отвечай как обычный собеседник, по-русски.`;
+- Всё, что ты пишешь (summary, matches, concerns, dealbreakers), читает сам кандидат: обращайся к нему на «ты» — «твой опыт с Electron», «у тебя 9 лет», «тебе стоит уточнить». Не пиши о нём в третьем лице («он», «его», «кандидат»), даже если критерии ниже говорят о нём так.
+- Если потом попросят обсудить вакансию, отвечай как обычный собеседник, по-русски и на «ты».`;
 
 /* ------------------------------------------------------------------ */
 /* Criteria, folders                                                    */
@@ -258,19 +361,99 @@ function scratchDir(): string {
   return dir;
 }
 
-let criteriaCache: { mtimeMs: number; prompt: string; version: string } | null = null;
+let criteriaCache: { mtimeMs: number; revision: number; prompt: string; version: string } | null = null;
 
-/** The system prompt and its version. Re-read when the file changes, so an edit needs no restart. */
+/**
+ * The system prompt and its version. Re-read when the file changes, so an edit
+ * needs no restart. Each version's file text is kept (criteria_versions), so
+ * Настройки can show what an edit changed and put an older text back.
+ */
 function criteria(): { prompt: string; version: string } {
   const mtimeMs = statSync(CRITERIA_FILE).mtimeMs;
-  if (criteriaCache && criteriaCache.mtimeMs === mtimeMs) return criteriaCache;
-  const prompt = `${INSTRUCTIONS}\n\n${readFileSync(CRITERIA_FILE, "utf8").trim()}\n`;
+  const revision = preferencesRevision();
+  if (criteriaCache && criteriaCache.mtimeMs === mtimeMs && criteriaCache.revision === revision) return criteriaCache;
+  const file = `${readFileSync(CRITERIA_FILE, "utf8").trim()}\n\n${preferencesSection()}`;
+  const { prompt, version } = systemPrompt(file);
+  saveCriteriaVersion(version, file);
+  criteriaCache = { mtimeMs, revision, prompt, version };
+  return criteriaCache;
+}
+
+/**
+ * «Мои условия» (src/preferences.ts) as the criteria's last section: the
+ * values the code uses, so Claude and the rules cannot disagree. They used to
+ * be typed into the prose by hand — the floor in ten units, the giants, the
+ * Polish level — and the regex and the prose had already parted over B2.
+ */
+function preferencesSection(): string {
+  const p = preferences();
+  const d = derivedFloors(SALARY.fxToPln);
+  const n = (x: number) => Math.round(x).toLocaleString("ru-RU").replace(/\s/g, " ");
+  const h = (x: number) => x.toFixed(1).replace(".", ",").replace(/,0$/, "");
+  const above: Record<string, string | null> = {
+    A2: "A2 (B1, B2, C1, «fluent», «biegły», «dobra znajomość»)",
+    B1: "B1 (B2, C1, «fluent», «biegły», «płynny», «dobra znajomość»)",
+    B2: "B2 (C1, C2, «native», «biegły»)",
+    C1: null,
+  };
+  const polish = above[p.polish];
+  return [
+    "## Условия из Настроек — эти значения точнее текста выше",
+    "",
+    `- Порог денег: от ${n(p.floorB2bPlnMonth)} PLN нетто в месяц на B2B. Трудовой договор (UoP): ${n(p.uopGross)} брутто стоят для него ${n(p.uopEqualsB2b)} на B2B, поэтому порог UoP — ≈ ${n(d.uopPlnMonth)} PLN брутто в месяц.`,
+    `  В другой валюте порог B2B — ≈ ${n(d.b2b.eurMonth)} EUR / ${n(d.b2b.usdMonth)} USD в месяц, ≈ ${n(d.b2b.eurYear)} EUR / ${n(d.b2b.usdYear)} USD в год, ≈ ${h(d.b2b.plnHour)} PLN / ${h(d.b2b.eurHour)} EUR / ${h(d.b2b.usdHour)} USD в час (${p.hoursPerMonth} ч в месяц); порог UoP — ≈ ${n(d.uop.eurMonth)} EUR / ${n(d.uop.usdMonth)} USD брутто в месяц.`,
+    `- Гиганты, у которых гибрид и офис подходят (вместе с их дочерними компаниями): ${p.officeCompanies.join(", ")} — и только в городе: ${p.officeCities.join(" / ")}.`,
+    polish
+      ? `- Польский у него ${p.polish}: стоп-фактор — обязательный польский выше ${polish}. Польский как «nice to have» — не стоп-фактор.`
+      : `- Польский у него ${p.polish}: требование польского — не стоп-фактор.`,
+  ].join("\n");
+}
+
+/** The system prompt a criteria text makes, and the version it would carry. */
+function systemPrompt(file: string): { prompt: string; version: string } {
+  const prompt = `${INSTRUCTIONS}\n\n${file.trim()}\n`;
   const version = createHash("sha1")
     .update(`${FORMAT}\n${JSON.stringify(SCHEMA)}\n${prompt}`)
     .digest("hex")
     .slice(0, 12);
-  criteriaCache = { mtimeMs, prompt, version };
-  return criteriaCache;
+  return { prompt, version };
+}
+
+export type CriteriaVersion = { version: string; text: string; firstSeenAt: string; verdicts: number; current: boolean };
+
+/** The kept versions, newest first, each with how many stored verdicts were made under it. */
+export function criteriaHistory(limit = 10): CriteriaVersion[] {
+  const current = criteriaVersion();
+  const counts = new Map<string, number>();
+  for (const row of listVerdicts()) counts.set(row.criteria, (counts.get(row.criteria) ?? 0) + 1);
+  return listCriteriaVersions(limit).map((row) => ({
+    version: row.version,
+    text: row.text,
+    firstSeenAt: row.first_seen_at,
+    verdicts: counts.get(row.version) ?? 0,
+    current: row.version === current,
+  }));
+}
+
+/**
+ * Puts a kept version's text back into src/verdict-criteria.md. Only the
+ * file's part: when the fixed instructions or the schema have changed since,
+ * the version that comes out is a new one.
+ */
+export function restoreCriteria(version: string): void {
+  const kept = listCriteriaVersions(1000).find((row) => row.version === version);
+  if (!kept) throw new Error("нет такой версии критериев");
+  writeFileSync(CRITERIA_FILE, `${kept.text}\n`);
+}
+
+/** Seconds one verdict takes in the queue (two run at once), for the "≈ N минут" estimates. */
+export function verdictSeconds(): number {
+  const recent = listVerdicts()
+    .map((row) => row.duration_ms ?? 0)
+    .filter((ms) => ms > 0)
+    .slice(-50);
+  const average = recent.length > 0 ? recent.reduce((sum, ms) => sum + ms, 0) / recent.length / 1000 : 9;
+  return average / CONCURRENCY;
 }
 
 /** "" when the criteria file cannot be read: every verdict then reads as stale, and the search still works. */
@@ -339,7 +522,8 @@ function childEnv(): NodeJS.ProcessEnv {
 /* The posting text                                                     */
 /* ------------------------------------------------------------------ */
 
-type Posting = { text: string; closed: boolean; via: "stored" | "fetched" };
+/** `location`: what the page itself says, when it says it (LinkedIn's top card, an ATS's job location). */
+type Posting = { text: string; closed: boolean; via: "stored" | "fetched" | "saved"; location?: string | null };
 
 /** Stored descriptions are cut at 8000 characters when a board is fetched. */
 const STORED_CAP = 7_990;
@@ -364,7 +548,7 @@ function serialFetch<T>(task: () => Promise<T>): Promise<T> {
 }
 
 /** scripts/jobs-fetch.mjs for one URL: the board's JSON, stripped HTML, or Chrome for a JS-only page. */
-function fetchPosting(url: string): Promise<{ text: string; closed: boolean; error: string | null }> {
+function fetchPosting(url: string): Promise<{ text: string; closed: boolean; error: string | null; location: string | null }> {
   return serialFetch(
     () =>
       new Promise((resolve) => {
@@ -380,7 +564,7 @@ function fetchPosting(url: string): Promise<{ text: string; closed: boolean; err
         const timer = setTimeout(() => child.kill(), FETCH_TIMEOUT_MS);
         const done = (error: string | null) => {
           clearTimeout(timer);
-          let row: { text?: string; closed?: boolean; error?: string | null } = {};
+          let row: { text?: string; closed?: boolean; error?: string | null; location?: string | null } = {};
           try {
             row = (JSON.parse(readFileSync(out, "utf8")) as (typeof row)[])[0] ?? {};
           } catch {
@@ -394,6 +578,7 @@ function fetchPosting(url: string): Promise<{ text: string; closed: boolean; err
           }
           resolve({
             text,
+            location: typeof row.location === "string" && row.location.trim() ? row.location.trim() : null,
             closed: Boolean(row.closed),
             error: row.error ?? error ?? (text ? null : stderr.trim().split(/\r?\n/).pop() || "no text"),
           });
@@ -404,25 +589,44 @@ function fetchPosting(url: string): Promise<{ text: string; closed: boolean; err
   );
 }
 
+/** A page read for an earlier verdict is reused this long instead of asking the board again. */
+const SAVED_FRESH_MS = 3 * 86_400_000;
+
 /**
  * The longest stored description among the job's copies, unless it is short
- * or was cut at the store's cap — then the page itself is read, and the
- * stored text stays the fallback if that fails.
+ * or was cut at the store's cap — then the text an earlier verdict read in
+ * the last few days (posting_texts, when `reuseKey` names the job), else the
+ * page itself, with the stored text as the fallback if that fails. A criteria
+ * edit re-judges every shown card; without the reuse that was a hundred page
+ * reads, LinkedIn's among them.
  */
-async function postingText(copies: Job[]): Promise<Posting> {
+async function postingText(copies: Job[], reuseKey?: string): Promise<Posting> {
   const stored = copies.map((copy) => copy.description ?? "").sort((a, b) => b.length - a.length)[0] ?? "";
   if (stored.length >= ENOUGH_TEXT && stored.length < STORED_CAP) return { text: stored, closed: false, via: "stored" };
+  const saved = reuseKey ? getPostingText(reuseKey) : null;
+  if (saved && saved.text.length > stored.length && Date.now() - Date.parse(saved.read_at) < SAVED_FRESH_MS) {
+    return { text: saved.text, closed: false, via: "saved" };
+  }
   const url = copies[0]?.url;
-  const fetched = url ? await fetchPosting(url) : { text: "", closed: false, error: "no url" };
+  const fetched = url ? await fetchPosting(url) : { text: "", closed: false, error: "no url", location: null };
   // Measured: Himalayas pages answer even a real Chrome with Cloudflare's
   // "Just a moment…", 338 characters that Claude then dutifully judged.
   const walled = BOT_WALL.test(fetched.text.slice(0, 800));
   if (!walled && fetched.text.length >= 300 && fetched.text.length > stored.length) {
-    return { text: fetched.text, closed: fetched.closed, via: "fetched" };
+    return { text: fetched.text, closed: fetched.closed, via: "fetched", location: fetched.location };
   }
-  if (stored.length >= 200) return { text: stored, closed: fetched.closed, via: "stored" };
+  if (stored.length >= 200) return { text: stored, closed: fetched.closed, via: "stored", location: fetched.location };
   const why = walled ? "страница закрыта проверкой на бота" : fetched.error ?? "текста нет";
   throw new Error(`не удалось прочитать вакансию: ${why}`);
+}
+
+/** The posting's text as a verdict reads it, or "" when it cannot be read: for prompts that use it only as context. */
+export async function postingContext(copies: Job[]): Promise<string> {
+  try {
+    return (await postingText(copies)).text;
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -430,16 +634,40 @@ async function postingText(copies: Job[]): Promise<Posting> {
  * sits inside <posting>: it is the employer's text, not mine, and the system
  * prompt says so. A posting cannot close the block early.
  */
+/**
+ * The board's pay as the prompt states it: the figures as published, then the
+ * code's reading of them — PLN a month B2B-equivalent and where the floor
+ * falls (top or middle under it), the two cases the criteria tell apart. The
+ * user message is not part of the criteria version, so this wording can
+ * change without re-judging anything.
+ */
+function boardPay(job: Job): string | null {
+  if (!job.salary) return null;
+  const monthly = job.pay?.length ? payB2bPlnMonth(job.pay) : null;
+  const k = (amount: number) => `${(amount / 1000).toFixed(1).replace(".", ",").replace(/,0$/, "")} тыс.`;
+  const range = monthly ? [monthly.min, monthly.max].filter((amount): amount is number => amount !== null).map(k) : [];
+  const state = payVsFloor(job);
+  const notes = [
+    range.length > 0 ? `≈ ${[...new Set(range)].join("–")} PLN в месяц в пересчёте на B2B` : "",
+    state === "below" ? "верх ниже порога кандидата" : state === "midlow" ? "середина ниже порога кандидата" : "",
+  ].filter(Boolean);
+  return notes.length > 0 ? `${job.salary} (${notes.join("; ")})` : job.salary;
+}
+
 function prompt(job: Job, posting: Posting): string {
   const line = (label: string, value: string | null | undefined) => `${label}: ${value?.trim() || "не указано"}`;
   const board = [
     line("Вакансия", job.title),
     line("Компания", job.company),
-    line("Где", job.location),
+    // The page's own place when the board gave none: JobSpy dropped LinkedIn's
+    // "Poland", and Claude then doubted that the role was open there.
+    line("Где", job.location || posting.location),
     `Источник: ${job.source} · ${job.url}`,
-    line("Зарплата на площадке", job.salary ? `${job.salary}${belowSalaryFloor(job) ? " (верх ниже порога кандидата)" : ""}` : null),
+    line("Зарплата на площадке", boardPay(job)),
     line("Формат по данным площадки", job.workMode),
-    line("Уровень по данным площадки", job.seniorityLevel),
+    // LinkedIn's "Seniority level" (Associate, Mid-Senior level…) was read as the
+    // role's level and made skips; the text says what the role asks for.
+    line("Уровень по данным площадки", job.source === "linkedin" ? null : job.seniorityLevel),
     ...(posting.closed ? ["Страница вакансии сообщает, что она закрыта."] : []),
     "",
     "Текст вакансии со страницы:",
@@ -485,14 +713,68 @@ type Output = {
   seniority: string;
   mainStack: string[];
   salary: string;
+  pay: PayRange[];
   matches: string[];
   concerns: string[];
-  dealbreakers: string[];
+  dealbreakers: Dealbreaker[];
   verdict: Verdict;
   score: number;
   summary: string;
   hideReason: string;
 };
+
+/** A stop factor with its kind, so code can count and later weigh them by kind. */
+export type Dealbreaker = { factor: string; text: string };
+
+const FACTORS = ["format", "poland", "citizenship", "level", "stack", "role", "language", "closed"];
+
+/** Stop factors as stored: objects since FORMAT 3, plain strings before. */
+function dealbreakers(value: unknown): Dealbreaker[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): Dealbreaker | null => {
+      if (typeof item === "string") return item.trim() ? { factor: "", text: item.trim() } : null;
+      const row = (item ?? {}) as Record<string, unknown>;
+      const said = text(row["text"]);
+      return said ? { factor: FACTORS.includes(text(row["factor"])) ? text(row["factor"]) : "", text: said } : null;
+    })
+    .filter((item): item is Dealbreaker => item !== null)
+    .slice(0, 6);
+}
+
+/**
+ * The pay Claude read in the posting, as ranges the code can compare. Kept
+ * only when it makes sense: a known contract and unit, a currency code, a
+ * positive figure. Most LinkedIn and Indeed postings publish pay only in
+ * their text, so this is where the floor check gets it from.
+ */
+export function payFromDetails(value: unknown): PayRange[] {
+  if (!Array.isArray(value)) return [];
+  const contracts = ["b2b", "uop", "mandate", "other"];
+  const units = ["hour", "day", "month", "year"];
+  const amount = (n: unknown) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null);
+  return value
+    .map((item): PayRange | null => {
+      const row = (item ?? {}) as Record<string, unknown>;
+      const contract = text(row["contract"]);
+      const unit = text(row["unit"]);
+      const currency = text(row["currency"]).toUpperCase();
+      const min = amount(row["min"]);
+      const max = amount(row["max"]);
+      if (!contracts.includes(contract) || !units.includes(unit) || !/^[A-Z]{3}$/.test(currency)) return null;
+      if (min === null && max === null) return null;
+      return {
+        contract: contract as PayRange["contract"],
+        min,
+        max,
+        currency,
+        unit: unit as PayRange["unit"],
+        gross: contract === "uop",
+      };
+    })
+    .filter((range): range is PayRange => range !== null)
+    .slice(0, 4);
+}
 
 const strings = (value: unknown, limit: number): string[] =>
   Array.isArray(value)
@@ -515,9 +797,10 @@ function readOutput(raw: unknown): Output {
     seniority: text(o["seniority"]),
     mainStack: strings(o["mainStack"], 8),
     salary: text(o["salary"]),
+    pay: payFromDetails(o["pay"]),
     matches: strings(o["matches"], 6),
     concerns: strings(o["concerns"], 6),
-    dealbreakers: strings(o["dealbreakers"], 6),
+    dealbreakers: dealbreakers(o["dealbreakers"]),
     verdict,
     score: Number.isFinite(score) ? Math.min(100, Math.max(0, score)) : 0,
     summary: text(o["summary"]),
@@ -567,19 +850,23 @@ export function limitStop(reply: Record<string, unknown> | null, message: string
   return new QueueStop(`лимит Claude до ${clock(until)}`, until);
 }
 
-async function askClaude(
-  job: Job,
-  posting: Posting,
-): Promise<{ output: Output; sessionId: string; model: string; version: string; costUsd: number | null; durationMs: number }> {
+export type ClaudeReply = { output: unknown; sessionId: string; model: string; costUsd: number | null; durationMs: number };
+
+/**
+ * One `claude -p` run under the rules above: no tools, nothing on disk
+ * steering it, the answer held to `schema`, the model and effort from
+ * Настройки. Throws QueueStop for what stops every run (the plan's limit, a
+ * lost login) and Error for the rest; both carry a message for the page.
+ */
+export async function runClaude(run: { system: string; prompt: string; schema: object; name: string }): Promise<ClaudeReply> {
   const { command, prefix } = await findClaude();
-  const { prompt: system, version } = criteria();
   const settings = claudeSettings();
   const sessionId = randomUUID();
   // Passed as a file — several kilobytes of Cyrillic with quotes — written for
   // this run only and outside the sessions' folder, so nothing left there can
   // become the prompt of a later run. The session keeps its own copy of it.
   const systemFile = join(scratchDir(), `system-${sessionId}.md`);
-  writeFileSync(systemFile, system);
+  writeFileSync(systemFile, run.system);
   const started = Date.now();
   const args = [
     ...prefix,
@@ -591,9 +878,9 @@ async function askClaude(
     "--tools", "",
     "--strict-mcp-config",
     "--output-format", "json",
-    "--json-schema", JSON.stringify(SCHEMA),
+    "--json-schema", JSON.stringify(run.schema),
     "--session-id", sessionId,
-    "--name", `Оценка: ${job.company} — ${job.title}`.slice(0, 120),
+    "--name", run.name.slice(0, 120),
   ];
   const result = await new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
     const child = spawn(command, args, { cwd: workDir(), env: childEnv(), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
@@ -616,7 +903,7 @@ async function askClaude(
     });
     // The prompt goes in on stdin, not the command line: a posting can be 15k characters.
     child.stdin.on("error", () => {});
-    child.stdin.end(prompt(job, posting));
+    child.stdin.end(run.prompt);
   });
   rmSync(systemFile, { force: true });
 
@@ -638,14 +925,33 @@ async function askClaude(
   }
   const models = Object.keys((reply["modelUsage"] as Record<string, unknown> | undefined) ?? {});
   return {
-    output: readOutput(reply["structured_output"]),
+    output: reply["structured_output"],
     sessionId: text(reply["session_id"]) || sessionId,
     model: models[0] ?? settings.model,
-    // The criteria this run was given, not whatever the file says by now.
-    version,
     costUsd: typeof reply["total_cost_usd"] === "number" ? (reply["total_cost_usd"] as number) : null,
     durationMs: Date.now() - started,
   };
+}
+
+/**
+ * One verdict on a given text, nothing stored — for checking criteria on saved
+ * texts (src/verdict-eval.ts). `criteriaText` judges with a draft of
+ * src/verdict-criteria.md instead of the file.
+ */
+export function judgeText(job: Job, text: string, criteriaText?: string) {
+  return askClaude(job, { text, closed: false, via: "saved" }, criteriaText, "Сверка");
+}
+
+async function askClaude(
+  job: Job,
+  posting: Posting,
+  criteriaText?: string,
+  label = "Оценка",
+): Promise<Omit<ClaudeReply, "output"> & { output: Output; version: string }> {
+  const { prompt: system, version } = criteriaText === undefined ? criteria() : systemPrompt(criteriaText);
+  const reply = await runClaude({ system, prompt: prompt(job, posting), schema: SCHEMA, name: `${label}: ${job.company} — ${job.title}` });
+  // The criteria this run was given, not whatever the file says by now.
+  return { ...reply, output: readOutput(reply.output), version };
 }
 
 /* ------------------------------------------------------------------ */
@@ -662,17 +968,27 @@ const today = () => new Date().toLocaleDateString("sv");
  * is redone — after a criteria edit, every one of them — and a failed run
  * stores nothing, yet both used the plan.
  */
-export function autoRunsToday(): number {
+function runCounter(): { runs: number; soft: number } {
   try {
-    const counter = JSON.parse(getMeta(RUNS_KEY) ?? "{}") as { day?: string; runs?: number };
-    return counter.day === today() ? Number(counter.runs) || 0 : 0;
+    const counter = JSON.parse(getMeta(RUNS_KEY) ?? "{}") as { day?: string; runs?: number; soft?: number };
+    return counter.day === today() ? { runs: Number(counter.runs) || 0, soft: Number(counter.soft) || 0 } : { runs: 0, soft: 0 };
   } catch {
-    return 0;
+    return { runs: 0, soft: 0 };
   }
 }
 
-function countAutoRun(): void {
-  setMeta(RUNS_KEY, JSON.stringify({ day: today(), runs: autoRunsToday() + 1 }));
+export function autoRunsToday(): number {
+  return runCounter().runs;
+}
+
+/** Of today's background runs, how many read a tier-2 posting (the soft lane). */
+export function softRunsToday(): number {
+  return runCounter().soft;
+}
+
+function countAutoRun(lane: Lane): void {
+  const counter = runCounter();
+  setMeta(RUNS_KEY, JSON.stringify({ day: today(), runs: counter.runs + 1, soft: counter.soft + (lane === "soft" ? 1 : 0) }));
 }
 
 function autoBudget(): number {
@@ -686,10 +1002,14 @@ function autoBudget(): number {
 
 export type TaskState = "queued" | "reading" | "thinking";
 
+/** "main": a card the Search tab shows; "soft": a tier-2 posting read in the background, shown only if it fits. */
+type Lane = "main" | "soft";
+
 type Task = {
   key: string;
   copies: Job[];
   requested: "auto" | "manual";
+  lane: Lane;
   state: TaskState;
   queuedAt: number;
 };
@@ -702,7 +1022,7 @@ let pauseReason = "";
 let pauseTimer: NodeJS.Timeout | null = null;
 
 /** Asks for a verdict on a job. A manual request jumps the queue and clears an earlier failure. */
-export function requestVerdict(key: string, copies: Job[], requested: "auto" | "manual"): void {
+export function requestVerdict(key: string, copies: Job[], requested: "auto" | "manual", lane: Lane = "main"): void {
   if (copies.length === 0) return;
   const queued = tasks.get(key);
   if (queued) {
@@ -710,7 +1030,7 @@ export function requestVerdict(key: string, copies: Job[], requested: "auto" | "
     return;
   }
   if (requested === "manual") failures.delete(key);
-  tasks.set(key, { key, copies, requested, state: "queued", queuedAt: Date.now() });
+  tasks.set(key, { key, copies, requested, lane, state: "queued", queuedAt: Date.now() });
   pump();
 }
 
@@ -730,7 +1050,13 @@ function pump(): void {
   while (running < CONCURRENCY) {
     const next = [...tasks.values()]
       .filter((task) => task.state === "queued")
-      .sort((a, b) => (a.requested === b.requested ? a.queuedAt - b.queuedAt : a.requested === "manual" ? -1 : 1))[0];
+      .sort((a, b) =>
+        a.requested !== b.requested
+          ? a.requested === "manual" ? -1 : 1
+          : a.lane !== b.lane
+            ? a.lane === "main" ? -1 : 1
+            : a.queuedAt - b.queuedAt,
+      )[0];
     if (!next) return;
     running++;
     next.state = "reading";
@@ -760,9 +1086,11 @@ async function evaluate(task: Task): Promise<boolean> {
     task.state = "reading";
     // The store as it is now, not as it was when the job was queued: a refresh
     // in between may have brought the text (Himalayas carries it since then).
-    const posting = await postingText([...task.copies, ...findPostings(task.key)]);
+    // A card asked for by hand reads the page again: the text may be why it was asked.
+    const posting = await postingText([...task.copies, ...findPostings(task.key)], task.requested === "auto" ? task.key : undefined);
+    if (posting.via !== "saved") savePostingText(task.key, posting.text, posting.via);
     task.state = "thinking";
-    if (task.requested === "auto") countAutoRun();
+    if (task.requested === "auto") countAutoRun(task.lane);
     const answer = await askClaude(job, posting);
     saveVerdict({
       url: job.url,
@@ -804,30 +1132,64 @@ async function evaluate(task: Task): Promise<boolean> {
  * criteria. Newest first within each — they are the ones I am about to look at.
  * A queued job that has left the list since (hidden, applied to) is dropped.
  */
-export function queueShown(jobs: Array<{ key: string; job: Job }>): void {
-  const shown = new Set(jobs.map(({ key }) => key));
+export function queueShown(jobs: Array<{ key: string; job: Job }>, soft: Array<{ key: string; job: Job }> = []): void {
+  const shown = new Set([...jobs, ...soft].map(({ key }) => key));
   for (const task of [...tasks.values()]) {
     if (task.requested === "auto" && task.state === "queued" && !shown.has(task.key)) tasks.delete(task.key);
   }
-  if (!claudeSettings().auto || Date.now() < pausedUntil) return;
+  const settings = claudeSettings();
+  if (!settings.auto || Date.now() < pausedUntil) return;
   const version = criteriaVersion();
   if (version === "") return;
   let budget = autoBudget();
   if (budget <= 0) return;
-  const stored = new Map(listVerdicts().map((row) => [row.job_key, row.criteria]));
+  // Old verdicts are redone only as Настройки → Claude says, and never with
+  // the share of the cap kept for postings that appear later today.
+  const queuedAuto = [...tasks.values()].filter((task) => task.requested === "auto").length;
+  let staleBudget = Math.floor(settings.daily * (1 - NEW_RESERVE)) - autoRunsToday() - queuedAuto;
+  const stored = new Map(listVerdicts().map((row) => [row.job_key, row]));
+  const wanted = (key: string) => {
+    const row = stored.get(key);
+    if (!row) return true;
+    if (row.criteria === version) return false;
+    return settings.rejudge === "all" || (settings.rejudge === "active" && row.verdict !== "skip");
+  };
   const retryable = (key: string) => {
     const failure = failures.get(key);
     return !failure || (failure.tries < MAX_AUTO_TRIES && Date.now() - failure.at > RETRY_AFTER_MS);
   };
   const candidates = jobs
-    .filter(({ key }) => !tasks.has(key) && stored.get(key) !== version && retryable(key))
+    .filter(({ key }) => !tasks.has(key) && wanted(key) && retryable(key))
     .sort((a, b) => {
       const missing = Number(stored.has(a.key)) - Number(stored.has(b.key));
       return missing !== 0 ? missing : (b.job.firstSeenAt ?? "").localeCompare(a.job.firstSeenAt ?? "");
     });
   for (const { key, job } of candidates) {
-    if (budget-- <= 0) break;
+    if (budget <= 0) break;
+    const redo = stored.has(key);
+    if (redo && staleBudget <= 0) continue;
+    budget--;
+    if (redo) staleBudget--;
     requestVerdict(key, [job, ...findPostings(key)], "auto");
+  }
+
+  // The soft lane, only when the shown cards have what they need: postings
+  // never judged, and — after a criteria edit — only those that fit last time
+  // (a skip there is not on screen to go stale). Never past its share of the cap.
+  if (!settings.soft || candidates.some(({ key }) => !tasks.has(key) && !stored.has(key))) return;
+  const queuedSoft = [...tasks.values()].filter((task) => task.lane === "soft").length;
+  let softBudget = Math.min(budget, Math.floor(settings.daily * SOFT_SHARE) - softRunsToday() - queuedSoft);
+  const softWanted = (key: string) => {
+    const row = stored.get(key);
+    if (!row) return true;
+    return row.criteria !== version && row.verdict !== "skip" && settings.rejudge !== "none";
+  };
+  const softCandidates = soft
+    .filter(({ key }) => !tasks.has(key) && softWanted(key) && retryable(key))
+    .sort((a, b) => (b.job.firstSeenAt ?? "").localeCompare(a.job.firstSeenAt ?? ""));
+  for (const { key, job } of softCandidates) {
+    if (softBudget-- <= 0) break;
+    requestVerdict(key, [job, ...findPostings(key)], "auto", "soft");
   }
 }
 
@@ -856,10 +1218,14 @@ export type VerdictView = {
   matches: string[];
   concerns: string[];
   dealbreakers: string[];
+  /** Each stop factor's kind (format, stack, language…), in the same order; "" before FORMAT 3. */
+  dealbreakerFactors: string[];
   hideReason: string;
   workMode: string;
   workModeQuote: string;
   salary: string;
+  /** The pay Claude read in the text, as ranges; [] when none or before FORMAT 3. */
+  pay: PayRange[];
   /** What the card's facts and tags show: the role's stack, its level, Poland or not. */
   mainStack: string[];
   seniority: string;
@@ -870,26 +1236,44 @@ export type VerdictView = {
   stale: boolean;
   /** There is a session to open in Claude. */
   session: boolean;
+  /** «Верно» / «Мимо»: what I said the verdict should be, and when; null when not marked. */
+  feedback: { expected: Verdict; verdict: Verdict; at: string } | null;
+  /**
+   * Claude said "skip" for kinds of stop factor Настройки soften: `verdict`
+   * then reads "maybe" and this names the kinds; null otherwise.
+   */
+  softened: string[] | null;
 };
 
-export function verdictView(row: VerdictRow, version = criteriaVersion()): VerdictView {
+export function verdictView(
+  row: VerdictRow,
+  version = criteriaVersion(),
+  mark: FeedbackRow | undefined = undefined,
+  softenFactors: string[] = [],
+): VerdictView {
   let details: Record<string, unknown> = {};
   try {
     details = JSON.parse(row.details) as Record<string, unknown>;
   } catch {
     // an unreadable row still shows its verdict and summary
   }
+  // Настройки → Claude: a skip that stands only on softened kinds of stop factor shows in «Проверить».
+  const kinds = [...new Set(dealbreakers(details["dealbreakers"]).map((item) => item.factor))];
+  const softened =
+    row.verdict === "skip" && kinds.length > 0 && kinds.every((kind) => kind !== "" && softenFactors.includes(kind)) ? kinds : null;
   return {
-    verdict: row.verdict,
+    verdict: softened ? "maybe" : row.verdict,
     score: row.score ?? 0,
     summary: row.summary ?? "",
     matches: strings(details["matches"], 6),
     concerns: strings(details["concerns"], 6),
-    dealbreakers: strings(details["dealbreakers"], 6),
+    dealbreakers: dealbreakers(details["dealbreakers"]).map((item) => item.text),
+    dealbreakerFactors: dealbreakers(details["dealbreakers"]).map((item) => item.factor),
     hideReason: text(details["hideReason"]),
     workMode: text(details["workMode"]),
     workModeQuote: text(details["workModeQuote"]),
     salary: text(details["salary"]),
+    pay: payFromDetails(details["pay"]),
     mainStack: strings(details["mainStack"], 8),
     seniority: text(details["seniority"]),
     canWorkFromPoland: text(details["canWorkFromPoland"]),
@@ -897,13 +1281,17 @@ export function verdictView(row: VerdictRow, version = criteriaVersion()): Verdi
     model: row.model ?? "",
     stale: row.criteria !== version,
     session: Boolean(row.session_id),
+    feedback: mark ? { expected: mark.expected as Verdict, verdict: mark.verdict as Verdict, at: mark.at } : null,
+    softened,
   };
 }
 
 /** Every stored verdict (or those made at or after `since`), by job key. */
 export function verdictViews(since?: string): Map<string, VerdictView> {
   const version = criteriaVersion();
-  return new Map(listVerdicts(since).map((row) => [row.job_key, verdictView(row, version)]));
+  const marks = new Map(listFeedback().map((mark) => [mark.job_key, mark]));
+  const soften = claudeSettings().softenFactors;
+  return new Map(listVerdicts(since).map((row) => [row.job_key, verdictView(row, version, marks.get(row.job_key), soften)]));
 }
 
 export function verdictStatus() {
@@ -954,6 +1342,37 @@ async function cvText(file: string): Promise<string> {
   }
 }
 
+/** Asked for on 2026-10-24, like scripts/apply.mjs postedAbove(): a posting that offers more is asked for what it offers. */
+export const SALARY_ABOVE =
+  "Если вилка в вакансии выше цифры из salary (тот же тип договора и валюта), называй верх вилки, а не свою цифру: не занижай.";
+
+/** Asked for by the candidate on 2026-10-24: a form's open answers read as written by a person. */
+export const OPEN_ANSWER_STYLE =
+  "Развёрнутый ответ для анкеты — максимум 3–4 предложения, простым человеческим языком, как кандидат сам написал бы живому рекрутеру, и на языке вопроса. Одна конкретная история с результатом вместо перечня технологий. Без списков, заголовков и канцелярита, без громких слов («passionate», «leveraged», «spearheaded», «синергия») и без вступлений вроде «Great question». Длиннее — только если кандидат сам попросит.";
+
+/**
+ * What the forms are filled from: profile.json as written (with the path it
+ * was read from), and the CV's text from the PDF the forms upload (cvPath) —
+ * `cv` overrides that path, for the tests. Empty strings for what is missing.
+ */
+export async function candidateFacts(cv?: string): Promise<{ profileFile: string; profile: string; cvFile: string; resume: string }> {
+  let profile = "";
+  try {
+    profile = readFileSync(PROFILE_FILE, "utf8").trim();
+  } catch {
+    // no profile: the callers say so rather than leaving Claude to search for it
+  }
+  let cvFile = cv ?? "";
+  if (!cvFile && profile) {
+    try {
+      cvFile = String((JSON.parse(profile) as { cvPath?: unknown }).cvPath ?? "");
+    } catch {
+      // an unreadable profile has no CV path either
+    }
+  }
+  return { profileFile: PROFILE_FILE, profile, cvFile, resume: cvFile ? await cvText(cvFile) : "" };
+}
+
 /**
  * The CLAUDE.md of the sessions' folder: the candidate's profile and CV, for
  * when a discussion turns to an application form. The criteria name
@@ -971,36 +1390,21 @@ async function cvText(file: string): Promise<string> {
  * session is resumed — old sessions included.
  */
 export async function discussionBrief(cv?: string): Promise<string> {
-  let profile = "";
-  try {
-    profile = readFileSync(PROFILE_FILE, "utf8").trim();
-  } catch {
-    // no profile: the brief says so rather than leaving Claude to search for it
-  }
-  let cvFile = cv ?? "";
-  if (!cvFile && profile) {
-    try {
-      cvFile = String((JSON.parse(profile) as { cvPath?: unknown }).cvPath ?? "");
-    } catch {
-      // an unreadable profile has no CV path either
-    }
-  }
-  const resume = cvFile ? await cvText(cvFile) : "";
+  const { profile, cvFile, resume } = await candidateFacts(cv);
   return [
     "# Разговоры об оценках вакансий (Job Hunt)",
     "",
     "Каждая сессия здесь — оценка одной вакансии; кандидат открыл её кнопкой «Обсудить с Claude».",
     "",
     profile
-      ? `Факты о кандидате для анкет и вопросов работодателя — ниже, из ${PROFILE_FILE}. Отвечая на вопросы анкеты, бери их отсюда: ожидания по зарплате — salary (на B2B это нетто, на трудовом договоре — брутто), срок уведомления, разрешение на работу (workAuthorisation), языки, готовые ответы из answers. Пороги в критериях оценки — нижняя граница для вердикта, а не то, что писать в анкету.`
+      ? `Факты о кандидате для анкет и вопросов работодателя — ниже, из ${PROFILE_FILE}. Отвечая на вопросы анкеты, бери их отсюда: ожидания по зарплате — salary (на B2B это нетто, на трудовом договоре — брутто), срок уведомления, разрешение на работу (workAuthorisation), языки, готовые ответы из answers. Пороги в критериях оценки — нижняя граница для вердикта, а не то, что писать в анкету. ${SALARY_ABOVE}`
       : `Профиля кандидата нет: ${PROFILE_FILE} не найден. Чего нет в критериях, спроси у кандидата.`,
     "",
     resume
       ? `Резюме кандидата — ниже, текстом из ${cvFile}: этот PDF уходит работодателю с каждой анкетой. Открытые вопросы анкеты — о самом сложном проекте, о трудной задаче, об опыте вне фронтенда, «почему мы» — отвечай по нему: выбери из резюме проект и историю, которые ближе всего к вопросу и к вакансии, и бери оттуда конкретику — что за продукт, в чём была сложность, что кандидат сделал сам, какое решение, какой результат с цифрами. Пиши от первого лица, от имени кандидата. Чего нет ни в резюме, ни в профиле (размер команды, число пользователей, другие цифры), не придумывай — спроси у кандидата.`
       : `Резюме не прочиталось${cvFile ? `: ${cvFile}` : " — в профиле нет cvPath"}. Для открытых вопросов анкеты спроси у кандидата подробности о проектах.`,
     "",
-    // Asked for by the candidate on 2026-10-24: a form's open answers read as written by a person.
-    "Развёрнутый ответ для анкеты — максимум 3–4 предложения, простым человеческим языком, как кандидат сам написал бы живому рекрутеру, и на языке вопроса. Одна конкретная история с результатом вместо перечня технологий. Без списков, заголовков и канцелярита, без громких слов («passionate», «leveraged», «spearheaded», «синергия») и без вступлений вроде «Great question». Длиннее — только если кандидат сам попросит.",
+    OPEN_ANSWER_STYLE,
     "",
     "Заполнить и отправить анкету умеет сам Job Hunt: кнопка «Подать» на карточке — сначала пробный прогон с показом заполненных полей, отправка после проверки.",
     ...(profile ? ["", "## Профиль", "", "```json", profile, "```"] : []),

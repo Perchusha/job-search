@@ -12,7 +12,8 @@
  *       APPLIED / DISMISSED flags resolved against the funnel.
  *   node scripts/funnel.mjs screen [--commit] [--json <file>]
  *       Sort the search into apply / check / dismiss / needs-you buckets with
- *       a reason each. Dry-run by default; --commit writes the dismissals.
+ *       a reason each. Writes nothing: the dashboard applies the same rules on
+ *       every read. --commit hides the hits for good, reason prefixed "auto:".
  *   node scripts/funnel.mjs dismiss <url> --reason "..." [--title ..] [--company ..]
  *   node scripts/funnel.mjs undismiss <url>
  *   node scripts/funnel.mjs add --url <url> --title ".." --company ".." [--source ..] [--location ..] [--salary ..]
@@ -91,6 +92,8 @@ function parseArgs(argv) {
 // One copy of the rules: src/screening.ts (mechanics) and src/profile.ts (the
 // lists). Plain Node imports TypeScript here (type stripping, Node 22.18+).
 import { buildContext, decide } from "../src/screening.ts";
+import { officeAcceptable } from "../src/profile.ts";
+import { loadPreferences } from "../src/preferences.ts";
 
 function ageDays(postedAt) {
   if (!postedAt) return null;
@@ -103,6 +106,8 @@ function ageDays(postedAt) {
 /* ------------------------------------------------------------------ */
 
 async function loadContext() {
+  // «Мои условия» from the database the dashboard writes: the giants for officeOk, the floor, Polish.
+  loadPreferences();
   const [{ applications }, { dismissed }] = await Promise.all([
     api("GET", "/api/applications"),
     api("GET", "/api/dismissed"),
@@ -163,7 +168,12 @@ async function cmdScreen(flags) {
   const [result, context] = await Promise.all([loadSearch(flags), loadContext()]);
   const decisions = [];
   result.jobs.forEach((job, index) => {
-    const decision = decide({ ...job, url: job.applyUrl }, context, decisions);
+    // The dashboard's own decision when it sent one: it has the rules switched
+    // off in Настройки → Правила, the cards freed by «Правило ошиблось» and the
+    // saved «Мои условия», which this process does not read.
+    const decision = job.screen
+      ? { bucket: job.screen.bucket, reason: job.screen.reason, flags: job.screen.flags ?? [] }
+      : decide({ ...job, url: job.applyUrl }, context, decisions);
     decisions.push({ index, job, ...decision });
   });
 
@@ -191,6 +201,10 @@ async function cmdScreen(flags) {
       url: job.applyUrl,
       location: job.location,
       salary: job.salary,
+      // What apply-batch needs to act like «Подать»: the low-pay stop, --pay, --office-ok.
+      pay: job.pay ?? null,
+      belowSalaryFloor: Boolean(job.belowSalaryFloor),
+      officeOk: officeAcceptable({ company: job.company, location: job.location, locationRestrictions: [] }),
       postedAt: job.postedAt,
       fit: job.fit,
       match: job.match.level,
@@ -203,7 +217,11 @@ async function cmdScreen(flags) {
 
   const toDismiss = decisions.filter((row) => row.bucket === "dismiss");
   if (!flags.commit) {
-    console.log(`\ndry run: ${toDismiss.length} would be hidden. Re-run with --commit to hide them.`);
+    // The dashboard and find_jobs apply these rules on every read, so nothing
+    // needs writing: --commit only makes today's hits permanent.
+    console.log(
+      `\n${toDismiss.length} rule hits, already left out of the Search tab and find_jobs. Nothing written (--commit would hide them for good, as "auto: …").`,
+    );
     return;
   }
   let hidden = 0;
@@ -212,7 +230,10 @@ async function cmdScreen(flags) {
       url: row.job.applyUrl,
       title: row.job.title,
       company: row.job.company,
-      reason: row.reason,
+      // "auto:" marks a hide a rule wrote: screening.ts does not take it for my
+      // own judgement of the role (written bare, rule hits from the 10-13 run
+      // went on to hide other roles as "same role hidden earlier").
+      reason: `auto: ${row.reason}`,
     });
     if (response.result !== "already_hidden") hidden += 1;
   }

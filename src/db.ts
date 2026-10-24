@@ -263,6 +263,109 @@ function migrate(database: Database.Database): void {
       evaluated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_verdicts_evaluated_at ON verdicts(evaluated_at);
+
+    /*
+     * The posting text a verdict last read, per job. LinkedIn, nofluffjobs and
+     * justjoin.it store no description, so this is the only copy of what
+     * Claude judged: without it a criteria change cannot be checked on the
+     * same texts, and re-judging means reading every page again. Before this
+     * table the text lived only in Claude Code's session files, which are
+     * deleted after 30 days. via: stored | fetched | session (recovered from
+     * one of those files).
+     */
+    /*
+     * The text of src/verdict-criteria.md under each criteria version, from
+     * the first time the version was used. verdicts.criteria holds only the
+     * hash: without the text, "по старым критериям" could not say what changed,
+     * and an edit could not be taken back.
+     */
+    CREATE TABLE IF NOT EXISTS criteria_versions (
+      version       TEXT PRIMARY KEY,
+      text          TEXT NOT NULL,
+      first_seen_at TEXT NOT NULL
+    );
+
+    /*
+     * «Верно» / «Мимо» on a card: what Claude's verdict should have been for
+     * this posting, in my words — the labels the criteria are checked against
+     * (src/verdict-eval.ts). One row per job, the latest mark; verdict and
+     * criteria are what was on the card when I marked it.
+     */
+    CREATE TABLE IF NOT EXISTS verdict_feedback (
+      job_key  TEXT PRIMARY KEY,
+      expected TEXT NOT NULL,
+      verdict  TEXT NOT NULL,
+      score    INTEGER,
+      criteria TEXT NOT NULL,
+      at       TEXT NOT NULL
+    );
+
+    /*
+     * What I did with a card and what Claude had said about it at that
+     * moment: hide (with the reason), restore, add to the funnel, mark. The
+     * verdicts table is overwritten on every re-run, and dismissed and
+     * applications keep no verdict, so without this no action could be set
+     * against the verdict it answered.
+     */
+    CREATE TABLE IF NOT EXISTS decisions (
+      id       INTEGER PRIMARY KEY,
+      job_key  TEXT NOT NULL,
+      action   TEXT NOT NULL,
+      reason   TEXT,
+      verdict  TEXT,
+      score    INTEGER,
+      criteria TEXT,
+      at       TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_decisions_job_key ON decisions(job_key);
+
+    CREATE TABLE IF NOT EXISTS posting_texts (
+      job_key TEXT PRIMARY KEY,
+      text    TEXT NOT NULL,
+      via     TEXT NOT NULL,
+      read_at TEXT NOT NULL
+    );
+
+    /*
+     * «Правило ошиблось»: cards a screening rule hid that I want shown anyway
+     * (src/screening.ts lets them past every hiding rule). The rule and the
+     * card as they were, so Настройки → Правила can list them and the misfire
+     * is on record against the rule.
+     */
+    CREATE TABLE IF NOT EXISTS rule_overrides (
+      job_key TEXT PRIMARY KEY,
+      reason  TEXT NOT NULL,
+      title   TEXT,
+      company TEXT,
+      at      TEXT NOT NULL
+    );
+
+    /*
+     * Настройки → Компании и память: a blocked company given back ("company",
+     * its companyKey) or a hide that should stop teaching ("hide", its job
+     * key). The hide itself stays — that posting is still hidden.
+     */
+    /*
+     * Which search query found a stored posting (one row per query that
+     * returned it), for Настройки → Поиск: what each query brings, and what
+     * only it brings. Boards read whole each pass have none.
+     */
+    CREATE TABLE IF NOT EXISTS posting_queries (
+      source     TEXT NOT NULL,
+      job_key    TEXT NOT NULL,
+      query      TEXT NOT NULL,
+      first_seen TEXT NOT NULL,
+      last_seen  TEXT NOT NULL,
+      PRIMARY KEY (source, job_key, query)
+    );
+
+    CREATE TABLE IF NOT EXISTS memory_forget (
+      kind  TEXT NOT NULL,
+      key   TEXT NOT NULL,
+      label TEXT,
+      at    TEXT NOT NULL,
+      PRIMARY KEY (kind, key)
+    );
   `);
 
   /*
@@ -597,6 +700,11 @@ export function undismissJob(url: string): boolean {
   );
 }
 
+/** undismissJob by the job's key, for copies known only by key (dedupe aliases). */
+export function undismissKey(key: string): boolean {
+  return getDb().prepare("DELETE FROM dismissed WHERE url_key = ?").run(key).changes > 0;
+}
+
 /** jobKeys of every hidden job — compare them with jobKey(job.url). */
 export function listDismissedKeys(): string[] {
   return getDb()
@@ -639,11 +747,16 @@ export function upsertPostings(source: string, jobs: Job[]): { inserted: number;
   const update = database.prepare(
     "UPDATE postings SET data = ?, posted_at = ?, last_seen = ? WHERE source = ? AND job_key = ?",
   );
+  const found = database.prepare(
+    `INSERT INTO posting_queries (source, job_key, query, first_seen, last_seen) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(source, job_key, query) DO UPDATE SET last_seen = excluded.last_seen`,
+  );
   let inserted = 0;
   let updated = 0;
   database.transaction(() => {
-    for (const job of jobs) {
+    for (const { foundBy, ...job } of jobs) {
       const key = jobKey(job.url);
+      if (foundBy) found.run(source, key, foundBy, now, now);
       const data = JSON.stringify(job);
       if (existing.get(source, key)) {
         update.run(data, job.postedAt, now, source, key);
@@ -657,6 +770,24 @@ export function upsertPostings(source: string, jobs: Job[]): { inserted: number;
     }
   })();
   return { inserted, updated };
+}
+
+/** The queries behind the postings still stored. */
+export function listPostingQueries(): Array<{ source: string; job_key: string; query: string }> {
+  return getDb()
+    .prepare<[], { source: string; job_key: string; query: string }>(
+      `SELECT q.source, q.job_key, q.query FROM posting_queries q
+       JOIN postings p ON p.source = q.source AND p.job_key = q.job_key`,
+    )
+    .all();
+}
+
+/** Stored postings per board. */
+export function postingCounts(): Record<string, number> {
+  const rows = getDb()
+    .prepare<[], { source: string; n: number }>("SELECT source, COUNT(*) AS n FROM postings GROUP BY source")
+    .all();
+  return Object.fromEntries(rows.map((row) => [row.source, row.n]));
 }
 
 export function loadPostings(sources: readonly string[]): StoredJob[] {
@@ -706,11 +837,19 @@ export function prunePostings(incrementalSources: readonly string[]): number {
       .prepare("DELETE FROM postings WHERE source = ? AND MIN(first_seen, COALESCE(posted_at, first_seen)) < ?")
       .run(source, old).changes;
   }
+  if (removed > 0) {
+    database.exec(
+      `DELETE FROM posting_queries WHERE NOT EXISTS
+         (SELECT 1 FROM postings p WHERE p.source = posting_queries.source AND p.job_key = posting_queries.job_key)`,
+    );
+  }
   return removed;
 }
 
 export type FetchState = {
   lastSuccessAt: string | null;
+  /** When that successful run started: every posting it listed has last_seen at or after this. */
+  lastSuccessStartedAt: string | null;
   lastRunAt: string | null;
   /** Error of the most recent finished run, if it failed. */
   lastError: string | null;
@@ -721,8 +860,8 @@ export type FetchState = {
 export function lastFetch(source: string): FetchState {
   const database = getDb();
   const success = database
-    .prepare<[string], { finished_at: string }>(
-      "SELECT finished_at FROM fetch_runs WHERE source = ? AND finished_at IS NOT NULL AND error IS NULL ORDER BY id DESC LIMIT 1",
+    .prepare<[string], { started_at: string; finished_at: string }>(
+      "SELECT started_at, finished_at FROM fetch_runs WHERE source = ? AND finished_at IS NOT NULL AND error IS NULL ORDER BY id DESC LIMIT 1",
     )
     .get(source);
   const last = database
@@ -736,6 +875,7 @@ export function lastFetch(source: string): FetchState {
     Date.now() - Date.parse(last.started_at) < 15 * 60_000;
   return {
     lastSuccessAt: success?.finished_at ?? null,
+    lastSuccessStartedAt: success?.started_at ?? null,
     lastRunAt: last?.finished_at ?? last?.started_at ?? null,
     lastError: last?.finished_at ? last.error : null,
     running,
@@ -902,6 +1042,125 @@ export function listVerdicts(since?: string): VerdictRow[] {
   return since
     ? getDb().prepare<[string], VerdictRow>("SELECT * FROM verdicts WHERE evaluated_at >= ?").all(since)
     : getDb().prepare<[], VerdictRow>("SELECT * FROM verdicts").all();
+}
+
+export type FeedbackRow = { job_key: string; expected: string; verdict: string; score: number | null; criteria: string; at: string };
+
+/** «Верно» / «Мимо»: the verdict this posting should have had. A later mark replaces an earlier one. */
+export function saveFeedback(row: Omit<FeedbackRow, "at">): FeedbackRow {
+  const saved = { ...row, at: nowIso() };
+  getDb()
+    .prepare(
+      `INSERT INTO verdict_feedback (job_key, expected, verdict, score, criteria, at)
+       VALUES (@job_key, @expected, @verdict, @score, @criteria, @at)
+       ON CONFLICT(job_key) DO UPDATE SET expected = excluded.expected, verdict = excluded.verdict,
+         score = excluded.score, criteria = excluded.criteria, at = excluded.at`,
+    )
+    .run(saved);
+  return saved;
+}
+
+export function listFeedback(): FeedbackRow[] {
+  return getDb().prepare<[], FeedbackRow>("SELECT * FROM verdict_feedback").all();
+}
+
+export type DecisionRow = {
+  id: number;
+  job_key: string;
+  action: string;
+  reason: string | null;
+  verdict: string | null;
+  score: number | null;
+  criteria: string | null;
+  at: string;
+};
+
+/** One action on a card, with the verdict it answered (verdict.ts reads that in). */
+export function recordDecision(row: Omit<DecisionRow, "id" | "at">): void {
+  getDb()
+    .prepare(
+      `INSERT INTO decisions (job_key, action, reason, verdict, score, criteria, at)
+       VALUES (@job_key, @action, @reason, @verdict, @score, @criteria, @at)`,
+    )
+    .run({ ...row, at: nowIso() });
+}
+
+export function listDecisions(): DecisionRow[] {
+  return getDb().prepare<[], DecisionRow>("SELECT * FROM decisions ORDER BY id").all();
+}
+
+export type RuleOverrideRow = { job_key: string; reason: string; title: string | null; company: string | null; at: string };
+
+export function saveRuleOverride(row: Omit<RuleOverrideRow, "at">): RuleOverrideRow {
+  const saved = { ...row, at: nowIso() };
+  getDb()
+    .prepare(
+      `INSERT INTO rule_overrides (job_key, reason, title, company, at) VALUES (@job_key, @reason, @title, @company, @at)
+       ON CONFLICT(job_key) DO UPDATE SET reason = excluded.reason, title = excluded.title, company = excluded.company, at = excluded.at`,
+    )
+    .run(saved);
+  return saved;
+}
+
+export function deleteRuleOverride(key: string): boolean {
+  return getDb().prepare("DELETE FROM rule_overrides WHERE job_key = ?").run(key).changes > 0;
+}
+
+export function listRuleOverrides(): RuleOverrideRow[] {
+  return getDb().prepare<[], RuleOverrideRow>("SELECT * FROM rule_overrides ORDER BY at DESC").all();
+}
+
+export type ForgetRow = { kind: "company" | "hide"; key: string; label: string | null; at: string };
+
+export function saveForget(row: Omit<ForgetRow, "at">): ForgetRow {
+  const saved = { ...row, at: nowIso() };
+  getDb()
+    .prepare(
+      `INSERT INTO memory_forget (kind, key, label, at) VALUES (@kind, @key, @label, @at)
+       ON CONFLICT(kind, key) DO UPDATE SET label = excluded.label, at = excluded.at`,
+    )
+    .run(saved);
+  return saved;
+}
+
+export function deleteForget(kind: string, key: string): boolean {
+  return getDb().prepare("DELETE FROM memory_forget WHERE kind = ? AND key = ?").run(kind, key).changes > 0;
+}
+
+export function listForget(): ForgetRow[] {
+  return getDb().prepare<[], ForgetRow>("SELECT * FROM memory_forget ORDER BY at DESC").all();
+}
+
+export type CriteriaVersionRow = { version: string; text: string; first_seen_at: string };
+
+/** Keeps a criteria version's text the first time it is seen. */
+export function saveCriteriaVersion(version: string, text: string): void {
+  getDb()
+    .prepare("INSERT OR IGNORE INTO criteria_versions (version, text, first_seen_at) VALUES (?, ?, ?)")
+    .run(version, text, nowIso());
+}
+
+export function listCriteriaVersions(limit: number): CriteriaVersionRow[] {
+  return getDb()
+    .prepare<[number], CriteriaVersionRow>("SELECT * FROM criteria_versions ORDER BY first_seen_at DESC LIMIT ?")
+    .all(limit);
+}
+
+export type PostingText = { job_key: string; text: string; via: string; read_at: string };
+
+/** Keeps the text a verdict read; a later read of the same job replaces it. `readAt` only for recovered texts. */
+export function savePostingText(key: string, text: string, via: string, readAt = nowIso()): void {
+  getDb()
+    .prepare(
+      `INSERT INTO posting_texts (job_key, text, via, read_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(job_key) DO UPDATE SET text = excluded.text, via = excluded.via, read_at = excluded.read_at
+       WHERE excluded.read_at >= posting_texts.read_at`,
+    )
+    .run(key, text, via, readAt);
+}
+
+export function getPostingText(key: string): PostingText | null {
+  return getDb().prepare<[string], PostingText>("SELECT * FROM posting_texts WHERE job_key = ?").get(key) ?? null;
 }
 
 /** Every stored copy of a job: one per board that stored the same link. */

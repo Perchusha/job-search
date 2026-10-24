@@ -11,7 +11,7 @@
  * twice.
  */
 
-import { belowSalaryFloor, payB2bPlnMonth } from "./boards-pl.ts";
+import { belowSalaryFloor, payB2bPlnMonth, payVsFloor } from "./boards-pl.ts";
 import { lastFetch, listDismissedKeys, loadPostings } from "./db.ts";
 import { workSignals } from "./workmode.ts";
 import { jobKey } from "./jobkey.ts";
@@ -21,6 +21,7 @@ import {
   TARGET_QUERIES,
   fitTier,
   matchLevel,
+  officeAcceptable,
   relevanceBoost,
   seniorityBucket,
   stackFit,
@@ -78,6 +79,8 @@ export type SearchParams = {
   hoursOld?: number;
   /** LinkedIn: also fetch descriptions (one extra request per job — slow). */
   linkedinDescriptions?: boolean;
+  /** Himalayas: a second pass per query for roles open worldwide (sources.ts). */
+  himalayasWorldwide?: boolean;
 };
 
 /** Where jobs were lost between fetching and returning — shown to the user. */
@@ -108,6 +111,8 @@ export type SearchResult = {
   reports: SourceReport[];
   counts: SearchCounts;
   levelCounts: Record<string, number>;
+  /** What the fit gate left out (maxFitTier), for Настройки → Правила; empty without the gate. */
+  fitDropped: RankedJob[];
 };
 
 export const DEFAULT_SEARCH_LIMIT = 20;
@@ -132,9 +137,10 @@ export function rankJobs(jobs: RankedJob[]): RankedJob[] {
     if (bySeniority !== 0) return bySeniority;
 
     // The text asks for office days, or for fluent Polish: shown, labelled,
-    // and after the roles that do not.
+    // and after the roles that do not. Office days at a giant in Warsaw
+    // (profile.ts OFFICE_OK) are not friction.
     const friction = (job: RankedJob) =>
-      Number(workSignals(job).mode !== null || workSignals(job).polishRequired);
+      Number((workSignals(job).mode !== null && !officeAcceptable(job)) || workSignals(job).polishRequired);
     const byFriction = friction(a) - friction(b);
     if (byFriction !== 0) return byFriction;
 
@@ -190,6 +196,7 @@ export async function fetchJobs(params: SearchParams = {}): Promise<Fetched> {
     remoteOnly: params.remoteOnly,
     hoursOld: params.hoursOld,
     linkedinDescriptions: params.linkedinDescriptions,
+    himalayasWorldwide: params.himalayasWorldwide,
   };
 
   // Boards that take no search term are fetched once, not once per query.
@@ -199,9 +206,11 @@ export async function fetchJobs(params: SearchParams = {}): Promise<Fetched> {
   const outcomes = await Promise.all([
     ...(perPass.length > 0 ? [fetchAllSources({ ...common, sources: perPass })] : []),
     ...(perQuery.length > 0
-      ? queries.map((query) =>
-          fetchAllSources({ ...common, sources: perQuery, query: query || undefined }),
-        )
+      ? queries.map(async (query) => {
+          const outcome = await fetchAllSources({ ...common, sources: perQuery, query: query || undefined });
+          // Which query found what: Настройки → Поиск counts each query's yield from this.
+          return query ? { ...outcome, jobs: outcome.jobs.map((job) => ({ ...job, foundBy: query })) } : outcome;
+        })
       : []),
   ]);
 
@@ -245,7 +254,9 @@ export function rankFetched(fetched: Fetched, params: SearchParams = {}): Search
   // Dismissed jobs go first: no point scoring what will never be shown.
   const excluded = new Set((params.excludeUrls ?? []).map(jobKey));
   const kept =
-    excluded.size === 0 ? deduped : deduped.filter((job) => !excluded.has(jobKey(job.url)));
+    excluded.size === 0
+      ? deduped
+      : deduped.filter((job) => ![jobKey(job.url), ...(job.aliasKeys ?? [])].some((key) => excluded.has(key)));
   const hiddenForDismissed = deduped.length - kept.length;
 
   // The window is enforced here, for every caller. hoursOld only reaches the
@@ -258,9 +269,7 @@ export function rankFetched(fetched: Fetched, params: SearchParams = {}): Search
     hoursOld === undefined
       ? kept
       : kept.filter((job) => {
-          if (!job.postedAt || Date.parse(job.postedAt) >= Date.now() - hoursOld * 3_600_000) {
-            return true;
-          }
+          if (inDateWindow(job, hoursOld)) return true;
           hiddenForAge++;
           return false;
         });
@@ -278,6 +287,7 @@ export function rankFetched(fetched: Fetched, params: SearchParams = {}): Search
   // or an internship at all. Ranking them last only helped while a human was
   // typing the query and could judge for themselves.
   let hiddenForFit = 0;
+  const fitDropped: RankedJob[] = [];
   const maxTier = params.maxFitTier;
   const afterFit =
     maxTier === undefined
@@ -285,6 +295,7 @@ export function rankFetched(fetched: Fetched, params: SearchParams = {}): Search
       : afterEligibility.filter((job) => {
           if (fitTier(job) <= maxTier) return true;
           hiddenForFit++;
+          fitDropped.push(job);
           return false;
         });
 
@@ -322,6 +333,7 @@ export function rankFetched(fetched: Fetched, params: SearchParams = {}): Search
     sourceCounts,
     reports: outcome.reports,
     levelCounts,
+    fitDropped,
     counts: {
       fetched: outcome.jobs.length,
       deduped: deduped.length,
@@ -385,18 +397,38 @@ export function profileParams(overrides: SearchParams = {}): SearchParams {
  */
 function storedAsJobs(sources: readonly SourceName[]): Job[] {
   const order = (source: string) => ALL_SOURCES.indexOf(source as SourceName);
+  // Boards read whole each pass: what their last good pass listed is open.
+  const passStart = new Map(
+    sources.filter((source) => PER_PASS_SOURCES.includes(source)).map((source) => [source, lastFetch(source).lastSuccessStartedAt]),
+  );
   return loadPostings(sources)
     .sort((a, b) => order(a.source) - order(b.source))
-    .map(({ lastSeenAt: _lastSeen, ...job }) => {
+    .map(({ lastSeenAt, ...job }) => {
       const posted = job.postedAt ? Date.parse(job.postedAt) : NaN;
       const first = Date.parse(job.firstSeenAt);
       const reposted = Number.isFinite(posted) && posted - first > 7 * 86_400_000;
+      const started = passStart.get(job.source);
       return {
         ...job,
         postedAt: Number.isFinite(posted) && posted < first ? job.postedAt : job.firstSeenAt,
         repostedAt: reposted ? job.postedAt : null,
+        listed: Boolean(started && lastSeenAt >= started),
       };
     });
+}
+
+/**
+ * Inside the date window: posted within `hoursOld`, undated, or — when the
+ * window is the full one — still listed by a board read whole each pass. A
+ * justjoin.it offer the employer keeps renewing is open at 50 days; counted
+ * from its first publication, 27 such offers, 17 of them remote React roles,
+ * were cut on 2026-10-24, and every watchlist role went 30 days after it was
+ * first seen (company boards publish no dates). A narrower window still means
+ * "posted recently".
+ */
+export function inDateWindow(job: Job, hoursOld: number, now = Date.now()): boolean {
+  if (!job.postedAt || Date.parse(job.postedAt) >= now - hoursOld * 3_600_000) return true;
+  return Boolean(job.listed) && hoursOld >= SEARCH_DEFAULTS.hoursOld;
 }
 
 /**
@@ -431,6 +463,8 @@ export function presentJob(job: RankedJob) {
     applyUrl: job.url,
     location: job.location,
     salary: job.salary,
+    // The published ranges: what «Подать» and apply-batch pass as --pay / --contract.
+    pay: job.pay ?? null,
     postedAt: job.postedAt,
     tags: job.tags.slice(0, 8),
     // Exposed so a surprising order can be explained without reading the code.
@@ -452,9 +486,15 @@ export function presentJob(job: RankedJob) {
     workMode: job.workMode ?? null,
     seniorityLevel: job.seniorityLevel ?? null,
     belowSalaryFloor: belowSalaryFloor(job),
+    // below / midlow / ok, as the criteria read a range; null without published pay.
+    payState: payVsFloor(job),
+    // The range in one unit, PLN a month B2B-equivalent, for the card beside the original.
+    payMonthly: job.pay?.length ? payB2bPlnMonth(job.pay) : null,
     // Stored postings: when this tool first saw it, and a later re-post date.
     firstSeenAt: job.firstSeenAt ?? null,
     repostedAt: job.repostedAt ?? null,
+    // Still listed by a board read whole: the page keeps it past the month window too.
+    listed: job.listed ?? false,
     // From the posting text (src/workmode.ts); empty without a description.
     signals: workSignals(job),
   };

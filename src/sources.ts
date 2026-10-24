@@ -10,9 +10,11 @@
 
 import { fetchJustJoin, fetchNoFluffJobs } from "./boards-pl.ts";
 import { jobKey } from "./jobkey.ts";
+import { companyKey, roleKey } from "./screening.ts";
 import { fetchWatchlist, htmlToText } from "./watchlist.ts";
 import {
   JobSpyUnavailable,
+  PartialFetch,
   fetchJobSpy,
   isJobSpyAvailable,
   type JobSpySite,
@@ -136,6 +138,22 @@ export type Job = {
   firstSeenAt?: string;
   /** Stored postings only: the board's later postedAt, when it was re-posted. */
   repostedAt?: string | null;
+  /**
+   * Keys of the copies dedupeJobs folded into this one (other boards, other
+   * links). An application or a hide on any of them counts for this one.
+   */
+  aliasKeys?: string[];
+  /**
+   * Stored postings of a board read whole each pass (PER_PASS_SOURCES): the
+   * last good pass still listed it, so it is open, however old its date.
+   */
+  listed?: boolean;
+  /**
+   * The search query that returned it, on the boards asked per query
+   * (pipeline.ts fetchJobs). Stored in posting_queries, not with the posting:
+   * one posting is often found by several.
+   */
+  foundBy?: string;
 };
 
 export type FetchOptions = {
@@ -146,6 +164,12 @@ export type FetchOptions = {
   sources?: SourceName[];
   /** How many results the caller ultimately wants; drives Himalayas paging. */
   limit?: number;
+  /**
+   * Himalayas: also ask each query for roles open worldwide (a second pass).
+   * The background refresh sets it; live searches leave it off, since the
+   * doubled requests drew HTTP 429 when searches came in a burst.
+   */
+  himalayasWorldwide?: boolean;
   /** JobSpy only: free-text location for the scrape, e.g. "Poland". */
   location?: string;
   /** JobSpy only: restrict the scrape to remote postings. */
@@ -444,6 +468,36 @@ async function fetchHimalayas(options: FetchOptions): Promise<Job[]> {
   return collected;
 }
 
+/**
+ * The profile search asks Himalayas twice: as before, and for roles open
+ * worldwide. Its 60 rows a query (3 pages, always full) were 90% roles
+ * restricted to one country that is not Poland — 426 of 474 stored rows, 48
+ * open to Poland. The worldwide pass is open by definition. A failed second
+ * pass keeps the first.
+ */
+async function fetchHimalayasBoth(options: FetchOptions): Promise<Job[]> {
+  if (options.worldwideOnly) return fetchHimalayas(options);
+  // One after the other: the queries already run side by side, and the two
+  // passes at once drew HTTP 429.
+  const usual = await fetchHimalayas(options);
+  // Spread out, and once more after a 429: the ten queries' second passes at
+  // once drew "rate limited" from Himalayas.
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const worldwidePass = () => fetchHimalayas({ ...options, worldwideOnly: true });
+  await pause(1000 + Math.random() * 4000);
+  const worldwide = await worldwidePass()
+    .catch(async (error: unknown) => {
+      if (!/429|rate limit/i.test(String(error))) throw error;
+      await pause(8000 + Math.random() * 8000);
+      return worldwidePass();
+    })
+    .catch((error: unknown) => {
+      console.error(`himalayas worldwide pass failed: ${error instanceof Error ? error.message : error}`);
+      return [] as Job[];
+    });
+  return [...usual, ...worldwide];
+}
+
 /* ------------------------------------------------------------------ */
 /* 2. RemoteOK — good volume, mostly worldwide-remote                  */
 /* ------------------------------------------------------------------ */
@@ -549,9 +603,14 @@ function filterByQuery(jobs: Job[], query?: string): Job[] {
   });
 }
 
+/**
+ * Company and title as screening.ts compares them: "Xebia sp. z o.o." is
+ * Xebia, "Front-end Engineer (m/f/d)" is "frontend engineer". Compared raw,
+ * a role posted on two boards under two spellings stayed two cards, and the
+ * copy of one already applied to came back in «Подходят».
+ */
 function companyTitleKey(job: Job): string {
-  const squash = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
-  return `${squash(job.company)}|${squash(job.title)}`;
+  return `${companyKey(job.company)}|${roleKey(job.title)}`;
 }
 
 /** No restriction, or one that includes Poland. */
@@ -582,25 +641,25 @@ export function dedupeJobs(jobs: Job[]): Job[] {
     const at = byCompanyTitle.get(nameKey);
     if (at !== undefined) {
       const kept = unique[at] as Job;
+      const keptKey = jobKey(kept.url);
       if (
         kept.locationRestrictions.length > 0 &&
         !opensToPoland(kept.locationRestrictions) &&
         job.locationRestrictions.length > 0 &&
         opensToPoland(job.locationRestrictions)
       ) {
-        unique[at] = job;
+        unique[at] = { ...job, aliasKeys: [...(kept.aliasKeys ?? []), keptKey] };
         seenUrls.add(urlKey);
-      } else if (!kept.pay?.length && job.pay?.length) {
+      } else {
         // The kept copy wins, but not by throwing away what only the other
         // copy publishes: CommIT's Indeed listing beat its Himalayas one, and
         // the PLN 23–30k range went with it.
-        unique[at] = {
-          ...kept,
-          pay: job.pay,
-          salary: job.salary,
-          salaryMin: job.salaryMin,
-          salaryMax: job.salaryMax,
-        };
+        const pay =
+          !kept.pay?.length && job.pay?.length
+            ? { pay: job.pay, salary: job.salary, salaryMin: job.salaryMin, salaryMax: job.salaryMax }
+            : {};
+        unique[at] = { ...kept, ...pay, aliasKeys: [...(kept.aliasKeys ?? []), urlKey] };
+        seenUrls.add(urlKey);
       }
       continue;
     }
@@ -650,7 +709,7 @@ export async function fetchAllSources(options: FetchOptions = {}): Promise<Fetch
     glassdoor: scrape("glassdoor"),
     google: scrape("google"),
     zip_recruiter: scrape("zip_recruiter"),
-    himalayas: fetchHimalayas,
+    himalayas: (opts) => (opts.himalayasWorldwide ? fetchHimalayasBoth(opts) : fetchHimalayas(opts)),
     remoteok: fetchRemoteOk,
     arbeitnow: fetchArbeitnow,
   };
@@ -667,6 +726,10 @@ export async function fetchAllSources(options: FetchOptions = {}): Promise<Fetch
     if (result.status === "fulfilled") {
       jobs.push(...result.value);
       reports.push({ source, count: result.value.length, skipped: null });
+    } else if (result.reason instanceof PartialFetch) {
+      // Stopped part-way (LinkedIn's 429): keep what was read, and say so.
+      jobs.push(...result.reason.jobs);
+      reports.push({ source, count: result.reason.jobs.length, skipped: result.reason.message });
     } else {
       const reason =
         result.reason instanceof Error ? result.reason.message : String(result.reason);

@@ -21,6 +21,11 @@ import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+// A giant's Warsaw office (profile.ts OFFICE_OK) passes the stack filter on purpose:
+// its postings list languages ("Java, C++, Python or Go") and name no stack.
+const giantInWarsaw = (job) =>
+  /(?<![a-z0-9])(?:google|alphabet|youtube|deepmind|apple|netflix|meta|facebook|instagram|whatsapp|microsoft|github|linkedin|amazon|aws|nvidia)(?![a-z0-9])/i.test(job.company)
+  && /warsz?aw/i.test(job.location ?? "");
 const PORT = Number(process.env.TEST_PORT ?? 4399);
 const BASE = `http://127.0.0.1:${PORT}`;
 const DB = join(tmpdir(), `job-hunt-test-ui-${process.pid}.db`);
@@ -296,11 +301,18 @@ async function main() {
   check("a rail holds the two sections and nothing else",
     html.includes('id="rail"') && (html.match(/class="tab[^"]*" data-view=/g) || []).length === 2 && !html.includes('id="boards"'));
   check("no native select is drawn: each is a button with its options in one shared listbox",
-    !/<select[\s>]/.test(html) && (html.match(/class="select[^"]*" id="[^"]+" data-select=/g) || []).length === 4 && html.includes('id="selpop" role="listbox"'));
+    !/<select[\s>]/.test(html) && (html.match(/class="select[^"]*" id="[^"]+" data-select=/g) || []).length === 7 && html.includes('id="selpop" role="listbox"'));
+  check("Настройки → Claude has the re-judge choice and the criteria history",
+    html.includes('id="cl-rejudge"') && html.includes('id="cl-history"'));
   check("every checkbox is drawn: the real input, then its box or switch",
     (html.match(/<input type="checkbox"/g) || []).length > 0 && (html.match(/<input type="checkbox"[^>]*>(?!<i[ >])/g) || []).length === 0);
-  check("Ctrl K has a button in the header, a dialog and a right-click menu beside it",
-    html.includes('id="findbtn"') && html.includes("<kbd>Ctrl K</kbd>") && html.includes('id="jump"') && html.includes('id="ctx"'));
+  check("Ctrl K is an icon in the header that names its key, with a dialog and a right-click menu beside it",
+    /<button class="iconbtn" id="findbtn"[^>]*data-tip="Поиск · Ctrl K"/.test(html) && !html.includes('class="find"')
+      && html.includes('id="jump"') && html.includes('id="ctx"'));
+  const avatar = await fetch(`${BASE}/avatar.jpg`);
+  check("the header's avatar is the picture served from the project, not initials",
+    html.includes('<img src="/avatar.jpg"') && !html.includes(">АП</button>") && avatar.ok
+      && avatar.headers.get("content-type") === "image/jpeg" && (await avatar.arrayBuffer()).byteLength > 1000);
 
   /* ---- evaluate it against the shim ---- */
   const registry = new Map();
@@ -314,6 +326,11 @@ async function main() {
     "opensettings", "settings", "settingssave", "settingssaved", "themepick", "cl-auto", "cl-model", "cl-effort",
     "cl-daily", "cl-stat", "cl-now", "appsettings", "toastwarn", "opennotif", "app-test", "app-log",
     "findbtn", "jump", "jumpq", "jumplist", "ctx", "ctxsub", "selpop", "tip",
+    "cl-rejudge", "cl-soft", "cl-crit", "cl-history", "cl-eval", "cl-eval-labels", "cl-eval-border", "cl-misses",
+    "pref-floor", "pref-uop-gross", "pref-uop-b2b", "pref-hours", "pref-derived", "pref-companies", "pref-cities", "pref-polish",
+    "rules-list", "rules-freed", "rules-fit",
+    "pref-memory", "mem-companies", "mem-roles-stat", "mem-roles", "mem-forgotten", "mem-boards-stat", "mem-boards",
+    "search-setup", "search-funnel", "search-queries", "search-boards",
   ]) registry.set(id, makeEl(id));
   registry.get("settings").hidden = true;
   registry.get("hideApplied").checked = true;
@@ -332,7 +349,8 @@ async function main() {
      ; return {
        load, runSearch, showView, renderRows, renderSearch, esc, act, pickStack, pickJob, onKey, pollVerdicts,
        setStatus, stackJobs, sortedApplications, openSettings, saveSettings, closeSettings, judgeRemaining,
-       jumpResults, jobMenu,
+       jumpResults, jobMenu, renderApplyPanel, onApplyPanel, saveFilters, restoreFilters,
+       get applyState(){ return applyState },
        get applications(){ return applications },
        get trackedUrls(){ return trackedUrls },
        get searchResults(){ return searchResults },
@@ -345,6 +363,7 @@ async function main() {
        setPayload(payload){ lastSearchPayload = payload; searchLoaded = true; currentKey = null; decided.clear();
          deferred = []; hideOpen = false; stack = "good"; renderSearch(); },
        setVar(name, value){ eval(name + " = value"); },
+       getVar(name){ return eval(name); },
        setSort(k, d){ sort = { key: k, dir: d } },
      };`,
   )(document, (path, init) => nativeFetch(BASE + path, init), () => 0, () => 0, () => {}, navigator, undefined);
@@ -376,6 +395,8 @@ async function main() {
   /* ---- "Подать": guarded on the server, nothing spawned here ---- */
   const applyUnknown = await post("/api/apply", { key: "example.com/not-in-the-store", mode: "dry-run" });
   check("applying to a job that is not in the stored postings is refused", applyUnknown.status === 404, String(applyUnknown.status));
+  const badAnswers = await post("/api/apply", { key: "example.com/not-in-the-store", mode: "dry-run", answers: { "Why us?": 42 } });
+  check("answers that are not label → text are refused before anything runs", badAnswers.status === 400, String(badAnswers.status));
 
   /* ---- Отклики ---- */
   await page.load();
@@ -447,11 +468,30 @@ async function main() {
   const stacksHtml = () => registry.get("stacks").innerHTML;
   const focus = () => registry.get("focus").innerHTML;
   const queue = () => registry.get("queue").innerHTML;
+  const reversed = synthetic();
+  reversed.jobs.reverse();
+  page.setPayload(reversed);
+  check("by default the queue goes best to worst by Claude's score, whatever order the profile ranked",
+    page.stackJobs("all").map((j) => j.key.split("/").pop()).join("") === "abcf",
+    page.stackJobs("all").map((j) => j.key.split("/").pop()).join(""));
+  page.setPayload(synthetic());
   check("stacks count what Claude said",
     stacksHtml().includes('data-stack="good" aria-pressed="true">Подходят <span class="n">2</span>')
       && stacksHtml().includes('Проверить <span class="n">1</span>')
       && stacksHtml().includes('Все <span class="n">4</span>')
       && stacksHtml().includes('Убрал Claude <span class="n">1</span>'), stacksHtml().replace(/<[^>]+>/g, " "));
+  check("«Почти подошли» holds the skips scored 20 or more, still inside «Убрал Claude»",
+    stacksHtml().includes('Почти подошли <span class="n">1</span>') && page.stackJobs("near").map((j) => j.company).join() === "Delta");
+  const softenedPayload = synthetic();
+  softenedPayload.jobs = [job("s", "Sierra", "Senior Frontend Engineer",
+    { verdict: verdict("maybe", 25, { dealbreakers: ["Гибрид: «3 days in office»"], softened: ["format"] }) })];
+  page.setPayload(softenedPayload);
+  clickIn(registry, "stacks", { stack: "maybe" });
+  check("a softened skip sits in «Проверить» and says why it is there",
+    page.stackJobs("maybe").length === 1 && focus().includes("Claude убрал бы её (формат)") && focus().includes("✕ Гибрид"),
+    page.stack + " " + focus().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 400));
+  clickIn(registry, "stacks", { stack: "good" });
+  page.setPayload(synthetic());
   check("the first card is the best one in the stack", page.currentKey === "example.com/stack/a" && focus().includes("Senior React Engineer"));
   check("the card says the verdict, the facts, the stack and Claude's summary",
     focus().includes("Подходит · 86") && focus().includes("«Fully remote»") && focus().includes(">Из Польши<")
@@ -462,8 +502,8 @@ async function main() {
   check("the queue lists the stack, the current one marked",
     (queue().match(/class="q/g) || []).length === 2 && queue().includes('class="q is-on" data-key="example.com/stack/a"'));
   check("progress reads 1 of 2", registry.get("progresstext").textContent === "1 из 2");
-  check("each queue row is the company's tile with Claude's score as a badge in the verdict's colour",
-    queue().includes('class="av has-sb"') && queue().includes('<span class="sb apply">86</span>') && queue().includes(">Ac<"));
+  check("each queue row's tile is Claude's score, in the verdict's colour — no company letters",
+    queue().includes('<span class="pts apply" aria-hidden="true">86</span>') && !queue().includes(">Ac<") && !queue().includes('class="mono'));
   check("the score is not said twice: the row's line under the title is the company",
     queue().includes('<span class="sr">Подходит, 86, </span>Acme</span>') && !queue().includes("86 · Acme"));
 
@@ -523,6 +563,13 @@ async function main() {
   registry.get("showRuleHidden")._handlers.change({ target: { checked: true } });
   page.pickJob("example.com/stack/e");
   check("its toggle brings it back, with the rule's reason", focus().includes("Правило скрининга: mid-level role, CV is senior"));
+  check("the reason carries «правило ошиблось», and so does the right-click menu", focus().includes('data-act="rule-wrong"')
+    && page.jobMenu(page.searchResults.find((j) => j.company === "Echo")).some((item) => item.label === "Правило ошиблось"));
+  await page.act("rule-wrong");
+  const echo = page.searchResults.find((j) => j.company === "Echo");
+  check("«правило ошиблось» lets the card into the stacks", echo.screen.bucket === "apply" && page.stackJobs("all").includes(echo)
+    && /больше не прячет Echo/.test(registry.get("toast").textContent), registry.get("toast").textContent);
+  await post("/api/rules/override", { key: "example.com/stack/e" }, "DELETE");
   registry.get("showRuleHidden")._handlers.change({ target: { checked: false } });
   page.setVar("showDismissed", true);
   page.renderSearch();
@@ -579,6 +626,18 @@ async function main() {
   check("a verdict remembers its session, for «обсудить с Claude»", made[fits.key]?.session === true);
   check("and what the card's facts show", made[fits.key]?.seniority === "senior" && made[fits.key]?.mainStack?.[0] === "React");
 
+  /* ---- «Верно» / «Мимо»: the label the criteria are checked against ---- */
+  const wrong = await post("/api/verdict/feedback", { key: misfit.key, expected: "maybe" });
+  const marked = (await wrong.json()).verdict;
+  check("«Мимо» stores what the verdict should have been", wrong.status === 200
+    && marked?.feedback?.expected === "maybe" && marked?.feedback?.verdict === "skip", JSON.stringify(marked?.feedback));
+  check("a mark without a verdict, or with a word not ours, is refused",
+    (await post("/api/verdict/feedback", { key: "nope", expected: "skip" })).status === 404
+      && (await post("/api/verdict/feedback", { key: fits.key, expected: "great" })).status === 400);
+  const evalState = await (await fetch(`${BASE}/api/criteria/check`)).json();
+  check("the mark becomes a label for «Сверить с эталоном»", evalState.sizes?.labels >= 1 && evalState.running === null,
+    JSON.stringify(evalState.sizes));
+
   const calls = readFileSync(CLAUDE_LOG, "utf8").trim().split("\n").map((line) => JSON.parse(line));
   const call = calls.find((entry) => entry.prompt.includes("Senior React Engineer"));
   const flag = (name) => call?.args[call.args.indexOf(name) + 1];
@@ -602,6 +661,54 @@ async function main() {
   check("the skip moved to «Убрал Claude»", stacksHtml().includes('Убрал Claude <span class="n">1</span>')
     && !page.stackJobs("all").some((j) => j.key === misfit.key));
 
+  /* ---- a form's questions apply.mjs has no answer for: Claude's drafts, in the panel ---- */
+  const longQuestion = "Please briefly describe the largest or most complex web application you have worked on. "
+    + "What made it technically complex, how long did you work on it, and what were you personally responsible for?";
+  const missing = [
+    { label: longQuestion.slice(0, 200), question: longQuestion, type: "textarea", options: [] },
+    { label: "Are you comfortable working in CET hours?", type: "radio", options: ["Yes", "No"] },
+  ];
+  const draftUnknown = await post("/api/apply/draft", { key: "example.com/not-in-the-store", questions: missing });
+  check("drafts for a job that is not stored are refused", draftUnknown.status === 404, String(draftUnknown.status));
+  const draftBad = await post("/api/apply/draft", { key: fits.key, questions: [{ question: "no label" }] });
+  check("drafts need questions with labels", draftBad.status === 400, String(draftBad.status));
+
+  const callsBefore = readFileSync(CLAUDE_LOG, "utf8").trim().split("\n").length;
+  page.setVar("applyState", { job: asCard(fits), id: "test-run", timer: null, acceptLowPay: false });
+  page.renderApplyPanel({ done: true, result: { result: "missing-answers", missing, filled: ["Imię ← Anton", "CV ← CV"], applyUrl: "https://example.com/form" } });
+  const panel = registry.get("applypanel");
+  check("the panel asks the questions it has no answer for, whole, with a field each",
+    panel.className.includes("wide") && panel.innerHTML.includes("personally responsible for?") && panel.innerHTML.includes('<textarea id="qa-0"')
+      && panel.innerHTML.includes('name="qa-1" value="Yes"') && panel.innerHTML.includes("Осталось ответить на 2 вопроса"), panel.innerHTML.slice(0, 160));
+  check("no command line to run any more", !panel.innerHTML.includes("--remember"));
+  check("and asks Claude for drafts at once", page.applyState.drafting === true && panel.innerHTML.includes("Claude пишет черновики"));
+  for (let waited = 0; waited < 20_000 && page.applyState.drafting; waited += 100) await new Promise((resolve) => setTimeout(resolve, 100));
+  check("Claude's drafts land in the fields: text for the open one, an option for the choice",
+    page.applyState.answers[missing[0].label]?.startsWith("Draft 1:") && page.applyState.answers[missing[1].label] === "Yes"
+      && panel.innerHTML.includes(">Draft 1: I built") && panel.innerHTML.includes('value="Yes" data-answer="1" checked'),
+    JSON.stringify(page.applyState.answers).slice(0, 160));
+  const draftCall = readFileSync(CLAUDE_LOG, "utf8").trim().split("\n").map((line) => JSON.parse(line)).pop();
+  const draftFlag = (name) => draftCall?.args[draftCall.args.indexOf(name) + 1];
+  check("the draft run has no tools either, and its own schema",
+    draftFlag("--tools") === "" && draftCall.args.includes("--safe-mode") && Boolean(JSON.parse(draftFlag("--json-schema") ?? "{}").properties?.answers));
+  check("the questions go whole inside <form>, the posting inside <posting>, both called the employer's text",
+    /<posting>\n[\s\S]*Компания: Claudeco 1[\s\S]*<\/posting>/.test(draftCall?.prompt ?? "")
+      && (draftCall?.prompt ?? "").includes("<form>\n1. " + longQuestion + "\n2. Are you comfortable working in CET hours?\n   Варианты: Yes | No\n</form>")
+      && draftCall.system.includes("между <form> и </form> — текст работодателя"), (draftCall?.prompt ?? "").slice(-260));
+  check("written the way the candidate asked: 3–4 sentences, plain words, facts from the CV and profile",
+    draftCall.system.includes("максимум 3–4 предложения") && draftCall.system.includes('"workAuthorisation"') && draftCall.system.includes("не придумывай"));
+  page.setVar("applyState", { job: page.applyState.job, id: "test-run-2", timer: null, acceptLowPay: false });
+  page.renderApplyPanel({ done: true, result: { result: "missing-answers", missing, filled: [], applyUrl: "https://example.com/form" } });
+  for (let waited = 0; waited < 20_000 && page.applyState.drafting; waited += 100) await new Promise((resolve) => setTimeout(resolve, 100));
+  check("the same questions again cost no second run",
+    readFileSync(CLAUDE_LOG, "utf8").trim().split("\n").length === callsBefore + 1 && page.applyState.answers[missing[1].label] === "Yes");
+  panel._handlers.input({ target: { dataset: { answer: "0" }, value: "" } });
+  page.onApplyPanel("rerun");
+  check("an answer I cleared is mine: the dry run does not go again with a question unanswered",
+    page.applyState.answers[missing[0].label] === "" && registry.get("toast").textContent === "Нет ответа ещё на 1 вопрос",
+    registry.get("toast").textContent);
+  panel.hidden = true;
+
   // The stand-in's session id is not on disk, so this must stop before any window opens.
   const reopen = await post("/api/verdict/open", { key: fits.key });
   check("«обсудить» refuses a session that is not on disk", reopen.status === 410, String(reopen.status));
@@ -610,12 +717,19 @@ async function main() {
 
   /* ---- Настройки: Claude's settings, stored by the server, used from the next run ---- */
   const settings0 = (await (await fetch(`${BASE}/api/settings`)).json()).claude;
+  const criteria0 = (await (await fetch(`${BASE}/api/settings`)).json()).criteria;
+  check("the settings say where the criteria stand: the current version kept, the stale count",
+    Array.isArray(criteria0?.history) && criteria0.history.some((v) => v.current && v.text.length > 0) && typeof criteria0.stale === "number",
+    JSON.stringify({ versions: criteria0?.history?.length, stale: criteria0?.stale }));
   check("the settings start from the defaults (background off here, by JOBHUNT_CLAUDE_AUTO=0)",
     settings0.auto === false && settings0.model === "sonnet" && settings0.effort === "low" && settings0.daily === 80, JSON.stringify(settings0));
   await page.openSettings();
   check("the menu's «Настройки» opens them, filled in", registry.get("settings").hidden === false
     && registry.get("cl-model").value === "sonnet" && registry.get("cl-daily").value === "80"
     && /Сегодня в фоне: 0 из 80/.test(registry.get("cl-stat").textContent), registry.get("cl-stat").textContent);
+  check("Настройки draw the rules with their switches and the company boards",
+    registry.get("rules-list").innerHTML.includes('data-rule="PHP-first role"') && registry.get("mem-boards").innerHTML.includes("<b>Linear</b>"),
+    registry.get("rules-list").innerHTML.slice(0, 200));
   const decidedBefore = page.decided.size;
   page.onKey(key("KeyF"));
   check("the card's keys do nothing while the settings are open", page.decided.size === decidedBefore);
@@ -625,9 +739,30 @@ async function main() {
   await page.saveSettings();
   const settings1 = (await (await fetch(`${BASE}/api/settings`)).json()).claude;
   check("«Сохранить» stores them on the server", settings1.model === "opus" && settings1.effort === "medium" && settings1.daily === 25
-    && registry.get("settingssaved").textContent === "Сохранено", JSON.stringify(settings1));
+    && settings1.soft === true
+    && registry.get("settingssaved").textContent === "Сохранено", `${registry.get("settingssaved").textContent || registry.get("toast").textContent} ${JSON.stringify(settings1)}`);
+  /* ---- «Мои условия»: one place for the floor, the offices, Polish — the criteria get them too ---- */
+  const prefs0 = (await (await fetch(`${BASE}/api/settings`)).json()).preferences;
+  check("«Мои условия» start from the old constants", prefs0.floorB2bPlnMonth === 25000 && prefs0.polish === "B1"
+    && prefs0.officeCompanies.includes("Google") && Math.round(prefs0.derived.uopPlnMonth) === 30909, JSON.stringify(prefs0.derived));
+  const raised = await post("/api/settings/preferences", { floorB2bPlnMonth: 28000, polish: "B2" });
+  const raisedBody = await raised.json();
+  const current = raisedBody.criteria.history.find((v) => v.current);
+  check("a new floor is stored and goes into the criteria as their last section", raised.status === 200
+    && raisedBody.preferences.floorB2bPlnMonth === 28000 && /от 28 000 PLN нетто/.test(current?.text ?? "") && /Польский у него B2/.test(current?.text ?? ""),
+    (current?.text ?? "").slice(-300));
+  check("a floor that cannot be right is refused", (await post("/api/settings/preferences", { floorB2bPlnMonth: 5 })).status === 400);
+  await post("/api/settings/preferences", { floorB2bPlnMonth: 25000, polish: "B1" });
+
   const badSetting = await post("/api/settings/claude", { model: "gpt-5" });
   check("a model that is not one of ours is refused", badSetting.status === 400, String(badSetting.status));
+  const softened = await post("/api/settings/claude", { softenFactors: ["format", "level", "format"] });
+  const softenedBody = await softened.json();
+  check("«Не убирать, если единственная причина» keeps the kinds once each",
+    softened.status === 200 && JSON.stringify(softenedBody.claude.softenFactors) === '["format","level"]', JSON.stringify(softenedBody.claude));
+  check("a kind that cannot be softened is refused — Poland, citizenship, a closed posting",
+    (await post("/api/settings/claude", { softenFactors: ["poland"] })).status === 400);
+  await post("/api/settings/claude", { softenFactors: [] });
   await post("/api/verdict", { key: fits.key });
   for (let waited = 0; waited < 20_000; waited += 250) {
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -665,6 +800,98 @@ async function main() {
   check("«Оценить оставшиеся сейчас» queues the shown cards without a verdict",
     remaining.status === 202 && typeof remainingBody.queued === "number", JSON.stringify({ queued: remainingBody.queued }));
 
+  /* ---- Настройки → Правила: what each rule hides, a switch, «Правило ошиблось» ---- */
+  const midRole = posting(4, "Regular React Developer", "Fully remote. React and TypeScript." + filler);
+  const ruleStore = new Database(DB);
+  ruleStore.prepare("INSERT INTO postings (source, job_key, data, posted_at, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(midRole.row.source, midRole.key, JSON.stringify(midRole.row), today, today, today);
+  ruleStore.close();
+  // A save rebuilds the feed, as a refresh does: the posting above is then in it.
+  await post("/api/settings/preferences", { rulesOff: [] });
+  const MID = "mid-level role, CV is senior";
+  const midRow = async () => (await (await fetch(`${BASE}/api/search`)).json()).jobs.find((j) => j.key === midRole.key);
+  const rules0 = await (await fetch(`${BASE}/api/rules`)).json();
+  const midRule = rules0.rules?.find((rule) => rule.id === MID);
+  check("Настройки → Правила list every rule: its name, its words, what it hides now",
+    rules0.rules.length > 15 && midRule?.on === true && midRule.label === "Мидл" && midRule.words.includes("regular")
+      && midRule.hits >= 1 && midRule.examples.some((e) => e.title === "Regular React Developer"), JSON.stringify(midRule));
+  check("and what the fit gate left out, by kind", typeof rules0.fitGate?.total === "number" && rules0.fitGate.groups.length === 3);
+  check("the rule hides the posting", (await midRow())?.screen?.bucket === "dismiss", JSON.stringify((await midRow())?.screen));
+  const freed = await post("/api/rules/override", { key: midRole.key, reason: MID });
+  const freedBody = await freed.json();
+  check("«Правило ошиблось» lets it out at once", freed.status === 200 && ["apply", "check"].includes(freedBody.screen?.bucket), JSON.stringify(freedBody));
+  check("and the feed agrees", ["apply", "check"].includes((await midRow())?.screen?.bucket));
+  const rules1 = await (await fetch(`${BASE}/api/rules`)).json();
+  check("Настройки list it under «Правило ошиблось», by the rule's name",
+    rules1.overrides.some((row) => row.job_key === midRole.key && row.label === "Мидл"), JSON.stringify(rules1.overrides));
+  await post("/api/rules/override", { key: midRole.key }, "DELETE");
+  check("«вернуть правилам» puts it back under the rule", (await midRow())?.screen?.bucket === "dismiss");
+  const switched = await post("/api/settings/preferences", { rulesOff: [MID] });
+  check("a rule switched off stops hiding", switched.status === 200 && ["apply", "check"].includes((await midRow())?.screen?.bucket));
+  const midOff = (await (await fetch(`${BASE}/api/rules`)).json()).rules.find((rule) => rule.id === MID);
+  check("and says what it would hide again", midOff?.on === false && midOff.hits >= 1, JSON.stringify(midOff));
+  check("a rule that does not exist cannot be switched off",
+    (await post("/api/settings/preferences", { rulesOff: ["no such rule"] })).status === 400);
+  await post("/api/settings/preferences", { rulesOff: [] });
+
+  /* ---- Настройки → Компании и память: what my hides teach, and taking it back ---- */
+  const memCopy = posting(5, "Senior Frontend Engineer, Payments", "Fully remote. React and TypeScript." + filler);
+  await post("/api/dismissed", { url: "https://example.com/mem/old", title: memCopy.row.title, company: memCopy.row.company, reason: "не remote" });
+  const memStore = new Database(DB);
+  memStore.prepare("INSERT INTO postings (source, job_key, data, posted_at, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(memCopy.row.source, memCopy.key, JSON.stringify(memCopy.row), today, today, today);
+  memStore.close();
+  await post("/api/settings/preferences", { memoryDays: 0 });
+  const memRow = async () => (await (await fetch(`${BASE}/api/search`)).json()).jobs.find((j) => j.key === memCopy.key);
+  check("an earlier hide hides the copy of its role", /^same role hidden earlier/.test((await memRow())?.screen?.reason ?? ""),
+    JSON.stringify((await memRow())?.screen));
+  const memory0 = await (await fetch(`${BASE}/api/memory`)).json();
+  check("Компании и память list that hide with what it hides now, and every company board",
+    memory0.roles?.some((row) => row.key === "example.com/mem/old" && row.hides === 1) && memory0.boards?.some((b) => b.company === "Linear")
+      && typeof memory0.remembered === "number", JSON.stringify(memory0.roles));
+  await post("/api/memory/forget", { kind: "hide", key: "example.com/mem/old", label: "Payments · Claudeco 5" });
+  check("«забыть»: the hide stops teaching, the copy shows", ["apply", "check"].includes((await memRow())?.screen?.bucket));
+  check("and it is listed as forgotten", (await (await fetch(`${BASE}/api/memory`)).json()).forgotten
+    .some((row) => row.kind === "hide" && row.key === "example.com/mem/old"));
+  await post("/api/memory/forget", { kind: "hide", key: "example.com/mem/old" }, "DELETE");
+  check("«вспомнить» brings it back", /^same role hidden earlier/.test((await memRow())?.screen?.reason ?? ""));
+  check("only companies and hides can be forgotten", (await post("/api/memory/forget", { kind: "rule", key: "x" })).status === 400);
+  check("the memory window takes 0 to 730 days", (await post("/api/settings/preferences", { memoryDays: 45 })).status === 200
+    && (await post("/api/settings/preferences", { memoryDays: 999 })).status === 400);
+  await post("/api/settings/preferences", { memoryDays: 0 });
+
+  /* ---- Фильтры survive a reload (localStorage; absent here, so a stand-in) ---- */
+  const kept = new Map();
+  globalThis.localStorage = { getItem: (k) => kept.get(k) ?? null, setItem: (k, v) => kept.set(k, String(v)) };
+  page.setVar("maxAgeDays", 7);
+  page.setVar("jobSort", "newest");
+  page.setVar("hideApplied", false);
+  page.saveFilters();
+  page.setVar("maxAgeDays", 30);
+  page.setVar("jobSort", "claude");
+  page.setVar("hideApplied", true);
+  page.restoreFilters();
+  check("Фильтры survive a reload: the window, the order, the toggles",
+    page.getVar("maxAgeDays") === 7 && page.getVar("jobSort") === "newest" && page.getVar("hideApplied") === false
+      && registry.get("jobsort").value === "newest" && registry.get("hideApplied").checked === false, kept.get("jobhunt-filters"));
+  kept.set("jobhunt-filters", JSON.stringify({ maxAgeDays: 99, sourcesOff: ["indeed", "himalayas"], jobSort: "nope" }));
+  page.restoreFilters();
+  check("a stored value that cannot be right is ignored: no 99-day window, never zero boards",
+    page.getVar("maxAgeDays") === 7 && page.getVar("activeSources").size === 2 && page.getVar("jobSort") === "newest");
+  delete globalThis.localStorage;
+  page.setVar("maxAgeDays", 30);
+  page.setVar("jobSort", "claude");
+  page.setVar("hideApplied", true);
+  registry.get("hideApplied").checked = true;
+  for (const chip of chips) chip.checked = chip.value === "30";
+
+  /* ---- Настройки → Поиск, read only ---- */
+  const setup0 = await (await fetch(`${BASE}/api/search-setup`)).json();
+  check("Настройки → Поиск: every query (and the giants' one), every board, the way from stored to shown",
+    setup0.queries?.length >= 10 && setup0.queries.some((q) => q.giants) && setup0.boards?.length === 2
+      && typeof setup0.funnel?.stored === "number" && setup0.funnel.stored >= setup0.funnel.deduped && setup0.funnel.deduped >= setup0.funnel.eligible,
+    JSON.stringify(setup0.funnel));
+
   /* ---- profile search (live network) ---- */
   console.log("\n(running a live profile search through the page's own code path…)");
   await page.runSearch();
@@ -679,7 +906,11 @@ async function main() {
   check("the first visit was recorded, so later postings count as new", Boolean((await (await fetch(`${BASE}/api/search`)).json()).newSince));
   const newCount = await (await fetch(`${BASE}/api/new-count`)).json();
   check("nothing is new right after a visit", newCount.count === 0, JSON.stringify(newCount));
-  check("no wrong-stack results", page.searchResults.every((j) => j.fit >= 0), `min fit ${Math.min(...page.searchResults.map((j) => j.fit))}`);
+  const setup1 = await (await fetch(`${BASE}/api/search-setup`)).json();
+  check("a refresh records which query found what", setup1.queries.some((q) => q.found > 0 && q.only <= q.found),
+    setup1.queries.map((q) => `${q.query}:${q.found}/${q.only}`).join(", "));
+  check("no wrong-stack results, a giant's Warsaw office aside", page.searchResults.every((j) => j.fit >= 0 || giantInWarsaw(j)),
+    `min fit ${Math.min(...page.searchResults.filter((j) => !giantInWarsaw(j)).map((j) => j.fit))}`);
   check("the header says how fresh the boards are", /обновлено|обновляю/.test(registry.get("freshness").textContent),
     registry.get("freshness").textContent);
   check("the source filter lists the configured boards, all on, each with its drawn box",

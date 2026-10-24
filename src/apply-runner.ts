@@ -15,6 +15,11 @@
  *     Greenhouse and LinkedIn run headed on this machine, and the page tells me
  *     to type the code into that window. Every other ending lands in the
  *     attempts list ("нужно вам") through apply.mjs itself.
+ *   - Answers to the questions apply.mjs has no rule for (written in the
+ *     panel, drafted by src/form-drafts.ts) go with a dry run as --answers.
+ *     A submit sends what its dry run showed: it takes that run's answers,
+ *     never new ones from the page. A job's answers are kept for its later
+ *     dry runs until the server restarts.
  *
  * Results come back the way apply.mjs reports them: one JSON line on stdout,
  * progress on stderr.
@@ -22,11 +27,13 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { belowSalaryFloor } from "./boards-pl.ts";
-import { postingStack } from "./profile.ts";
+import { officeAcceptable, postingStack } from "./profile.ts";
 import type { Job } from "./sources.ts";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "apply.mjs");
@@ -50,10 +57,34 @@ export type ApplyRun = {
   log: string[];
   /** The JSON line apply.mjs printed, once it has. */
   result: Record<string, unknown> | null;
+  /** --answers: label substring → answer. */
+  answers: Record<string, string>;
 };
 
 const runs = new Map<string, ApplyRun>();
 const busy = new Map<ApplyRun["profile"], string>();
+/** The answers each job's runs were given, by job key: a later dry run of the job starts from them. */
+const given = new Map<string, Record<string, string>>();
+
+const MAX_ANSWERS = 30;
+
+/**
+ * The page's answers, checked: label → non-empty text, a label as apply.mjs
+ * reports it (cut at 200 characters), an answer no longer than a form takes.
+ * null when the shape is wrong; {} when there are none.
+ */
+export function readAnswers(value: unknown): Record<string, string> | null {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > MAX_ANSWERS) return null;
+  const answers: Record<string, string> = {};
+  for (const [label, answer] of entries) {
+    if (typeof answer !== "string" || label.trim().length === 0 || label.length > 400 || answer.length > 5000) return null;
+    if (answer.trim()) answers[label.trim()] = answer.trim();
+  }
+  return answers;
+}
 
 function profileFor(job: Job): ApplyRun["profile"] {
   return /linkedin\.com/i.test(job.url) ? "linkedin" : "ats";
@@ -71,6 +102,23 @@ export function getRun(id: string): ApplyRun | null {
   return runs.get(id) ?? null;
 }
 
+/** The dry run a submit of this job may follow: finished, its filled fields shown, recent. */
+function shownDryRun(key: string): ApplyRun | null {
+  return (
+    [...runs.values()].reverse().find(
+      (run) =>
+        run.key === key &&
+        run.mode === "dry-run" &&
+        run.done &&
+        run.result?.["result"] === "dry-run" &&
+        // A dry run that filled nothing showed nothing: there is no form to send.
+        Array.isArray(run.result["filled"]) &&
+        run.result["filled"].length > 0 &&
+        Date.now() - run.startedAt < DRY_RUN_VALID_MS,
+    ) ?? null
+  );
+}
+
 /** Why this run may not start, or null when it may. `lowPay`: the page can offer "apply anyway". */
 export function refusal(
   key: string,
@@ -86,24 +134,19 @@ export function refusal(
   if (!acceptLowPay && belowSalaryFloor(job)) {
     return { message: `the published pay (${job.salary ?? "?"}) is below your floor`, lowPay: true };
   }
-  if (mode === "submit") {
-    const shown = [...runs.values()].some(
-      (run) =>
-        run.key === key &&
-        run.mode === "dry-run" &&
-        run.done &&
-        run.result?.["result"] === "dry-run" &&
-        // A dry run that filled nothing showed nothing: there is no form to send.
-        Array.isArray(run.result["filled"]) &&
-        run.result["filled"].length > 0 &&
-        Date.now() - run.startedAt < DRY_RUN_VALID_MS,
-    );
-    if (!shown) return { message: "dry run first: submit is allowed only after its filled fields were shown" };
+  if (mode === "submit" && !shownDryRun(key)) {
+    return { message: "dry run first: submit is allowed only after its filled fields were shown" };
   }
   return null;
 }
 
-export function startApply(key: string, job: Job, mode: ApplyMode, dashboardUrl: string): ApplyRun {
+/** `answers`: the page's, for a dry run; a submit ignores them and takes its dry run's. */
+export function startApply(key: string, job: Job, mode: ApplyMode, dashboardUrl: string, answers: Record<string, string> = {}): ApplyRun {
+  if (mode === "submit") answers = shownDryRun(key)?.answers ?? {};
+  else {
+    answers = { ...given.get(key), ...answers };
+    if (Object.keys(answers).length > 0) given.set(key, answers);
+  }
   const run: ApplyRun = {
     id: randomUUID(),
     key,
@@ -116,6 +159,7 @@ export function startApply(key: string, job: Job, mode: ApplyMode, dashboardUrl:
     exitCode: null,
     log: [],
     result: null,
+    answers,
   };
   runs.set(run.id, run);
   busy.set(run.profile, run.id);
@@ -139,7 +183,17 @@ export function startApply(key: string, job: Job, mode: ApplyMode, dashboardUrl:
   if (job.postedAt) args.push("--posted", job.postedAt);
   const contract = contractOf(job);
   if (contract) args.push("--contract", contract);
+  // The published ranges: a salary field gets the posting's top where it is above my figure.
+  if (job.pay?.length) args.push("--pay", JSON.stringify(job.pay));
+  // Office days are fine at a giant in Warsaw, so LinkedIn's Hybrid tag must not stop the run.
+  if (officeAcceptable(job)) args.push("--office-ok");
   if (mode === "dry-run") args.push("--dry-run");
+  // A file, as apply.mjs takes them: several paragraphs with quotes do not survive a command line.
+  const answersFile = join(tmpdir(), `job-hunt-answers-${run.id}.json`);
+  if (Object.keys(answers).length > 0) {
+    writeFileSync(answersFile, JSON.stringify(answers));
+    args.push("--answers", answersFile);
+  }
 
   const child = spawn(process.execPath, args, {
     env: { ...process.env, JOBHUNT_URL: dashboardUrl },
@@ -159,6 +213,7 @@ export function startApply(key: string, job: Job, mode: ApplyMode, dashboardUrl:
   const timer = setTimeout(() => child.kill(), KILL_AFTER_MS);
   const finish = (code: number | null) => {
     clearTimeout(timer);
+    rmSync(answersFile, { force: true });
     run.done = true;
     run.exitCode = code;
     const start = stdout.indexOf("{");

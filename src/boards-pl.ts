@@ -46,7 +46,6 @@ async function fetchPage(url: string): Promise<string> {
 /* Pay                                                                 */
 /* ------------------------------------------------------------------ */
 
-const HOURS_PER_MONTH = 168;
 const DAYS_PER_MONTH = 21;
 
 /**
@@ -62,7 +61,7 @@ export function payB2bPlnMonth(pay: PayRange[]): { min: number | null; max: numb
     if (fx === undefined) continue;
     const perMonth =
       range.unit === "hour"
-        ? HOURS_PER_MONTH
+        ? SALARY.hoursPerMonth
         : range.unit === "day"
           ? DAYS_PER_MONTH
           : range.unit === "year"
@@ -76,15 +75,35 @@ export function payB2bPlnMonth(pay: PayRange[]): { min: number | null; max: numb
   return min === null && max === null ? null : { min, max };
 }
 
+export type PayState = "below" | "midlow" | "ok";
+
 /**
- * True only when a posting publishes pay and even its top is under the floor.
+ * Published pay against the floor, as src/verdict-criteria.md reads a range:
+ * its top under the floor is "below"; the floor inside the range with the
+ * middle under it is "midlow" (Claude's doubt, never a stop); else "ok".
+ * Only one end published: under the floor, that is a doubt, not a verdict —
+ * "od 20 000" may well go higher. null: no pay, or a currency without a rate.
  * Unknown pay is never "below": most boards publish none.
  */
-export function belowSalaryFloor(job: Job): boolean {
-  if (!job.pay || job.pay.length === 0) return false;
+export function payVsFloor(job: Pick<Job, "pay">): PayState | null {
+  if (!job.pay || job.pay.length === 0) return null;
   const monthly = payB2bPlnMonth(job.pay);
-  const top = monthly?.max ?? monthly?.min ?? null;
-  return top !== null && top < SALARY.floorB2bPlnMonth;
+  if (!monthly) return null;
+  const floor = SALARY.floorB2bPlnMonth;
+  if (monthly.min !== null && monthly.max !== null) {
+    if (monthly.max < floor) return "below";
+    return (monthly.min + monthly.max) / 2 < floor ? "midlow" : "ok";
+  }
+  const only = (monthly.max ?? monthly.min) as number;
+  return only < floor ? (monthly.max !== null ? "below" : "midlow") : "ok";
+}
+
+/**
+ * True only when a posting publishes pay and even its top is under the floor:
+ * what demotes a card and makes «Подать» ask "Всё равно подать?".
+ */
+export function belowSalaryFloor(job: Pick<Job, "pay">): boolean {
+  return payVsFloor(job) === "below";
 }
 
 const CONTRACT_LABEL: Record<PayRange["contract"], string> = {

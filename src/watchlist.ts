@@ -17,7 +17,7 @@
  */
 
 import { scoreEligibility } from "./eligibility.ts";
-import { fitTier, SEARCH_DEFAULTS, WATCHLIST, type WatchedBoard } from "./profile.ts";
+import { fitTier, WATCHLIST, type WatchedBoard } from "./profile.ts";
 import type { Job, PayRange } from "./sources.ts";
 
 const USER_AGENT = "job-hunt-mcp";
@@ -221,11 +221,10 @@ export async function fetchWatchlist(boards: readonly WatchedBoard[] = WATCHLIST
   // A company board lists every role it has — GitLab and Elastic hundreds, tax
   // leads and transcription freelancers included, with long descriptions that
   // score on generic terms. Keep engineering titles the search could show, so
-  // the store holds roles, not catalogues.
+  // the store holds roles, not catalogues. Tier 2 (no stack recognised) is kept
+  // too: these are companies I chose, and the soft lane has Claude read such
+  // roles (dashboard.ts). Before that they were dropped here, unseen.
   return jobs.filter(
-    (job) =>
-      ENGINEERING_TITLE.test(job.title) &&
-      fitTier(job) <= SEARCH_DEFAULTS.maxFitTier &&
-      scoreEligibility(job).level !== "low",
+    (job) => ENGINEERING_TITLE.test(job.title) && fitTier(job) <= 2 && scoreEligibility(job).level !== "low",
   );
 }

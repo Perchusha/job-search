@@ -21,6 +21,7 @@
  *   To shift the emphasis, change the weights below; nothing else needs to know.
  */
 
+import { preferences, preferencesRevision } from "./preferences.ts";
 import type { Job, SourceName } from "./sources.ts";
 
 /**
@@ -126,15 +127,14 @@ export const SEARCH_DEFAULTS = {
    */
   maxFitTier: 1,
   /**
-   * How many ranked matches the search returns. This is a budget for the page
-   * to draw from, not a page size — the Search tab renders a screenful at a
-   * time and extends as you scroll.
+   * How many cards the Search tab shows, and so how many Claude judges in the
+   * background. A budget for the page to draw from, not a page size.
    *
-   * It used to be 40, and that was the wrong number: a pass keeps ~290 good
-   * matches after ranking, then the page hides some of them again (already in
-   * the funnel, dismissed, outside the date window). Cutting to 40 first meant
-   * fetching eight hundred postings to show a dozen. Raising it costs nothing —
-   * the boards cap what they return long before this does.
+   * It counts only cards that are shown by default (dashboard.ts feedView):
+   * rule hits and jobs already applied to or hidden come on top. Counted the
+   * other way it lost 23 of 136 cards on 2026-10-24, rule hits taking 87 of
+   * the 200 places. It used to be 40, which meant fetching eight hundred
+   * postings to show a dozen.
    */
   limit: 200,
 } as const;
@@ -206,13 +206,80 @@ export const WATCHLIST: WatchedBoard[] = [
  * above or below the floor, never what a card displays.
  */
 export const SALARY = {
-  floorB2bPlnMonth: 25_000,
-  uopToB2b: 27_500 / 34_000,
+  // From «Мои условия» (src/preferences.ts): Настройки change them, defaults as below.
+  get floorB2bPlnMonth(): number {
+    return preferences().floorB2bPlnMonth;
+  },
+  get uopToB2b(): number {
+    return preferences().uopEqualsB2b / preferences().uopGross;
+  },
+  get hoursPerMonth(): number {
+    return preferences().hoursPerMonth;
+  },
   fxToPln: {
     PLN: 1, EUR: 4.25, USD: 3.9, GBP: 5.0, CHF: 4.5, CAD: 2.85, AUD: 2.55,
     SEK: 0.37, NOK: 0.36, DKK: 0.57, CZK: 0.17, INR: 0.046, BRL: 0.7, PHP: 0.067, UAH: 0.094,
   } as Record<string, number>,
 };
+
+/**
+ * The one exception to remote-only: a giant worth going to an office for —
+ * Google, Apple, Netflix and their peers, subsidiaries included. Their hybrid
+ * and onsite roles count as fine, but only in Warsaw: I live there and do not
+ * relocate, so "3 days a week in the Kraków office" is still not for me.
+ *
+ * Whole words against the company name, so "Google Poland" and "Amazon Web
+ * Services" count and "Metaverse Labs" does not. src/verdict-criteria.md
+ * names the same companies for Claude's verdict — change both.
+ */
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+let officeCache: { revision: number; companies: RegExp; city: RegExp } | null = null;
+
+function officePatterns(): { companies: RegExp; city: RegExp } {
+  if (officeCache && officeCache.revision === preferencesRevision()) return officeCache;
+  const p = preferences();
+  const words = (list: string[]) => list.map((name) => escapeRe(name.toLowerCase())).join("|") || "(?!)";
+  // A city as a stem, so its Polish forms match too: Warszawa, Warszawie, w Warszawy.
+  const stems = p.officeCities.map((city) => `${escapeRe(city.toLowerCase().replace(/[aeiouy]$/, ""))}\\w*`).join("|") || "(?!)";
+  officeCache = {
+    revision: preferencesRevision(),
+    companies: new RegExp(`(?<![a-z0-9])(?:${words(p.officeCompanies)})(?![a-z0-9])`, "i"),
+    city: new RegExp(`(?<![a-z0-9])(?:${stems})(?![a-z0-9])`, "i"),
+  };
+  return officeCache;
+}
+
+export const OFFICE_OK = {
+  /** Whole words against the company name: "Google Poland" counts, "Metaverse Labs" does not. */
+  get companies(): RegExp {
+    return officePatterns().companies;
+  },
+  get city(): RegExp {
+    return officePatterns().city;
+  },
+  /**
+   * LinkedIn's own search for these offices (src/refresh.ts), once a day
+   * beside the remote queries. Those ask for remote roles only, so an office
+   * role at Google in Warsaw reached the store by accident: 5 such rows of 723.
+   * LinkedIn reads OR in keywords; one such query returned 27 giant postings
+   * in Warsaw of its first 30. Rows that are not one of these offices are
+   * dropped.
+   */
+  get linkedin(): { query: string; location: string } {
+    const p = preferences();
+    const city = p.officeCities.find((name) => /^warsaw$/i.test(name)) ?? p.officeCities[0] ?? "Warsaw";
+    return {
+      query: `(${p.officeCompanies.join(" OR ")}) engineer`,
+      location: /^warsaw$/i.test(city) ? "Warsaw, Mazowieckie, Poland" : `${city}, Poland`,
+    };
+  },
+};
+
+/** A hybrid or onsite role I would take: one of OFFICE_OK's companies, in its city. */
+export function officeAcceptable(job: Pick<Job, "company" | "location" | "locationRestrictions">): boolean {
+  const places = [job.location ?? "", ...(job.locationRestrictions ?? [])].join("; ");
+  return OFFICE_OK.companies.test(job.company) && OFFICE_OK.city.test(places);
+}
 
 /**
  * Stack fit — the two lists that decide what ranks highly. Taken from the CV,
@@ -456,6 +523,9 @@ const JUNIOR_MARKERS: RegExp[] = [
   /(?<![a-z])graduate/,
   /(?<![a-z])entry[- ]level/,
   /(?<![a-z])apprentice/,
+  // Google's "Software Engineer, Early Careers, PhD" and "new grad" roles.
+  /(?<![a-z])early[- ]careers?(?![a-z])/,
+  /(?<![a-z])new[- ]grad/,
   // Polish stems, matched as word starts: praktykant / praktyki, staż /
   // stażysta, młodszy / młodsza.
   /(?<![a-ząćęłńóśźż])praktyk/,
@@ -583,6 +653,20 @@ function titleDisqualifies(job: Job): boolean {
   );
 }
 
+/**
+ * Why the fit gate leaves a job out (tier 3), for Настройки → Правила: a
+ * junior title, a foreign stack in the title (the term), or one that
+ * outweighs the target stack in the text. null when the gate keeps it.
+ */
+export function fitGateReason(job: Job): { kind: "junior" | "title-stack" | "text-stack"; term: string | null } | null {
+  if (fitTier(job) < 3) return null;
+  if (seniorityBucket(job) === 2) return { kind: "junior", term: null };
+  const title = job.title.toLowerCase();
+  const hasTarget = TARGET_TITLE_TERMS.some((term) => hasTerm(title, term));
+  const foreign = FOREIGN_STACK.find(([term, penalty]) => hasTerm(title, term) && (penalty >= 6 || !hasTarget));
+  return foreign ? { kind: "title-stack", term: foreign[0] } : { kind: "text-stack", term: null };
+}
+
 const TIER_CACHE = new WeakMap<Job, number>();
 
 export function fitTier(job: Job): number {
@@ -612,6 +696,13 @@ function aiOnlyTitle(job: Job): boolean {
 
 function computeFitTier(job: Job): number {
   if (titleDisqualifies(job)) return 3;
+  // A giant's office in Warsaw (OFFICE_OK) is the one exception to remote-only,
+  // and their postings are written to defeat this score: a title that names
+  // no stack ("Senior Software Engineer, <product>") and a list of languages
+  // in the minimum requirements ("Java, C++, Python or Go"). 10 of the 13
+  // Warsaw postings of a month were cut here, before the exception or Claude
+  // saw them. The title gate above still stands (junior, Android, backend…).
+  if (officeAcceptable(job)) return stackFit(job) >= 6 ? 0 : 1;
   const score = stackFit(job);
   if (score < 0) return 3; // wrong stack — bottom of the list
   if (score >= 6) return aiOnlyTitle(job) ? 1 : 0; // clear match
@@ -650,7 +741,7 @@ const T = (pattern: string): RegExp => new RegExp(`(?<![a-z0-9])(?:${pattern})(?
 
 /** Title-level rejections. Order matters: the first match is the reason. */
 export const SCREEN_TITLE_RULES: Array<[reason: string, pattern: RegExp]> = [
-  ["junior/intern level", T("junior|intern|internship|trainee|graduate|entry[- ]level|mlodszy|młodszy|staz|staż|praktyk\\w*|apprentice")],
+  ["junior/intern level", T("junior|intern|internship|trainee|graduate|new[- ]grad|early[- ]careers?|entry[- ]level|mlodszy|młodszy|staz|staż|praktyk\\w*|apprentice")],
   ["mid-level role, CV is senior", T("middle|mid[- ]?level|regular|engineer (?:2|ii)|developer (?:2|ii)")],
   ["management role, not engineering", T("head of|engineering manager|director|cto|vp|vice president|chief")],
   // AI-training gigs (rating model output, writing prompts for a lab) are not
@@ -659,6 +750,9 @@ export const SCREEN_TITLE_RULES: Array<[reason: string, pattern: RegExp]> = [
   ["not an engineering role", T("recruiter|talent|designer|ui/ux design|product manager|project manager|scrum master|business analyst|analyst|account manager|customer success|support|advocate|consultant|informatyk|administrator|technical writer|documentation")],
   ["QA / test role", T("qa|test engineer|tester|sdet|quality|automation test|automation engineer")],
   ["DevOps / infra / security role", T("devops|sre|site reliability|security|cloud architect|platform lead|network|infrastructure|k8s|kubernetes")],
+  // Asked for on 2026-10-24: a role whose point is architecture is not the
+  // hands-on product work wanted, React in the title or not.
+  ["architect role, not hands-on product work", T("architect|architekt\\w*")],
   ["data / ML role", T("data engineer|data scientist|ml engineer|machine learning|deep learning|mlops|data visuali[sz]ation|computer vision")],
   ["AI/ML role, not frontend", T("ai engineer|ai architect|genai|llm engineer|ai infrastructure|ai platform|solutions? architect|agentic solution|ai lead|lead ai|ai engineering")],
   ["mobile role", T("mobile|react native|android|ios|flutter|swift|kotlin|hybrid app")],
@@ -669,6 +763,34 @@ export const SCREEN_TITLE_RULES: Array<[reason: string, pattern: RegExp]> = [
   ["PHP-first role", T("php|laravel|symfony")],
   ["requires another language", T("german|deutsch|italian|french|spanish|dutch|polish speaker|with (?:german|italian|french|spanish|dutch)|(?:german|italian|french|spanish|dutch)[- ]speaking")],
 ];
+
+/** How Настройки → Правила names each rule (the reasons above stay English: hides store them). */
+export const SCREEN_RULE_LABELS: Record<string, string> = {
+  "junior/intern level": "Джуниор, стажёр",
+  "mid-level role, CV is senior": "Мидл",
+  "management role, not engineering": "Менеджмент",
+  "AI-training gig, not engineering": "Разметка данных для ИИ",
+  "not an engineering role": "Не инженерная роль",
+  "QA / test role": "QA, тестирование",
+  "DevOps / infra / security role": "DevOps, инфраструктура, безопасность",
+  "architect role, not hands-on product work": "Архитектор",
+  "data / ML role": "Data, ML",
+  "AI/ML role, not frontend": "AI-инженер без фронтенда",
+  "mobile role": "Мобильная разработка",
+  "wrong stack: .NET / Java": ".NET, Java",
+  "wrong stack: other language": "Другой язык: Python, Go, Ruby…",
+  "wrong stack: other frontend framework": "Angular, Vue, Svelte",
+  "wrong stack: platform / CMS / ERP": "Платформы, CMS, ERP",
+  "PHP-first role": "PHP",
+  "requires another language": "Нужен другой язык: немецкий…",
+};
+
+/**
+ * A role I applied to, reposted on another board, stays hidden this long
+ * (src/screening.ts). Later it shows again with a flag: by then the first
+ * application has gone quiet, and applying again can be a choice.
+ */
+export const REAPPLY_AFTER_DAYS = 60;
 
 // Tested against the *normalised* title, so "Full-Stack" and "Node.js" match.
 export const SCREEN_FRONTEND = T("react|frontend|fullstack|next|web|ui engineer|product engineer");

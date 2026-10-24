@@ -28,7 +28,8 @@ import {
   upsertPostings,
 } from "./db.ts";
 import { fetchJobs, profileParams } from "./pipeline.ts";
-import { SEARCH_DEFAULTS } from "./profile.ts";
+import { OFFICE_OK, SEARCH_DEFAULTS, officeAcceptable } from "./profile.ts";
+import { loadPreferences } from "./preferences.ts";
 import type { SourceName } from "./sources.ts";
 
 const HOUR = 3_600_000;
@@ -65,7 +66,9 @@ function due(source: SourceName, force: boolean): SourceOutcome["status"] | "due
   // The desktop app's "LinkedIn в фоне" switch. Off: LinkedIn is not fetched
   // on any schedule, and its stored postings stay until they age out.
   if (slow && process.env["JOBHUNT_LINKEDIN_BACKGROUND"] === "0") return "off";
-  if (slow && state.lastError && /429/.test(state.lastError) && hoursSince(state.lastRunAt) < BACKOFF_HOURS) {
+  // A pass cut short (recorded "partial, …: <error>") waits as long: retried
+  // at the next 15-minute tick it would keep hitting a board that just refused.
+  if (slow && state.lastError && /429|^partial/.test(state.lastError) && hoursSince(state.lastRunAt) < BACKOFF_HOURS) {
     return "backoff";
   }
   // "Обновить" refreshes the fast boards on demand; LinkedIn keeps its own
@@ -85,7 +88,8 @@ async function fetchSource(source: SourceName): Promise<SourceOutcome> {
     : SEARCH_DEFAULTS.hoursOld;
   const run = startFetchRun(source, hoursOld);
   try {
-    const params = profileParams({ sources: [source], hoursOld });
+    // The store gets Himalayas' worldwide pass too; a live search does not need it.
+    const params = profileParams({ sources: [source], hoursOld, himalayasWorldwide: source === "himalayas" });
     let jobs;
     let skipped: string | null = null;
     if (slow) {
@@ -97,6 +101,18 @@ async function fetchSource(source: SourceName): Promise<SourceOutcome> {
         jobs.push(...fetched.jobs);
         skipped = skipped ?? fetched.reports.find((report) => report.skipped)?.skipped ?? null;
         if (skipped && /429/.test(skipped)) break;
+      }
+      // The giants' Warsaw offices (profile.ts OFFICE_OK), the one exception
+      // to remote-only, asked for by name: the queries above are remote-only.
+      if (!(skipped && /429/.test(skipped))) {
+        const giants = await fetchJobs({
+          ...params,
+          queries: [OFFICE_OK.linkedin.query],
+          location: OFFICE_OK.linkedin.location,
+          remoteOnly: false,
+        });
+        jobs.push(...giants.jobs.filter((job) => officeAcceptable(job)));
+        skipped = skipped ?? giants.reports.find((report) => report.skipped)?.skipped ?? null;
       }
     } else {
       const fetched = await fetchJobs(params);
@@ -110,6 +126,15 @@ async function fetchSource(source: SourceName): Promise<SourceOutcome> {
       return { source, status: "failed", error: skipped };
     }
     const { inserted } = upsertPostings(source, jobs);
+    // LinkedIn reads only what is new since its last success. A pass cut short
+    // (HTTP 429) used to count as one, so the next pass started after the gap
+    // and the postings in it were never read. Kept, but recorded as failed:
+    // the next pass starts from the last complete one, after the 429 backoff.
+    if (slow && skipped) {
+      const error = `partial, ${jobs.length} rows kept: ${skipped}`;
+      finishFetchRun(run, jobs.length, error);
+      return { source, status: "failed", rows: jobs.length, inserted, error };
+    }
     finishFetchRun(run, jobs.length, null);
     return { source, status: "fetched", rows: jobs.length, inserted };
   } catch (error) {
@@ -169,6 +194,7 @@ export function describe(outcome: SourceOutcome): string {
 /* `npm run refresh [-- --force]` — one pass, for Task Scheduler or by hand. */
 const invokedPath = process.argv[1]?.replace(/\\/g, "/") ?? "";
 if (invokedPath.endsWith("src/refresh.ts")) {
+  loadPreferences();
   const force = process.argv.includes("--force");
   const outcomes = await refreshDue({ force });
   for (const outcome of outcomes) console.log(describe(outcome));

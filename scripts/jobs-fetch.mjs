@@ -512,6 +512,28 @@ function parseArgs(argv) {
   return { positional, flags };
 }
 
+/**
+ * What the screen (funnel.mjs screen --json) knew about the job, carried into
+ * this row so the decision and apply-batch see it: Claude's verdict, the
+ * screening flags (an earlier application, pay below the floor), the board's
+ * own pay and dates. Without it the line was decided on the regexes below
+ * alone, and apply-batch sent what Claude had called "skip".
+ */
+function carried(job) {
+  return {
+    bucket: job.bucket ?? null,
+    screenReason: job.screenReason ?? job.reason ?? null,
+    flags: job.flags ?? [],
+    verdict: job.verdict ?? null,
+    source: job.source ?? null,
+    postedAt: job.postedAt ?? null,
+    boardSalary: job.boardSalary ?? (typeof job.salary === "string" ? job.salary : null),
+    pay: job.pay ?? null,
+    belowSalaryFloor: Boolean(job.belowSalaryFloor),
+    officeOk: Boolean(job.officeOk),
+  };
+}
+
 async function fetchOne(job) {
   const started = Date.now();
   const resolved = await resolve(job.url);
@@ -540,6 +562,7 @@ async function fetchOne(job) {
   const company = job.company ?? posting.company ?? posting.title?.match(/\s[-|–]\s([^-|–]+)$/)?.[1]?.trim() ?? new URL(resolved).hostname.replace(/^(www|jobs|careers?|apply)\./, "").split(".")[0];
   const signals = analyse(title, posting.text);
   return {
+    ...carried(job),
     index: job.index,
     company,
     title,
@@ -563,9 +586,16 @@ function formatLine(r) {
     ? ` form:${r.questions.filter((x) => x.required).length}req` +
       (r.questions.filter((x) => x.required && !/name|email|phone|resume|cv|linkedin|location|consent|privacy|gdpr/i.test(x.label)).map((x) => `"${x.label.slice(0, 40)}"`).join(",") || "")
     : "";
+  const v = r.verdict;
+  const claude = v ? `claude:${v.verdict}/${v.score}${v.stale ? "(old)" : ""}${v.verdict === "skip" && v.hideReason ? ` «${v.hideReason}»` : ""}` : "claude:—";
+  const marks = [r.belowSalaryFloor ? "!low-pay" : "", ...(r.flags ?? []).filter((flag) => /похоже на отклик/.test(flag)).map(() => "!applied-before")]
+    .filter(Boolean)
+    .join(" ");
   return [
     String(r.index ?? "-").padStart(3),
     `${r.company ?? "?"} — ${r.title ?? "?"}`.slice(0, 70),
+    claude,
+    marks,
     r.error ? `ERR ${r.error}` : r.closed ? "CLOSED" : r.mode,
     r.lock.length ? `lock:${r.lock.join("/")}` : "",
     r.level + (r.years ? `/${r.years}y` : ""),
@@ -587,7 +617,9 @@ let previous = [];
 if (flags.retry) {
   // Re-fetch only the rows that errored last time and merge them back.
   previous = JSON.parse(readFileSync(flags.retry, "utf8"));
-  jobs = previous.filter((r) => r.error).map((r) => ({ index: r.index, url: r.url, title: r.title, company: r.company, location: r.location }));
+  jobs = previous
+    .filter((r) => r.error)
+    .map((r) => ({ ...carried(r), index: r.index, url: r.url, title: r.title, company: r.company, location: r.location }));
   flags.out ??= flags.retry;
 } else if (flags.screen) {
   const buckets = String(flags.buckets ?? "apply,check").split(",");
@@ -612,7 +644,7 @@ await Promise.all(
         results.push(r);
         console.log(formatLine(r));
       } catch (error) {
-        results.push({ ...job, error: error.message, mode: "?", lock: [], stack: [], neg: [], lang: [], level: "-", salary: [], applyVendor: "?", applyUrl: job.url });
+        results.push({ ...job, ...carried(job), error: error.message, mode: "?", lock: [], stack: [], neg: [], lang: [], level: "-", salary: [], applyVendor: "?", applyUrl: job.url });
         console.log(`${String(job.index).padStart(3)} | ${job.company} — ${job.title} | ERR ${error.message}`);
       }
     }

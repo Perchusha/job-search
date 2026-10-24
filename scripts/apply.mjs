@@ -10,6 +10,10 @@
  *                          [--posted <iso date>]   the posting's date, stored with the application
  *                          [--contract uop|b2b]   the posting's contract type, when known: picks
  *                                                 the gross UoP or the net B2B salary figure
+ *                          [--pay <json>]         the posting's pay ranges (PayRange[]): a salary
+ *                                                 field asks for their top where it beats mine
+ *                          [--office-ok]          a giant's office in Warsaw (profile.ts OFFICE_OK):
+ *                                                 LinkedIn's Hybrid/On-site tag is no reason to stop
  *   node scripts/apply.mjs --login            # opens a window on linkedin.com; log in, then close it
  *
  * Exit codes: 0 submitted (or dry run ok) · 2 required field has no answer
@@ -115,6 +119,37 @@ function contractFor(l) {
 
 const money = (amount) => Math.round(amount).toLocaleString("en-US");
 
+// --pay: the posting's published ranges (src/sources.ts PayRange[]), when the caller has them.
+let PAY = [];
+try {
+  PAY = typeof flags.pay === "string" ? JSON.parse(flags.pay) : [];
+} catch {
+  PAY = [];
+}
+
+/**
+ * The top of the posting's own range on this contract, in this currency, per
+ * month — when it is above my figure there, else null. Asked for on
+ * 2026-10-24: cerebre published 5.8k–8.3k USD on B2B and the form got my
+ * $7,000; a posting that offers more than my target gets asked for what it
+ * offers. Only the same currency counts (no FX guesses); a range with no
+ * contract (Himalayas) counts as B2B, the way the unstated contract does here.
+ */
+function postedAbove(contract, currency) {
+  const uop = contract === "uop";
+  const mine = uop
+    ? PROFILE.salary.uopGrossMonthly[currency]
+    : { USD: PROFILE.salary.usdMonthly, EUR: PROFILE.salary.eurMonthly, PLN: PROFILE.salary.plnMonthlyB2B }[currency];
+  const perMonth = { hour: 168, day: 21, month: 1, year: 1 / 12 };
+  let top = 0;
+  for (const range of Array.isArray(PAY) ? PAY : []) {
+    if (String(range?.currency).toUpperCase() !== currency || !(range.max > 0) || !perMonth[range.unit]) continue;
+    if (uop ? range.contract !== "uop" : range.contract !== "b2b" && range.contract !== "other") continue;
+    top = Math.max(top, Math.round((range.max * perMonth[range.unit]) / 100) * 100);
+  }
+  return mine && top > mine ? top : null;
+}
+
 function salaryFor(label, type) {
   const l = label.toLowerCase();
   const hourly = /hour|\/h\b|hourly|stawka godz/.test(l);
@@ -123,35 +158,41 @@ function salaryFor(label, type) {
   const eur = /eur|€/.test(l);
   const contract = contractFor(l);
   const uop = PROFILE.salary.uopGrossMonthly;
+  const currency = usd ? "USD" : eur ? "EUR" : "PLN";
+  // The posting's top, where it beats my figure: on the field's contract, and on B2B when the field does not say.
+  const upB2b = contract === "uop" ? null : postedAbove("b2b", currency);
+  const upUop = contract === "b2b" ? null : postedAbove("uop", currency);
+  const b2bMonthly = upB2b ?? (usd ? PROFILE.salary.usdMonthly : eur ? PROFILE.salary.eurMonthly : PROFILE.salary.plnMonthlyB2B);
+  const uopMonthly = upUop ?? uop[currency];
+  const sign = usd ? "$" : eur ? "€" : "";
+  const amount = (value) => (sign ? `${sign}${money(value)}` : `${money(value)} PLN`);
   // A question ("What compensation are you targeting?") gets a sentence in the currency it names;
   // a bare "Desired salary" box next to a currency/period select gets the number.
   if (type !== "number" && (type === "textarea" || /\?|describe|comment|explain|what |expectation/.test(l))) {
     if (/day rate|daily rate|per day|dzienn/.test(l)) {
       // Day rates are a B2B thing.
-      if (usd) return `$${Math.round(PROFILE.salary.usdMonthly / 21)} / day gross (B2B), ≈ $${PROFILE.salary.usdMonthly.toLocaleString("en-US")} / month; open to discussion`;
-      if (eur) return `€${Math.round(PROFILE.salary.eurMonthly / 21)} / day gross (B2B), ≈ €${PROFILE.salary.eurMonthly.toLocaleString("en-US")} / month; open to discussion`;
-      return `≈ ${Math.round(PROFILE.salary.plnMonthlyB2B / 21).toLocaleString("en-US")} PLN / day net (B2B), i.e. ${PROFILE.salary.plnMonthlyB2BRange}; open to discussion`;
+      if (usd || eur) return `${sign}${Math.round(b2bMonthly / 21)} / day gross (B2B), ≈ ${amount(b2bMonthly)} / month; open to discussion`;
+      return `≈ ${money(b2bMonthly / 21)} PLN / day net (B2B), i.e. ${upB2b ? `${amount(upB2b)} net/month (B2B)` : PROFILE.salary.plnMonthlyB2BRange}; open to discussion`;
     }
     if (contract === "uop") {
-      if (usd) return `$${money(uop.USD)} / month gross on an employment contract (≈ $${Math.round((uop.USD * 12) / 1000)}k / year); open to discussion depending on scope`;
-      if (eur) return `€${money(uop.EUR)} / month gross on an employment contract (≈ €${Math.round((uop.EUR * 12) / 1000)}k / year); open to discussion depending on scope`;
-      return `${money(uop.PLN)} PLN gross / month on an employment contract (umowa o pracę); open to discussion depending on scope`;
+      if (usd || eur) return `${amount(uopMonthly)} / month gross on an employment contract (≈ ${sign}${Math.round((uopMonthly * 12) / 1000)}k / year); open to discussion depending on scope`;
+      return `${money(uopMonthly)} PLN gross / month on an employment contract (umowa o pracę); open to discussion depending on scope`;
     }
     if (contract === "b2b") {
-      if (usd) return `$${PROFILE.salary.usdMonthly.toLocaleString("en-US")} / month (B2B), ≈ $${Math.round(PROFILE.salary.usdYearly / 1000)}k / year; open to discussion depending on scope`;
-      if (eur) return `€${PROFILE.salary.eurMonthly.toLocaleString("en-US")} / month (B2B), ≈ €${Math.round(PROFILE.salary.eurYearly / 1000)}k / year; open to discussion depending on scope`;
-      return `${PROFILE.salary.plnMonthlyB2BRange}; open to discussion depending on scope`;
+      if (usd || eur) {
+        const yearlyFigure = upB2b ? b2bMonthly * 12 : usd ? PROFILE.salary.usdYearly : PROFILE.salary.eurYearly;
+        return `${amount(b2bMonthly)} / month (B2B), ≈ ${sign}${Math.round(yearlyFigure / 1000)}k / year; open to discussion depending on scope`;
+      }
+      return `${upB2b ? `${amount(upB2b)} net/month (B2B)` : PROFILE.salary.plnMonthlyB2BRange}; open to discussion depending on scope`;
     }
     // Contract not stated: give both, so neither reading is wrong.
-    if (usd) return `$${PROFILE.salary.usdMonthly.toLocaleString("en-US")} / month on B2B, or $${money(uop.USD)} / month gross on an employment contract; open to discussion depending on scope`;
-    if (eur) return `€${PROFILE.salary.eurMonthly.toLocaleString("en-US")} / month on B2B, or €${money(uop.EUR)} / month gross on an employment contract; open to discussion depending on scope`;
+    if (usd || eur) return `${amount(b2bMonthly)} / month on B2B, or ${amount(uopMonthly)} / month gross on an employment contract; open to discussion depending on scope`;
+    if (upB2b || upUop) return `${upB2b ? `${money(upB2b)} PLN` : "25–30k PLN"} net/month on B2B, or ${money(uopMonthly)} PLN gross/month on an employment contract (UoP); open to discussion depending on scope`;
     return PROFILE.salary.text;
   }
   // A bare number. Unstated contract keeps the B2B figure, as before.
-  if (contract === "uop") {
-    const monthly = usd ? uop.USD : eur ? uop.EUR : uop.PLN;
-    return String(hourly ? Math.round(monthly / 168) : yearly ? monthly * 12 : monthly);
-  }
+  if (contract === "uop") return String(hourly ? Math.round(uopMonthly / 168) : yearly ? uopMonthly * 12 : uopMonthly);
+  if (upB2b) return String(hourly ? Math.round(upB2b / 168) : yearly ? upB2b * 12 : upB2b);
   if (usd) return String(hourly ? 45 : yearly ? PROFILE.salary.usdYearly : PROFILE.salary.usdMonthly);
   if (eur) return String(hourly ? 42 : yearly ? PROFILE.salary.eurYearly : PROFILE.salary.eurMonthly);
   return String(hourly ? 170 : yearly ? PROFILE.salary.plnMonthlyB2B * 12 : PROFILE.salary.plnMonthlyB2B);
@@ -406,7 +447,7 @@ const SCAN = `(scopeSelector) => {
     }
     return "";
   };
-  const labelOf = (el) => {
+  const labelOf = (el, max = 200) => {
     let t = "";
     if ((el.getAttribute("type") || "").toLowerCase() === "file") t = fileLabelOf(el);
     if (!t && el.id) { try { const l = scope.querySelector('label[for="' + CSS.escape(el.id) + '"]'); if (l) t = textOf(l); } catch {} }
@@ -433,7 +474,7 @@ const SCAN = `(scopeSelector) => {
       }
     }
     if (!t) t = clean(el.placeholder) || clean(el.name) || clean(el.id);
-    return t.slice(0, 200);
+    return t.slice(0, max);
   };
   const groupLabelOf = (el) => {
     const entry = el.closest(".ashby-application-form-field-entry, [data-field-path]");
@@ -474,7 +515,11 @@ const SCAN = `(scopeSelector) => {
     const optionLabel = pressed ? clean(el.innerText) : type === "radio" || el.getAttribute("role") === "radio" ? labelOf(el) : "";
     const required = requiredMark || /\\*\\s*$|\\(required\\)|^\\*|required/i.test(label);
     const options = el.tagName === "SELECT" ? [...el.options].map((o) => clean(o.textContent)).filter(Boolean).slice(0, 400) : [];
-    out.push({ idx: n, tag: el.tagName.toLowerCase(), type, role, name: el.name || (pressed ? (el.closest("[data-field-path]")?.getAttribute("data-field-path") || label) : ""), id: el.id || "", label, optionLabel, required, options, checked: !!el.checked || el.getAttribute("aria-pressed") === "true", value: el.value || "", contenteditable: el.getAttribute("contenteditable") === "true" });
+    // The rules read the first 200 characters (a long question's tail can name salary or a city in
+    // passing); a question nobody could answer is reported whole, for the person and for Claude's draft.
+    // A radio group's label is never cut.
+    const question = label.length >= 200 && type !== "radio" && el.getAttribute("role") !== "radio" ? labelOf(el, 1000) : label;
+    out.push({ idx: n, tag: el.tagName.toLowerCase(), type, role, name: el.name || (pressed ? (el.closest("[data-field-path]")?.getAttribute("data-field-path") || label) : ""), id: el.id || "", label, question, optionLabel, required, options, checked: !!el.checked || el.getAttribute("aria-pressed") === "true", value: el.value || "", contenteditable: el.getAttribute("contenteditable") === "true" });
     n += 1;
   }
   return out;
@@ -536,7 +581,7 @@ async function fillControls(page, scopeSelector, extra, report) {
         }
       }
       if (pickIdx === null && group.every((x) => !x.checked)) {
-        missing.push({ label: c.label, type: "radio", options: group.map((x) => x.optionLabel) });
+        missing.push({ label: c.label, question: c.question, type: "radio", options: group.map((x) => x.optionLabel) });
       } else if (pickIdx !== null) {
         await scope.locator(`[data-jh="${pickIdx}"]`).first().click({ force: true }).catch(() => {});
         note(group.find((x) => x.idx === pickIdx).optionLabel);
@@ -546,7 +591,7 @@ async function fillControls(page, scopeSelector, extra, report) {
     }
 
     if (!answer) {
-      if (c.required && !c.value && !c.checked) missing.push({ label, type: c.type, options: c.options.slice(0, 15) });
+      if (c.required && !c.value && !c.checked) missing.push({ label, question: c.question, type: c.type, options: c.options.slice(0, 15) });
       continue;
     }
     if (answer.kind === "skip") continue;
@@ -574,13 +619,15 @@ async function fillControls(page, scopeSelector, extra, report) {
         if (c.checked) continue;
         if (c.role === "checkbox") await loc.click({ force: true });
         else {
-          await loc.check({ force: true, timeout: 4000 }).catch(async () => {
+          await loc.check({ force: true, timeout: 4000 }).catch(async (error) => {
+            if (DEBUG) log(`  [check] "${label.slice(0, 40)}" check() failed: ${error.message.split("\n")[0]} — checked=${await loc.isChecked().catch(() => "?")}`);
             // Styled checkbox with a hidden input: the label is the click target.
             const byFor = c.id ? scope.locator(`label[for="${c.id.replace(/"/g, '\\"')}"]`).first() : null;
             if (byFor && (await byFor.count().catch(() => 0))) await byFor.click({ force: true });
             else await loc.evaluate((el) => { el.checked = true; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); });
           });
         }
+        if (DEBUG) log(`  [check] "${label.slice(0, 40)}" → checked=${await loc.isChecked().catch(() => "?")}`);
         note("☑");
       } else if (answer.kind === "select") {
         if (/-selectized$/.test(c.id)) {
@@ -615,7 +662,7 @@ async function fillControls(page, scopeSelector, extra, report) {
             }
           }
           if (picked) { note(picked.slice(0, 40)); continue; }
-          if (c.required) missing.push({ label, type: "selectize" });
+          if (c.required) missing.push({ label, question: c.question, type: "selectize" });
           continue;
         }
         if (c.tag === "select") {
@@ -624,7 +671,7 @@ async function fillControls(page, scopeSelector, extra, report) {
             chosen = c.options.find((o) => re.test(o));
             if (chosen) break;
           }
-          if (!chosen) { if (c.required) missing.push({ label, type: "select", options: c.options.slice(0, 15) }); continue; }
+          if (!chosen) { if (c.required) missing.push({ label, question: c.question, type: "select", options: c.options.slice(0, 15) }); continue; }
           await loc.selectOption({ label: chosen });
           note(chosen);
         } else {
@@ -661,10 +708,10 @@ async function fillControls(page, scopeSelector, extra, report) {
           if (DEBUG) log(`  [combobox] decide "${label.slice(0, 30)}": typed=${JSON.stringify(typed)} listed=${alreadyListed} texts=${JSON.stringify(texts.slice(0, 4))} chosen=${chosenIdx} prefer=${answer.prefer.map((r) => r.source).join(" ; ")}`);
           if (chosenIdx >= 0) { await options.nth(chosenIdx).click({ force: true }); note(texts[chosenIdx].trim().slice(0, 40)); }
           else if (texts.length === 0 && typed) { await keys.keyboard.press("Enter"); note(`⏎ ${typed}`); }
-          else { await keys.keyboard.press("Escape"); if (c.required) missing.push({ label, type: "combobox", options: texts.map((t) => t.trim()).slice(0, 15) }); }
+          else { await keys.keyboard.press("Escape"); if (c.required) missing.push({ label, question: c.question, type: "combobox", options: texts.map((t) => t.trim()).slice(0, 15) }); }
         }
       } else if (answer.kind === "text") {
-        if (!answer.value) { if (c.required) missing.push({ label, type: c.type }); continue; }
+        if (!answer.value) { if (c.required) missing.push({ label, question: c.question, type: c.type }); continue; }
         if (c.contenteditable) { await loc.click(); await keys.keyboard.type(answer.value); }
         else if (c.role === "combobox" || answer.autocomplete) {
           await loc.click();
@@ -681,7 +728,7 @@ async function fillControls(page, scopeSelector, extra, report) {
       }
     } catch (error) {
       report.push(`${label.slice(0, 50)} ✗ ${error.message.split("\n")[0].slice(0, 80)}`);
-      if (c.required) missing.push({ label, type: c.type, error: error.message.split("\n")[0] });
+      if (c.required) missing.push({ label, question: c.question, type: c.type, error: error.message.split("\n")[0] });
     }
   }
   return missing;
@@ -830,7 +877,7 @@ async function openForm(page, vendor, applyUrl) {
   if (vendor === "linkedin") {
     const top = await page.evaluate(() => (document.querySelector(".job-details-jobs-unified-top-card__container--two-pane, .jobs-unified-top-card, .job-details-jobs-unified-top-card__primary-description-container, main")?.innerText ?? "").slice(0, 1500)).catch(() => "");
     const workplace = /\bhybrid\b/i.test(top) ? "hybrid" : /\bon-?site\b/i.test(top) ? "onsite" : /\bremote\b/i.test(top) ? "remote" : "unknown";
-    if (workplace === "hybrid" || workplace === "onsite") return { ok: false, reason: `linkedin says ${workplace}`, notRemote: true };
+    if ((workplace === "hybrid" || workplace === "onsite") && !flags["office-ok"]) return { ok: false, reason: `linkedin says ${workplace}`, notRemote: true };
     if (/sign in|join now|log in/i.test(await page.title()) || (await page.locator("input#session_key, input[name=session_key]").count()) > 0) return { ok: false, reason: "not logged in to LinkedIn — run: node scripts/apply.mjs --login" };
     // The top card has either an "Easy Apply" button (modal) or an "Apply" link to the employer's ATS.
     // LinkedIn's new UI obfuscates class names, so go by accessible name and position.
@@ -1139,7 +1186,9 @@ async function main() {
   context.setDefaultTimeout(10_000);
   let page = context.pages()[0] ?? (await context.newPage());
   const slug = `${flags.company}-${flags.title}`.replace(/[^a-z0-9]+/gi, "-").slice(0, 60).toLowerCase();
-  const shot = async (suffix) => { const file = join(SHOTS, `${slug}-${suffix}.png`); await page.screenshot({ path: file, fullPage: true }).catch(() => {}); return file; };
+  // A moment first: a box ticked last is mid-transition, and cerebre's dry-run screenshot showed
+  // both consents empty while they were checked (2026-10-24) — the screenshot is what I review.
+  const shot = async (suffix) => { const file = join(SHOTS, `${slug}-${suffix}.png`); await page.waitForTimeout(600); await page.screenshot({ path: file, fullPage: true }).catch(() => {}); return file; };
   const report = [];
 
   try {

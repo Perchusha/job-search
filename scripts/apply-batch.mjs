@@ -4,11 +4,24 @@
  * of output per job, results saved as JSON. The model reads the lines, not
  * the forms.
  *
- *   node scripts/apply-batch.mjs --fetched <fetched.json> [--only 2,10,19] [--skip 5] [--dry-run] [--out results.json]
+ *   node scripts/apply-batch.mjs --fetched <fetched.json> [--only 2,10,19] [--skip 5] [--out results.json]
+ *                                [--submit] [--force 3,7] [--accept-low-pay 4]
  *
- * A row is attempted when it has no `error`, is not `closed`, and its
- * applyVendor is one apply.mjs can drive (not portal / himalayas-account /
- * indeed). Everything else is reported as skipped with the reason.
+ * A dry run unless --submit: every form is filled and nothing is sent, as
+ * «Подать» on the dashboard always starts. "Applications go out in my name;
+ * nothing is sent unseen" (src/apply-runner.ts) — show the dry-run lines to the
+ * user and re-run with --submit (and --only) for the ones they approve.
+ *
+ * A row is attempted when it has no `error`, is not `closed`, its applyVendor
+ * is one apply.mjs can drive (not portal / himalayas-account / indeed), and the
+ * stops «Подать» has hold (rows carry them from funnel.mjs screen through
+ * jobs-fetch.mjs):
+ *   - Claude's verdict is a current "apply". maybe, skip, an old verdict or
+ *     none is skipped with the reason; --force <idx> attempts it anyway.
+ *   - Published pay is not under the floor; --accept-low-pay <idx> is the
+ *     batch's «Всё равно подать».
+ *   - No earlier application looks like this role; --force <idx> again.
+ * Everything else is reported as skipped with the reason.
  *
  * Result lines: `idx | company — title | RESULT | detail`. RESULT is one of
  * applied · missing-answers · no-form · needs-account · captcha · not-remote
@@ -35,12 +48,41 @@ function parseArgs(argv) {
 
 const flags = parseArgs(process.argv.slice(2));
 if (!flags.fetched) {
-  console.error("usage: apply-batch.mjs --fetched fetched.json [--only i,j] [--skip i,j] [--dry-run] [--out results.json] [--answers dir]");
+  console.error("usage: apply-batch.mjs --fetched fetched.json [--only i,j] [--skip i,j] [--submit] [--force i,j] [--accept-low-pay i,j] [--out results.json] [--answers dir]");
   process.exit(1);
 }
 const rows = JSON.parse(readFileSync(flags.fetched, "utf8"));
 const only = flags.only ? new Set(String(flags.only).split(",").map(Number)) : null;
 const skip = flags.skip ? new Set(String(flags.skip).split(",").map(Number)) : new Set();
+const indexes = (value) => new Set(typeof value === "string" ? value.split(",").map(Number) : []);
+const force = indexes(flags.force);
+const acceptLowPay = indexes(flags["accept-low-pay"]);
+const submit = flags.submit === true;
+if (!submit) console.log("dry run: forms are filled, nothing is sent (--submit sends)");
+
+/** Why «Подать» would not send this row unasked, or null. */
+function stop(row) {
+  const v = row.verdict;
+  if (!force.has(row.index)) {
+    if (!v) return "no Claude verdict yet — wait for it on the dashboard, or --force";
+    if (v.stale) return `Claude's verdict is from older criteria (${v.verdict}/${v.score}) — --force to send anyway`;
+    if (v.verdict === "skip") return `Claude: skip/${v.score}${v.hideReason ? ` «${v.hideReason}»` : ""}`;
+    if (v.verdict === "maybe") return `Claude: maybe/${v.score} — something to check by hand first; --force to send`;
+    const earlier = (row.flags ?? []).find((flag) => /похоже на отклик/.test(flag));
+    if (earlier) return `${earlier} — --force to apply again`;
+  }
+  if (row.belowSalaryFloor && !acceptLowPay.has(row.index)) {
+    return `pay below the floor: ${row.boardSalary ?? "?"} — --accept-low-pay ${row.index} to send anyway`;
+  }
+  return null;
+}
+
+/** "uop" / "b2b" when every published range agrees, as src/apply-runner.ts contractOf. */
+function contractOf(pay) {
+  const contracts = new Set((pay ?? []).map((range) => range.contract));
+  const only = contracts.size === 1 ? [...contracts][0] : null;
+  return only === "uop" || only === "b2b" ? only : null;
+}
 const UNDRIVABLE = /^(portal|himalayas-account|himalayas|indeed|\?)$/;
 const previous = flags.out && existsSync(flags.out) ? JSON.parse(readFileSync(flags.out, "utf8")) : [];
 const results = [...previous];
@@ -54,6 +96,7 @@ for (const row of rows) {
   if (row.error) skipReason = `fetch error: ${row.error}`;
   else if (row.closed) skipReason = "posting closed";
   else if (UNDRIVABLE.test(row.applyVendor ?? "?")) skipReason = `needs an account (${row.applyVendor})`;
+  else skipReason = stop(row);
   if (skipReason) {
     console.log(`${head} | skipped | ${skipReason}`);
     results.push({ index: row.index, result: "skipped", detail: skipReason });
@@ -71,12 +114,20 @@ for (const row of rows) {
     "--stack", (row.stack ?? []).join(","),
   ];
   if (row.location) args.push("--location", String(row.location));
-  // The posting's contract type, when the batch file carries it (Polish boards
-  // publish it): picks the gross UoP or the net B2B salary figure.
-  if (row.contract === "uop" || row.contract === "b2b") args.push("--contract", row.contract);
-  if (row.salary?.[0]) args.push("--salary", String(row.salary[0]));
+  // As «Подать» passes them (src/apply-runner.ts): the contract the published
+  // ranges agree on picks the gross UoP or the net B2B figure, the ranges let a
+  // salary field ask for the posting's top, and a giant's Warsaw office must
+  // not stop the run on LinkedIn's Hybrid tag.
+  const contract = contractOf(row.pay) ?? (row.contract === "uop" || row.contract === "b2b" ? row.contract : null);
+  if (contract) args.push("--contract", contract);
+  if (row.pay?.length) args.push("--pay", JSON.stringify(row.pay));
+  if (row.officeOk) args.push("--office-ok");
+  // The board's own figure before one the regexes found in the text: those
+  // picked up funding rounds and training budgets ($26, $781).
+  const salary = row.boardSalary ?? row.salary?.[0];
+  if (salary) args.push("--salary", String(salary));
   if (row.postedAt) args.push("--posted", String(row.postedAt));
-  if (flags["dry-run"]) args.push("--dry-run");
+  if (!submit) args.push("--dry-run");
   const answersFile = flags.answers ? join(flags.answers, `${row.index}.json`) : null;
   if (answersFile && existsSync(answersFile)) args.push("--answers", answersFile);
 
