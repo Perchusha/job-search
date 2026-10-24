@@ -19,7 +19,7 @@
   "build": {
     "appId": "com.perch.jobhunt",
     "productName": "Job Hunt",
-    "files": ["main.mjs", "preload.cjs", "settings.html", "assets/**", "package.json"],
+    "files": ["main.mjs", "preload.cjs", "assets/**", "package.json"],
     "directories": { "output": "dist" },
     "npmRebuild": false,
     "win": {

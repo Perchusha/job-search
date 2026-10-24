@@ -36,27 +36,93 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { extractText, getDocumentProxy } from "unpdf";
+
 import { belowSalaryFloor } from "./boards-pl.ts";
 import { findPostings, getMeta, listVerdicts, resolveDbPath, saveVerdict, setMeta, type VerdictRow } from "./db.ts";
 import type { Job } from "./sources.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CRITERIA_FILE = join(HERE, "verdict-criteria.md");
+// The facts application forms ask for — the same file scripts/apply.mjs fills them from.
+const PROFILE_FILE = join(HERE, "..", ".claude", "skills", "job-apply", "profile.json");
 const JOBS_FETCH = join(HERE, "..", "scripts", "jobs-fetch.mjs");
+
+/* ------------------------------------------------------------------ */
+/* Settings                                                             */
+/* ------------------------------------------------------------------ */
+
+export type ClaudeSettings = {
+  /** The background queue judges what the Search tab shows. */
+  auto: boolean;
+  model: string;
+  effort: string;
+  /** Most background runs in a local-time day. */
+  daily: number;
+};
+
+const SETTINGS_KEY = "claude_settings";
+const MODELS = ["sonnet", "opus"];
+const EFFORTS = ["low", "medium", "high"];
 
 /*
  * Measured on this machine (2026-10-23) over 28 postings already decided by
  * hand: ~7 s a posting on either model at low effort, the same agreement with
  * my decisions (README, "Claude's verdict on a card"). Sonnet is the default
- * because it used half as much of the plan; JOBHUNT_CLAUDE_MODEL=opus for a
- * closer read.
+ * because it used half as much of the plan. Low effort: the user settings ask
+ * for xhigh, which is for coding sessions; a verdict is a read of one page.
+ * JOBHUNT_CLAUDE_* set the defaults; what Настройки saves wins over them.
  */
-const MODEL = process.env["JOBHUNT_CLAUDE_MODEL"]?.trim() || "sonnet";
-// The user settings ask for xhigh effort, which is for coding sessions; a
-// verdict is a read of one page.
-const EFFORT = process.env["JOBHUNT_CLAUDE_EFFORT"]?.trim() || "low";
-const AUTO = process.env["JOBHUNT_CLAUDE_AUTO"] !== "0";
-const DAILY_CAP = Math.max(0, Number(process.env["JOBHUNT_CLAUDE_DAILY"] ?? 80) || 0);
+export function defaultClaudeSettings(): ClaudeSettings {
+  return {
+    auto: process.env["JOBHUNT_CLAUDE_AUTO"] !== "0",
+    model: process.env["JOBHUNT_CLAUDE_MODEL"]?.trim() || "sonnet",
+    effort: process.env["JOBHUNT_CLAUDE_EFFORT"]?.trim() || "low",
+    daily: Math.max(0, Number(process.env["JOBHUNT_CLAUDE_DAILY"] ?? 80) || 0),
+  };
+}
+
+/** Read on every use, so a change in Настройки applies to the next run without a restart. */
+export function claudeSettings(): ClaudeSettings {
+  const defaults = defaultClaudeSettings();
+  let saved: Partial<ClaudeSettings> = {};
+  try {
+    saved = JSON.parse(getMeta(SETTINGS_KEY) ?? "{}") as Partial<ClaudeSettings>;
+  } catch {
+    // an unreadable row is the defaults
+  }
+  return {
+    auto: typeof saved.auto === "boolean" ? saved.auto : defaults.auto,
+    model: typeof saved.model === "string" && MODELS.includes(saved.model) ? saved.model : defaults.model,
+    effort: typeof saved.effort === "string" && EFFORTS.includes(saved.effort) ? saved.effort : defaults.effort,
+    daily: Number.isInteger(saved.daily) && (saved.daily as number) >= 0 ? (saved.daily as number) : defaults.daily,
+  };
+}
+
+/** Stores what Настройки sent; anything out of range is refused rather than stored. */
+export function saveClaudeSettings(input: Record<string, unknown>): ClaudeSettings {
+  const next = { ...claudeSettings() };
+  if ("auto" in input) {
+    if (typeof input["auto"] !== "boolean") throw new Error("auto must be true or false");
+    next.auto = input["auto"];
+  }
+  if ("model" in input) {
+    if (!MODELS.includes(String(input["model"]))) throw new Error(`model must be one of: ${MODELS.join(", ")}`);
+    next.model = String(input["model"]);
+  }
+  if ("effort" in input) {
+    if (!EFFORTS.includes(String(input["effort"]))) throw new Error(`effort must be one of: ${EFFORTS.join(", ")}`);
+    next.effort = String(input["effort"]);
+  }
+  if ("daily" in input) {
+    const daily = Number(input["daily"]);
+    if (!Number.isInteger(daily) || daily < 0 || daily > 1000) throw new Error("daily must be a whole number from 0 to 1000");
+    next.daily = daily;
+  }
+  setMeta(SETTINGS_KEY, JSON.stringify(next));
+  return next;
+}
+
 const CONCURRENCY = 2;
 const CLAUDE_TIMEOUT_MS = 3 * 60_000;
 const FETCH_TIMEOUT_MS = 90_000;
@@ -175,8 +241,9 @@ const INSTRUCTIONS = `Ты разбираешь вакансии для одно
  * Where the `claude` sessions run: next to the database, in a folder of
  * their own, so they are one project in Claude Code's session list rather
  * than a few hundred entries in the repo's, and a test database gets its own.
- * Nothing in it is read back — "обсудить" opens a session there with tools,
- * so what the runs depend on lives in scratchDir().
+ * The runs read nothing from it (--safe-mode), so what they depend on lives in
+ * scratchDir(); "обсудить" opens a session there with tools, and that session
+ * reads the CLAUDE.md openSession writes (see discussionBrief).
  */
 function workDir(): string {
   const dir = join(dirname(resolveDbPath()), "verdicts");
@@ -506,6 +573,7 @@ async function askClaude(
 ): Promise<{ output: Output; sessionId: string; model: string; version: string; costUsd: number | null; durationMs: number }> {
   const { command, prefix } = await findClaude();
   const { prompt: system, version } = criteria();
+  const settings = claudeSettings();
   const sessionId = randomUUID();
   // Passed as a file — several kilobytes of Cyrillic with quotes — written for
   // this run only and outside the sessions' folder, so nothing left there can
@@ -517,8 +585,8 @@ async function askClaude(
     ...prefix,
     "-p",
     "--safe-mode",
-    "--model", MODEL,
-    "--effort", EFFORT,
+    "--model", settings.model,
+    "--effort", settings.effort,
     "--system-prompt-file", systemFile,
     "--tools", "",
     "--strict-mcp-config",
@@ -572,7 +640,7 @@ async function askClaude(
   return {
     output: readOutput(reply["structured_output"]),
     sessionId: text(reply["session_id"]) || sessionId,
-    model: models[0] ?? MODEL,
+    model: models[0] ?? settings.model,
     // The criteria this run was given, not whatever the file says by now.
     version,
     costUsd: typeof reply["total_cost_usd"] === "number" ? (reply["total_cost_usd"] as number) : null,
@@ -594,7 +662,7 @@ const today = () => new Date().toLocaleDateString("sv");
  * is redone — after a criteria edit, every one of them — and a failed run
  * stores nothing, yet both used the plan.
  */
-function autoRunsToday(): number {
+export function autoRunsToday(): number {
   try {
     const counter = JSON.parse(getMeta(RUNS_KEY) ?? "{}") as { day?: string; runs?: number };
     return counter.day === today() ? Number(counter.runs) || 0 : 0;
@@ -609,7 +677,7 @@ function countAutoRun(): void {
 
 function autoBudget(): number {
   const queuedAuto = [...tasks.values()].filter((task) => task.requested === "auto").length;
-  return DAILY_CAP - autoRunsToday() - queuedAuto;
+  return claudeSettings().daily - autoRunsToday() - queuedAuto;
 }
 
 /* ------------------------------------------------------------------ */
@@ -741,7 +809,7 @@ export function queueShown(jobs: Array<{ key: string; job: Job }>): void {
   for (const task of [...tasks.values()]) {
     if (task.requested === "auto" && task.state === "queued" && !shown.has(task.key)) tasks.delete(task.key);
   }
-  if (!AUTO || Date.now() < pausedUntil) return;
+  if (!claudeSettings().auto || Date.now() < pausedUntil) return;
   const version = criteriaVersion();
   if (version === "") return;
   let budget = autoBudget();
@@ -771,7 +839,7 @@ export function queueShown(jobs: Array<{ key: string; job: Job }>): void {
  */
 export function verdictPending(key: string, firstSeenAt: string | null): boolean {
   if (tasks.has(key)) return true;
-  if (!AUTO || Date.now() < pausedUntil || autoBudget() <= 0 || criteriaVersion() === "") return false;
+  if (!claudeSettings().auto || Date.now() < pausedUntil || autoBudget() <= 0 || criteriaVersion() === "") return false;
   const failure = failures.get(key);
   if (failure && failure.tries >= MAX_AUTO_TRIES) return false;
   return Boolean(firstSeenAt) && Date.now() - Date.parse(firstSeenAt as string) < 5 * 60_000;
@@ -792,6 +860,10 @@ export type VerdictView = {
   workMode: string;
   workModeQuote: string;
   salary: string;
+  /** What the card's facts and tags show: the role's stack, its level, Poland or not. */
+  mainStack: string[];
+  seniority: string;
+  canWorkFromPoland: string;
   at: string;
   model: string;
   /** Made under criteria that have changed since. */
@@ -818,6 +890,9 @@ export function verdictView(row: VerdictRow, version = criteriaVersion()): Verdi
     workMode: text(details["workMode"]),
     workModeQuote: text(details["workModeQuote"]),
     salary: text(details["salary"]),
+    mainStack: strings(details["mainStack"], 8),
+    seniority: text(details["seniority"]),
+    canWorkFromPoland: text(details["canWorkFromPoland"]),
     at: row.evaluated_at,
     model: row.model ?? "",
     stale: row.criteria !== version,
@@ -841,8 +916,8 @@ export function verdictStatus() {
     failures: Object.fromEntries([...failures].map(([key, failure]) => [key, failure.error])),
     pausedUntil: paused ? new Date(pausedUntil).toISOString() : null,
     pauseReason: paused ? pauseReason : null,
-    auto: AUTO,
-    model: MODEL,
+    auto: claudeSettings().auto,
+    model: claudeSettings().model,
   };
 }
 
@@ -868,6 +943,73 @@ function desktopInstalled(): Promise<boolean> {
   });
 }
 
+/** The CV's text, page after page; "" when the PDF is missing or unreadable. */
+async function cvText(file: string): Promise<string> {
+  try {
+    const pdf = await getDocumentProxy(new Uint8Array(readFileSync(file)));
+    const { text } = await extractText(pdf);
+    return text.join("\n").replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The CLAUDE.md of the sessions' folder: the candidate's profile and CV, for
+ * when a discussion turns to an application form. The criteria name
+ * profile.json by its path in this repo, which means nothing in the sessions'
+ * folder — asked to help with a form, Claude searched there, found nothing, and
+ * answered from the criteria's thresholds. The profile alone was not enough
+ * either: its one-line job summaries made open questions ("the most complex
+ * app you worked on") come back thin, with blanks to fill in, while the CV had
+ * the projects and numbers. So the CV goes in too, as text from the PDF the
+ * forms upload (cvPath) — `cv` overrides that path, for the tests. Written on
+ * every open, so it follows both files.
+ *
+ * Checked with Claude Code 2.1.287: a fact in that CLAUDE.md is unknown to a
+ * --safe-mode run (so no verdict is steered by it) and known once the same
+ * session is resumed — old sessions included.
+ */
+export async function discussionBrief(cv?: string): Promise<string> {
+  let profile = "";
+  try {
+    profile = readFileSync(PROFILE_FILE, "utf8").trim();
+  } catch {
+    // no profile: the brief says so rather than leaving Claude to search for it
+  }
+  let cvFile = cv ?? "";
+  if (!cvFile && profile) {
+    try {
+      cvFile = String((JSON.parse(profile) as { cvPath?: unknown }).cvPath ?? "");
+    } catch {
+      // an unreadable profile has no CV path either
+    }
+  }
+  const resume = cvFile ? await cvText(cvFile) : "";
+  return [
+    "# Разговоры об оценках вакансий (Job Hunt)",
+    "",
+    "Каждая сессия здесь — оценка одной вакансии; кандидат открыл её кнопкой «Обсудить с Claude».",
+    "",
+    profile
+      ? `Факты о кандидате для анкет и вопросов работодателя — ниже, из ${PROFILE_FILE}. Отвечая на вопросы анкеты, бери их отсюда: ожидания по зарплате — salary (на B2B это нетто, на трудовом договоре — брутто), срок уведомления, разрешение на работу (workAuthorisation), языки, готовые ответы из answers. Пороги в критериях оценки — нижняя граница для вердикта, а не то, что писать в анкету.`
+      : `Профиля кандидата нет: ${PROFILE_FILE} не найден. Чего нет в критериях, спроси у кандидата.`,
+    "",
+    resume
+      ? `Резюме кандидата — ниже, текстом из ${cvFile}: этот PDF уходит работодателю с каждой анкетой. Открытые вопросы анкеты — о самом сложном проекте, о трудной задаче, об опыте вне фронтенда, «почему мы» — отвечай по нему: выбери из резюме проект и историю, которые ближе всего к вопросу и к вакансии, и бери оттуда конкретику — что за продукт, в чём была сложность, что кандидат сделал сам, какое решение, какой результат с цифрами. Пиши от первого лица, от имени кандидата. Чего нет ни в резюме, ни в профиле (размер команды, число пользователей, другие цифры), не придумывай — спроси у кандидата.`
+      : `Резюме не прочиталось${cvFile ? `: ${cvFile}` : " — в профиле нет cvPath"}. Для открытых вопросов анкеты спроси у кандидата подробности о проектах.`,
+    "",
+    // Asked for by the candidate on 2026-10-24: a form's open answers read as written by a person.
+    "Развёрнутый ответ для анкеты — максимум 3–4 предложения, простым человеческим языком, как кандидат сам написал бы живому рекрутеру, и на языке вопроса. Одна конкретная история с результатом вместо перечня технологий. Без списков, заголовков и канцелярита, без громких слов («passionate», «leveraged», «spearheaded», «синергия») и без вступлений вроде «Great question». Длиннее — только если кандидат сам попросит.",
+    "",
+    "Заполнить и отправить анкету умеет сам Job Hunt: кнопка «Подать» на карточке — сначала пробный прогон с показом заполненных полей, отправка после проверки.",
+    ...(profile ? ["", "## Профиль", "", "```json", profile, "```"] : []),
+    // Fenced, so nothing in it reads as Markdown or as a CLAUDE.md @import.
+    ...(resume ? ["", "## Резюме", "", "```text", resume, "```"] : []),
+    "",
+  ].join("\n");
+}
+
 /**
  * Opens a verdict's session to talk it over: in Claude Desktop through the
  * same deep link `claude --resume <id> --desktop` sends (Desktop imports the
@@ -883,6 +1025,7 @@ function desktopInstalled(): Promise<boolean> {
 export async function openSession(sessionId: string): Promise<"desktop" | "terminal"> {
   if (!/^[0-9a-f-]{36}$/i.test(sessionId)) throw new Error("bad session id");
   if (!sessionExists(sessionId)) throw new SessionGone();
+  writeFileSync(join(workDir(), "CLAUDE.md"), await discussionBrief());
   const link = `claude://resume?session=${sessionId}`;
   if (await desktopInstalled()) {
     const opener =

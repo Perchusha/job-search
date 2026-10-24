@@ -93,6 +93,9 @@ export function refusal(
         run.mode === "dry-run" &&
         run.done &&
         run.result?.["result"] === "dry-run" &&
+        // A dry run that filled nothing showed nothing: there is no form to send.
+        Array.isArray(run.result["filled"]) &&
+        run.result["filled"].length > 0 &&
         Date.now() - run.startedAt < DRY_RUN_VALID_MS,
     );
     if (!shown) return { message: "dry run first: submit is allowed only after its filled fields were shown" };

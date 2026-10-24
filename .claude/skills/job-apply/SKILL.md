@@ -43,6 +43,8 @@ Result line (stdout, JSON) and exit code:
 | `missing-answers` | 2 | A required field matched no rule. `missing[]` lists label, type and options. Write `{"label substring": "answer"}` into a JSON file and re-run with `--answers`. For dropdowns the answer may be `"a|b|c"` — alternatives in order of preference. |
 | `submit-failed` | 3 | Submit clicked, no confirmation. `errors[]` has the validation text; `screenshot` shows the page. Fix the rule, re-run. |
 | `no-form` / `needs-account` / `captcha` | 4 | Nothing to fill, or the board wants an account or a CAPTCHA. Hand the URL to the user — never create accounts, never solve CAPTCHAs. |
+| `board-form` | 4 | A job board's posting whose application only its own form takes: justjoin.it offers without an employer link, every NoFluffJobs posting (both its modes sit behind a CAPTCHA), Himalayas. Answered at once, no browser opened. Hand the posting to the user. |
+| `closed` | 4 | The board says the offer is gone. Hide the job; not recorded as an attempt. |
 | `not-remote` | 5 | LinkedIn's own tag says hybrid/on-site. Hide the job with that reason. |
 | `needs-code` | 6 | The board e-mailed a "confirm you're a human" code (Greenhouse does). Re-run with `--headed`: the window stays open and the **user** types the code. The script never reads the mailbox. |
 
@@ -74,10 +76,12 @@ to or hidden — no need to keep a list in the chat.
 | Workable (`apply.workable.com`) | "Apply now" | multi-step |
 | Recruitee (`<co>.recruitee.com/o/<slug>`) | `/c/new` | free-text question takes the cover letter |
 | Breezy (`<co>.breezy.hr/p/<id>`) | `/apply` | currency + period selects next to the salary number; Work History / Education are parsed from the CV |
-| traffit (`<co>.traffit.com/public/an/<hash>`) | the "Aplikuj" link's href (`/public/form/a/…`) | Polish labels: kraj, miasto, obszar technologiczny, rola projektowa, stawka PLN/h |
+| traffit (`<co>.traffit.com/public/an/<hash>`) | the apply link's href (`/public/form/a/…`), whatever its text — employers rename it («join cerebre»), so it is found by its target | Polish labels: kraj, miasto, obszar technologiczny, rola projektowa, stawka PLN/h |
 | SmartRecruiters | "I'm interested" → `oneclick-ui` | one long form |
 | LinkedIn (logged-in profile) | the job page | Reads the Remote/Hybrid/On-site chip first (`not-remote` otherwise). **Easy Apply** = native `<dialog>` with `Next` → `Review` → `Submit application`. **"Apply on company website"** (`data-view-name="job-apply-button"`) opens a "Share your profile?" dialog → the script presses Continue, then follows the new tab to the employer's ATS and continues there (often an embedded Ashby/Greenhouse iframe, which the script opens standalone) |
-| Workday, Cognizant, EPAM, Luxoft, Himalayas-internal, Indeed Apply | — | account required → `needs-account`, list for the user |
+| justjoin.it (`justjoin.it/job-offer/<slug>`) | the offer's `applyUrl` in the page data | the script reads it first and fills the employer's form (traffit, recruitee, Greenhouse…; 65 of 86 offers on 2026-10-24); `null` = justjoin's own form → `board-form` |
+| NoFluffJobs, Himalayas | — | `board-form` at once: NFJ gates both its form and its redirect with a CAPTCHA; Himalayas hides the employer's link behind Cloudflare |
+| Workday, Cognizant, EPAM, Luxoft, Indeed Apply | — | account required → `needs-account`, list for the user |
 
 LinkedIn login is a one-off: `node scripts/apply.mjs --login` opens a window on
 the automation profile (`~/.job-hunt/chrome-profile`); the user logs in and

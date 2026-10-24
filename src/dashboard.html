@@ -1,0 +1,2632 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Hunt</title>
+<!--
+  dashboard.html — the page src/dashboard.ts serves at /. Plain HTML, CSS and
+  JS in one file, read at boot; the server fills in __STATUSES__ and
+  __SOURCES__. It used to be a template literal inside dashboard.ts, where a
+  stray backtick or an unescaped backslash blanked the page; here they are
+  just characters. tests/ui.mjs still runs this script against a real server.
+
+  The look ("Солнце"): a dark ground by default (light in Настройки), one
+  tangerine accent with dark text on it, Unbounded for the few display lines
+  and Onest for everything else — both served from node_modules (/fonts.css),
+  nothing fetched off this machine.
+
+  Search is a stack you go through one posting at a time: a queue on the
+  left, one large card on the right, five actions under it, keys for each.
+  The page is an app window — the queue and the card fill what the header
+  leaves, and the card's size follows the room it has.
+
+  Some of the navigation is borrowed from Discord's patterns, in this page's
+  own look: a rail on the left with the two sections, Claude's score as a
+  badge on the queue's company tiles, Ctrl K to jump anywhere, a right-click
+  menu on a queue row.
+
+  No native select or checkbox is drawn: a select is a button whose options
+  open in one shared listbox (#selpop), placed by the script so neither the
+  table nor the settings dialog clips it; a checkbox keeps its real input,
+  hidden, under a drawn box.
+-->
+<link rel="stylesheet" href="/fonts.css">
+<script id="theme-boot">
+  try {
+    const pref = localStorage.getItem("jobhunt-theme") || "dark";
+    const light = pref === "light" || (pref === "auto" && matchMedia("(prefers-color-scheme: light)").matches);
+    document.documentElement.dataset.theme = light ? "light" : "dark";
+  } catch { /* storage blocked: the dark default */ }
+</script>
+<style>
+  /*
+   * Tokens. Dark is the default — the white one was too bright to sit in front
+   * of all day; light stays a choice in Настройки (data-theme on <html>, kept
+   * in localStorage). The accent is the same tangerine in both, always with
+   * dark text on it.
+   */
+  :root {
+    --font: "Onest", "Segoe UI", system-ui, sans-serif;
+    --display: "Unbounded", "Onest", "Segoe UI", sans-serif;
+    --accent: #FF7A45;
+    --accent-2: #FF8E61;
+    --on-accent: #1D1B29;
+    --ease: cubic-bezier(.2, .8, .2, 1);
+    --spring: cubic-bezier(.2, 1.3, .4, 1);
+  }
+  :root, :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #14121C;
+    --surface: #1E1B29;
+    --raised: #272435;
+    --soft: #2A2738;
+    --soft-2: #343046;
+    --line: #2F2B3F;
+    --ink: #F3F1FA;
+    --ink-2: #D9D6E6;
+    --muted: #A29EB6;
+    --faint: #4A465C;
+    --accent-tint: rgba(255, 122, 69, .14);
+    --accent-ring: rgba(255, 122, 69, .62);
+    --accent-ink: #FFB08D;
+    --good: #6BE0A6; --good-bg: rgba(19, 160, 103, .20); --good-dot: #2FD08A; --good-tint: rgba(19, 160, 103, .10);
+    --warn: #FFCB6B; --warn-bg: rgba(224, 155, 0, .20); --warn-dot: #F2B23A; --warn-tint: rgba(224, 155, 0, .10);
+    --skip: #C9C6D9; --skip-bg: rgba(152, 150, 172, .18); --skip-dot: #8D89A3;
+    --bad: #FF9B90; --bad-bg: rgba(229, 72, 77, .16);
+    --note: #FFD08A; --note-bg: rgba(255, 176, 32, .11);
+    --bar-rest: #3A3650; --bar-dropped: #5E5A75;
+    /* Tile tones for companies and boards: a tint with its own ink. */
+    --t0-bg: rgba(255, 122, 69, .16); --t0: #FFB08D;
+    --t1-bg: rgba(47, 208, 138, .15); --t1: #7CE6B3;
+    --t2-bg: rgba(242, 178, 58, .16); --t2: #FFD27F;
+    --t3-bg: rgba(167, 139, 250, .18); --t3: #CDBEFF;
+    --t4-bg: rgba(96, 165, 250, .17); --t4: #A9CCFF;
+    --t5-bg: rgba(244, 114, 182, .17); --t5: #F7AFD3;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 18px 46px rgba(0, 0, 0, .32);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 22px rgba(0, 0, 0, .24);
+    --pop: 0 2px 8px rgba(0, 0, 0, .4), 0 22px 50px rgba(0, 0, 0, .45);
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #FFFFFF;
+    --surface: #FFFFFF;
+    --raised: #F7F6FA;
+    --soft: #F4F3F8;
+    --soft-2: #EAE8F2;
+    --line: #EFEEF4;
+    --ink: #1D1B29;
+    --ink-2: #34314A;
+    --muted: #6B6880;
+    --faint: #D3D0E0;
+    --accent-tint: #FFF1EA;
+    --accent-ring: #FF9A70;
+    --accent-ink: #8A2F08;
+    --good: #0A6343; --good-bg: #E2F5EA; --good-dot: #13A067; --good-tint: #EEF9F3;
+    --warn: #6E4300; --warn-bg: #FFF0C7; --warn-dot: #E09B00; --warn-tint: #FFF7E1;
+    --skip: #4A4860; --skip-bg: #EEEEF3; --skip-dot: #9896AC;
+    --bad: #8E2318; --bad-bg: #FDECEA;
+    --note: #6E4300; --note-bg: #FFF6E5;
+    --bar-rest: #D3D0E0; --bar-dropped: #8E8AA6;
+    --t0-bg: #FFE8DE; --t0: #8A2F08;
+    --t1-bg: #DDF4E8; --t1: #0A6343;
+    --t2-bg: #FFF0C7; --t2: #6E4300;
+    --t3-bg: #ECE6FF; --t3: #4B2FA8;
+    --t4-bg: #E2EEFF; --t4: #1E4C8F;
+    --t5-bg: #FDE4F1; --t5: #8E1F5A;
+    --shadow: 0 1px 2px rgba(29,27,41,.05), 0 16px 44px rgba(29,27,41,.09);
+    --shadow-sm: 0 1px 2px rgba(29,27,41,.06), 0 8px 22px rgba(29,27,41,.08);
+    --pop: 0 2px 6px rgba(29,27,41,.08), 0 18px 40px rgba(29,27,41,.16);
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  /*
+   * The page is an app window: header and stacks on top, and the queue and the
+   * card take exactly what is left — the queue scrolls inside itself. The
+   * tracker scrolls as a page inside <main>. Phones scroll the whole page.
+   */
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font);
+         display: flex; flex-direction: column; overflow: hidden; }
+  .frame { flex: 1 1 auto; min-height: 0; display: flex; }
+  main { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; }
+  button, input { font: inherit; color: inherit; }
+  a { color: var(--accent-ink); }
+  a:hover { color: var(--accent); }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; width: 100%; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  /* ---------- header ---------- */
+  /* Full width: the mark sits over the rail, the tools at the far right. */
+  header.top { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 16px 24px 12px 15px; }
+  .brand { display: flex; align-items: center; gap: 12px; margin-right: auto; }
+  .mark { width: 42px; height: 42px; border-radius: 14px; background: var(--accent); color: var(--on-accent);
+          display: grid; place-items: center; font: 700 18px/1 var(--display); }
+  .word { font: 600 20px/1 var(--display); letter-spacing: -0.01em; }
+  .find { display: flex; align-items: center; gap: 10px; width: min(320px, 34vw); height: 44px; padding: 0 9px 0 15px; border: 0;
+          border-radius: 999px; background: var(--soft); color: var(--muted); font-size: 14px; text-align: left; cursor: pointer; }
+  .find:hover { background: var(--soft-2); color: var(--ink-2); }
+  .find span { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tools { display: flex; align-items: center; gap: 6px; }
+
+  /* ---------- rail: the two sections ---------- */
+  .rail { flex: 0 0 72px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 6px 0 20px;
+          overflow-y: auto; scrollbar-width: none; }
+  .rail::-webkit-scrollbar { display: none; }
+  /* The bar at the rail's edge: grows on hover, full height for the section on screen. */
+  .ri { position: relative; width: 72px; display: flex; justify-content: center; }
+  .ri::before { content: ""; position: absolute; left: 0; top: 50%; width: 4px; height: 0; border-radius: 0 4px 4px 0;
+                background: var(--accent); transform: translateY(-50%); opacity: 0; transition: height .22s var(--ease), opacity .2s; }
+  .ri:hover::before { height: 18px; opacity: 1; }
+  .ri:has(.is-active)::before { height: 36px; opacity: 1; }
+  .tab { position: relative; width: 48px; height: 48px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 16px;
+         background: var(--soft); color: var(--ink-2); cursor: pointer;
+         transition: background-color .18s, color .18s, transform .18s var(--ease); }
+  .tab:hover { background: var(--soft-2); color: var(--ink); transform: translateY(-1px); }
+  .tab.is-active { background: var(--ink); color: var(--bg); }
+  .tab[data-new]:not([data-new=""])::after { content: attr(data-new); position: absolute; right: -6px; bottom: -6px;
+         min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: var(--on-accent);
+         font-size: 11px; font-weight: 700; line-height: 20px; text-align: center; box-shadow: 0 0 0 3px var(--bg); }
+  /* Company tiles' tones. */
+  .t0 { --c-bg: var(--t0-bg); --c: var(--t0); } .t1 { --c-bg: var(--t1-bg); --c: var(--t1); } .t2 { --c-bg: var(--t2-bg); --c: var(--t2); }
+  .t3 { --c-bg: var(--t3-bg); --c: var(--t3); } .t4 { --c-bg: var(--t4-bg); --c: var(--t4); } .t5 { --c-bg: var(--t5-bg); --c: var(--t5); }
+  /* The rail's names, and any other [data-tip]: one tooltip, placed by the script. */
+  .tip { position: fixed; z-index: 90; left: 0; top: 0; max-width: 260px; padding: 6px 10px; border-radius: 10px; background: var(--ink); color: var(--bg);
+         font-size: 13px; font-weight: 600; line-height: 18px; pointer-events: none; opacity: 0; transform: scale(.95);
+         transition: opacity .1s, transform .12s var(--ease); }
+  .tip.show { opacity: 1; transform: none; }
+  .fresh { font-size: 14px; color: var(--muted); margin-right: 4px; }
+  .iconbtn { display: inline-grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 999px;
+             background: transparent; color: var(--muted); cursor: pointer; }
+  .iconbtn:hover { background: var(--soft); color: var(--ink); }
+  .iconbtn[disabled] { cursor: wait; }
+  .iconbtn.is-spinning svg { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .avatar { width: 44px; height: 44px; border: 0; border-radius: 999px; background: var(--accent-tint); color: var(--accent-ink);
+            font-weight: 700; font-size: 14px; cursor: pointer; }
+  .avatar:hover { box-shadow: inset 0 0 0 1.5px var(--accent-ring); }
+  .menuwrap { position: relative; }
+  .menu { position: absolute; z-index: 30; top: calc(100% + 8px); right: 0; width: 290px; padding: 8px; border-radius: 18px;
+          background: var(--raised); box-shadow: var(--pop); display: flex; flex-direction: column; }
+  .menuitem { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; padding: 0 12px;
+              border: 0; border-radius: 12px; background: transparent; text-align: left; cursor: pointer; }
+  .menuitem:hover { background: var(--soft-2); }
+  .menuitem small { color: var(--muted); font-size: 13px; }
+  .menuitem.is-copied small { color: var(--good); }
+  .menuitem.strong { font-weight: 600; }
+  .menusep { height: 1px; margin: 6px 4px; background: var(--line); }
+  .menulabel { margin: 4px 12px 2px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+  .sweep { flex: 0 0 auto; height: 4px; background: var(--soft); overflow: hidden; }
+  .sweep span { display: block; width: 32%; height: 100%; background: var(--accent); animation: sweep 1.2s ease-in-out infinite; }
+  @keyframes sweep { from { transform: translateX(-110%); } to { transform: translateX(320%); } }
+
+  /* ---------- search: the shell ---------- */
+  #view-search { height: 100%; }
+  #view-search > .wrap { height: 100%; display: flex; flex-direction: column; }
+  .stackbar { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; }
+  .stacks { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px;
+          background: var(--soft); color: var(--ink-2); font-weight: 600; cursor: pointer; }
+  .pill:hover { background: var(--soft-2); }
+  .pill .n { font-weight: 500; opacity: .7; }
+  .pill.is-on, .pill.is-on:hover { background: var(--ink); color: var(--bg); }
+  .stackinfo { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+  .progresstext { font-weight: 600; color: var(--ink-2); }
+  .pbar { width: 140px; height: 8px; border-radius: 999px; background: var(--soft); overflow: hidden; }
+  .pbar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width .25s; }
+  .claudeline { font-size: 14px; color: var(--muted); }
+  .filterdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .popover { position: absolute; z-index: 30; top: calc(100% + 8px); right: 0; width: min(440px, calc(100vw - 32px));
+             padding: 20px; border-radius: 22px; background: var(--raised); box-shadow: var(--pop); display: grid; gap: 18px; }
+  .popover h3, .modal h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .field { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 14px; background: var(--soft);
+           color: var(--muted); }
+  .field input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--ink); outline: none; }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+  .seg label { position: relative; }
+  .seg input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .seg span { display: inline-flex; align-items: center; min-height: 38px; padding: 0 12px; border-radius: 999px; background: var(--soft);
+              font-size: 14px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+  .seg span:hover { background: var(--soft-2); }
+  .seg input:checked + span { background: var(--ink); color: var(--bg); }
+  .seg input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; }
+  /* A checkbox: the real input, hidden, and a drawn box after it that ticks with a spring. */
+  .check { position: relative; display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: 15px; cursor: pointer; }
+  .check input { position: absolute; left: 0; width: 20px; height: 20px; margin: 0; opacity: 0; pointer-events: none; }
+  .check i { position: relative; flex: 0 0 auto; width: 20px; height: 20px; border-radius: 7px; background: var(--soft-2);
+             box-shadow: inset 0 0 0 1.5px var(--faint); transition: background-color .15s, box-shadow .15s; }
+  .check:hover i { box-shadow: inset 0 0 0 1.5px var(--muted); }
+  .check i::after { content: ""; position: absolute; left: 7px; top: 3.5px; width: 4.5px; height: 9px; border: solid var(--on-accent);
+                    border-width: 0 2.4px 2.4px 0; transform: rotate(45deg) scale(0); transition: transform .2s var(--spring); }
+  .check input:checked + i { background: var(--accent); box-shadow: none; }
+  .check input:checked + i::after { transform: rotate(45deg) scale(1); }
+  .check input:focus-visible + i { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .check .n { color: var(--muted); font-size: 13px; }
+  /* A select: a button with the chosen word; its options open in #selpop. */
+  .select { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; padding: 0 12px 0 14px;
+            border: 0; border-radius: 14px; background: var(--soft); color: var(--ink); text-align: left; cursor: pointer;
+            transition: background-color .15s, box-shadow .15s; }
+  .select:hover { background: var(--soft-2); }
+  .select .sv { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .select .chev { flex: 0 0 auto; color: var(--muted); transition: transform .2s var(--ease); }
+  .select[aria-expanded="true"] { box-shadow: inset 0 0 0 1.5px var(--accent-ring); }
+  .select[aria-expanded="true"] .chev { transform: rotate(180deg); }
+  .select.wide { width: 100%; }
+  .setrow .select { min-width: 190px; }
+  .needsyou { flex: 0 0 auto; margin-top: 4px; margin-bottom: 12px; padding: 12px 18px; border-radius: 18px; background: var(--note-bg); color: var(--note); }
+  .needsyou summary { cursor: pointer; font-weight: 600; }
+  .needsyou ul { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; color: var(--ink-2); max-height: 30vh; overflow: auto; }
+  .desk { flex: 1 1 auto; min-height: 0; display: flex; align-items: stretch; gap: 24px; padding-top: 18px; padding-bottom: 20px; }
+  /* min-width: 0, or the longest title (nowrap) widens the queue past its basis. */
+  .queue { flex: 0 0 clamp(250px, 27%, 340px); min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .queue .label { flex: 0 0 auto; }
+  .qlist { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 4px 6px 4px 4px; margin: -4px; scrollbar-width: thin; }
+  .label { margin: 0 0 8px 14px; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+  .q { position: relative; display: flex; align-items: center; gap: 16px; width: 100%; min-height: 64px; padding: 10px 14px; border: 0; border-radius: 16px;
+       background: transparent; text-align: left; cursor: pointer; flex: 0 0 auto; }
+  .q:hover { background: var(--soft); }
+  /* The one on the card: lit, ringed and barred in the accent, so it is found at a glance. */
+  .q.is-on, .q.is-on:hover { background: var(--accent-tint); box-shadow: inset 0 0 0 1.5px var(--accent-ring), var(--shadow-sm); }
+  .q.is-on::before { content: ""; position: absolute; left: 4px; top: 14px; bottom: 14px; width: 4px; border-radius: 999px; background: var(--accent); }
+  .q.is-on .tt { color: var(--ink); }
+  .q.is-done { opacity: .5; }
+  .q.is-done.is-on { opacity: 1; }
+  .q .txt { min-width: 0; flex: 1 1 auto; }
+  .q .tt { display: block; font-weight: 600; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q .cc { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q .st { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .q .st.new { color: var(--accent-ink); }
+  /*
+   * A company's tile with Claude's score as a badge in its corner, in the
+   * verdict's colour (green подходит, amber проверить, grey не подходит),
+   * an empty pulsing one while Claude reads. The tile is cut round the badge
+   * (an SVG mask anchored at the corner, so a smaller tile cuts the same
+   * hole), so the badge needs no ring in the row's colour.
+   */
+  .av { position: relative; flex: 0 0 auto; }
+  .mono { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: var(--c-bg); color: var(--c);
+          font-size: 13px; font-weight: 700; line-height: 1; }
+  .av.has-sb .mono {
+    --cut: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Cpath fill-rule='evenodd' d='M0 0h36v36H0zM28.5 24.5h9a10 10 0 0 1 0 20h-9a10 10 0 0 1 0-20z'/%3E%3C/svg%3E");
+    -webkit-mask: var(--cut) right bottom / 36px 36px no-repeat; mask: var(--cut) right bottom / 36px 36px no-repeat; }
+  .sb { position: absolute; right: -9px; bottom: -6px; width: 24px; height: 15px; border-radius: 999px; color: var(--on-accent);
+        font: 800 10px/15px var(--font); font-variant-numeric: tabular-nums; text-align: center; letter-spacing: -.02em; }
+  .sb.apply, .sg.apply { background: var(--good-dot); } .sb.maybe, .sg.maybe { background: var(--warn-dot); }
+  .sb.skip, .sg.skip { background: var(--skip-dot); }
+  .sb.busy { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+  /* A stack's glyph in Ctrl K: ✓ подходят, ? проверить, × убрал Claude. */
+  .sg { width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%; color: var(--on-accent); }
+  .sg svg { width: 10px; height: 10px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--faint); }
+  .dot.apply { background: var(--good-dot); } .dot.maybe { background: var(--warn-dot); } .dot.skip { background: var(--skip-dot); }
+  .dot.busy { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .more { flex: 0 0 auto; margin: 8px 0 0 14px; font-size: 14px; color: var(--muted); }
+  /*
+   * The stage sizes the card: a size container, so the card's type, padding
+   * and buttons scale with the room it has (cqh/cqw) — as large as it was on
+   * a big window, smaller as the window shrinks. The card never outgrows the
+   * stage: its body scrolls inside it and the buttons stay in view.
+   */
+  .stage { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; container-type: size;
+           display: flex; flex-direction: column; padding: 12px; margin: -12px; }
+  #focus { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #focus > .card { flex: 0 1 auto; min-height: 0; }
+
+  /* ---------- the card ---------- */
+  .card { background: var(--surface); border-radius: 28px; box-shadow: var(--shadow);
+          padding: clamp(16px, min(3cqh, 3cqw), 28px); display: flex; flex-direction: column;
+          gap: clamp(10px, min(2cqh, 2.2cqw), 20px); font-size: clamp(13px, min(1.95cqh, 1.8cqw), 15px); }
+  .cardbody { flex: 0 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; display: flex; flex-direction: column;
+              gap: inherit; margin-right: -10px; padding-right: 10px; }
+  /* A fade at the body's foot while there is more below — none when it all fits. */
+  @property --fade { syntax: "<length>"; inherits: false; initial-value: 0px; }
+  @supports (animation-timeline: scroll()) {
+    .cardbody { mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade)), transparent);
+                animation: bodyfade linear both; animation-timeline: scroll(self); }
+    @keyframes bodyfade { from { --fade: 36px; } 92% { --fade: 36px; } to { --fade: 0px; } }
+  }
+  .actions { flex: 0 0 auto; }
+  .card.in { animation: cardin .28s ease-out; }
+  @keyframes cardin { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .cardtop { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .cardtop .meta { font-size: .93em; color: var(--muted); }
+  .cardtop a { margin-left: auto; font-weight: 600; }
+  .chip { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 13px; border-radius: 999px; font-size: 14px; font-weight: 600; }
+  .chip.apply { background: var(--good-bg); color: var(--good); }
+  .chip.maybe { background: var(--warn-bg); color: var(--warn); }
+  .chip.skip { background: var(--skip-bg); color: var(--skip); }
+  .chip.wait { background: var(--soft); color: var(--skip); }
+  .chip.is-stale { background: transparent; border: 1.5px dashed currentColor; }
+  .newtag { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: var(--accent-tint);
+            color: var(--accent-ink); font-size: 12px; font-weight: 700; }
+  .card h1 { margin: 0; font-size: clamp(19px, min(3.5cqh, 3.3cqw), 30px); line-height: 1.25; font-weight: 700; letter-spacing: -0.015em; }
+  .card .co { margin: .45em 0 0; font-size: clamp(13px, min(2.1cqh, 2cqw), 17px); color: var(--muted); }
+  .note { margin: 0; padding: .8em 1.05em; border-radius: 16px; background: var(--note-bg); color: var(--note); line-height: 1.45; }
+  .note.bad { background: var(--bad-bg); color: var(--bad); }
+  .note.plain { background: var(--soft); color: var(--ink-2); }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: clamp(6px, 1.2cqh, 10px); }
+  .fact { display: flex; flex-direction: column; gap: .35em; padding: clamp(9px, 1.7cqh, 14px) clamp(11px, 1.6cqw, 16px); border-radius: 18px;
+          background: var(--raised); min-width: 0; }
+  .fact .k { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+  .fact .v { font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+  .fact .v.low { color: var(--bad); }
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tag { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 999px; background: var(--soft);
+         font-size: 13px; font-weight: 600; color: var(--ink-2); }
+  .claude { padding: clamp(12px, 2cqh, 20px) clamp(16px, 2cqw, 22px); border-radius: 22px; background: var(--soft); }
+  .claude.apply { background: var(--good-tint); } .claude.maybe { background: var(--warn-tint); }
+  .claude .k { margin: 0 0 6px; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+  .claude p.say { margin: 0; font-size: clamp(14px, min(2.1cqh, 2cqw), 17px); line-height: 1.55; }
+  .claude .foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .linkbtn { padding: 0; border: 0; background: none; color: var(--accent-ink); font-size: 14px; font-weight: 600; cursor: pointer;
+             text-decoration: underline; text-underline-offset: 3px; }
+  .linkbtn:hover { color: var(--accent); }
+  .bars { display: grid; gap: 10px; margin-top: 12px; }
+  .bars span { height: 12px; border-radius: 999px; background: var(--soft-2); animation: pulse 1.4s ease-in-out infinite; }
+  .why { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: clamp(10px, 2cqh, 18px) 28px; }
+  .why h2 { margin: 0 0 10px; font-size: 1em; font-weight: 650; }
+  .why ul { margin: 0; padding: 0; list-style: none; display: grid; gap: .5em; }
+  .why li { display: flex; gap: 10px; line-height: 1.45; }
+  .why li.ok { color: var(--good); } .why li.hm { color: var(--ink-2); }
+  .reasons { padding: 10px; border-radius: 20px; background: var(--raised); box-shadow: var(--pop);
+             display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 4px; }
+  .reason { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 14px; border: 0; border-radius: 12px;
+            background: transparent; text-align: left; cursor: pointer; }
+  .reason:hover { background: var(--soft-2); }
+  .reason.claude-pick { background: var(--accent-tint); font-weight: 600; }
+  .reason kbd { margin-left: auto; }
+  .actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; padding-top: clamp(10px, 2cqh, 18px); border-top: 1px solid var(--line); }
+  .actions .gap { flex: 1 1 auto; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: clamp(38px, 5.6cqh, 48px);
+         padding: 0 clamp(11px, 1.5cqw, 15px); border: 0; border-radius: 999px; font-size: clamp(13px, min(2cqh, 1.6cqw), 15px);
+         font-weight: 600; white-space: nowrap; flex: 0 0 auto; cursor: pointer; }
+  .btn[disabled] { opacity: .45; cursor: default; }
+  .btn.main { background: var(--accent); color: var(--on-accent); padding: 0 clamp(14px, 2.2cqw, 22px); }
+  .btn.main:hover:not([disabled]) { background: var(--accent-2); }
+  .btn.soft { background: var(--soft); color: var(--ink-2); }
+  .btn.soft:hover:not([disabled]) { background: var(--soft-2); }
+  .btn.ghost { background: transparent; color: var(--muted); }
+  .btn.ghost:hover:not([disabled]) { background: var(--soft); color: var(--ink); }
+  kbd { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; background: var(--bg);
+        border: 1px solid var(--line); font: 600 10px/1 var(--font); color: var(--muted); white-space: nowrap; }
+  .btn.main kbd { background: rgba(255,255,255,.55); border-color: transparent; color: var(--on-accent); }
+  @container (max-width: 700px) { .actions kbd { display: none; } }
+  @container (max-height: 640px) { .stage .hint { display: none; } }
+  @container (max-height: 560px) { .tags { display: none; } }
+  .empty { padding: 56px 40px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+  .empty .big { width: 72px; height: 72px; border-radius: 24px; display: grid; place-items: center; background: var(--good-bg); color: var(--good); }
+  .empty .big.soft { background: var(--soft); color: var(--muted); }
+  .empty h1 { font: 600 26px/1.2 var(--display); }
+  .empty p { margin: 0; font-size: 17px; color: var(--muted); }
+  .empty .row { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 6px; }
+  .hint { margin: 12px 4px 0; font-size: 13px; color: var(--muted); }
+
+  /* ---------- tracker ---------- */
+  .hero { padding-top: 6px; }
+  .hero h1 { margin: 0; font: 600 36px/1.15 var(--display); letter-spacing: -0.015em; }
+  .hero p { margin: 10px 0 0; font-size: 18px; line-height: 1.5; color: var(--muted); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; padding-top: 28px; }
+  .tile { padding: 22px 24px; border-radius: 22px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; }
+  .tile .k { font-size: 14px; font-weight: 600; color: var(--muted); }
+  .tile .v { font: 600 34px/1 var(--display); letter-spacing: -0.02em; white-space: nowrap; }
+  .tile .v small { margin-left: 4px; font: 600 15px/1 var(--font); letter-spacing: 0; color: var(--muted); }
+  .tile .s { font-size: 14px; color: var(--muted); }
+  .block { padding-top: 32px; }
+  .block > h2, .listhead h2 { margin: 0 0 14px; font-size: 18px; font-weight: 650; }
+  .funnelbar { display: flex; height: 18px; border-radius: 999px; overflow: hidden; gap: 3px; background: var(--soft); }
+  .funnelbar span { height: 100%; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 14px; }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink-2); }
+  .legend i { width: 12px; height: 12px; border-radius: 4px; }
+  .listhead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .listhead h2 { margin: 0; }
+  .listtools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .statuspills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .statuspills .pill { min-height: 40px; padding: 0 14px; font-size: 14px; }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; min-width: 760px; border-collapse: separate; border-spacing: 0 4px; }
+  th { padding: 6px 16px; text-align: left; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+  th button { padding: 0; border: 0; background: none; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+  th button:hover { color: var(--ink); }
+  td { padding: 14px 16px; vertical-align: middle; }
+  tbody tr td:first-child { border-radius: 16px 0 0 16px; } tbody tr td:last-child { border-radius: 0 16px 16px 0; }
+  tbody tr:hover td { background: var(--surface); }
+  td.company { font-weight: 650; max-width: 200px; }
+  td.title a { color: var(--ink); text-decoration: none; font-weight: 500; }
+  td.title a:hover { color: var(--accent); }
+  td .meta { margin-top: 2px; font-size: 13px; color: var(--muted); }
+  td.num { white-space: nowrap; font-size: 14px; color: var(--muted); }
+  tr.is-ghosted td.company::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--faint); }
+  .select.status { min-height: 36px; gap: 4px; padding: 0 8px 0 12px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+  .select.status .chev { color: inherit; opacity: .7; }
+  .select.status[data-s="applied"] { background: var(--accent-tint); color: var(--accent-ink); }
+  .select.status[data-s="responded"], .select.status[data-s="screening"], .select.status[data-s="interview"] { background: var(--warn-bg); color: var(--warn); }
+  .select.status[data-s="offer"] { background: var(--good-bg); color: var(--good); }
+  .select.status[data-s="rejected"] { background: var(--skip-bg); color: var(--ink-2); }
+  .select.status[data-s="ghosted"], .select.status[data-s="dropped"] { background: var(--soft); color: var(--muted); }
+  .select.status:hover { filter: brightness(1.12); }
+  :root[data-theme="light"] .select.status:hover { filter: brightness(.97); }
+  .tableempty { padding: 40px 0; text-align: center; color: var(--muted); }
+
+  /* ---------- settings ---------- */
+  .scrim { position: fixed; inset: 0; z-index: 60; background: rgba(8, 6, 14, .62); display: grid; place-items: center; padding: 16px; }
+  .modal { width: min(640px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 26px 28px 0; border-radius: 26px;
+           background: var(--surface); box-shadow: var(--pop); display: flex; flex-direction: column; gap: 22px; }
+  .modal .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  /* Сохранить stays in reach on a short window: the foot sticks to the modal's bottom. */
+  .modal > .foot { position: sticky; bottom: 0; z-index: 1; margin: -8px -28px 0; padding: 14px 28px 22px; background: var(--surface);
+                   border-top: 1px solid var(--line); }
+  .modal .head h2 { margin: 0; font: 600 24px/1.2 var(--display); }
+  .modal section { display: grid; gap: 10px; padding: 18px 20px; border-radius: 20px; background: var(--raised); }
+  .modal section h3 { margin: 0 0 2px; }
+  .modal .lead { margin: 0; font-size: 14px; color: var(--muted); }
+  .setrow { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; }
+  .setrow > span { min-width: 0; }
+  .setrow small { display: block; color: var(--muted); font-size: 13px; }
+  .setrow input[type=number], .setrow input[type=time] { width: 110px; min-height: 40px; padding: 0 12px; border: 0; border-radius: 12px;
+             background: var(--soft); color: var(--ink); text-align: right; }
+  .switch { position: relative; width: 46px; height: 28px; flex: 0 0 auto; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .switch i { position: absolute; inset: 0; border-radius: 999px; background: var(--soft-2); transition: background .15s; pointer-events: none; }
+  .switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--ink-2);
+                     transition: transform .15s, background .15s; }
+  .switch input:checked + i { background: var(--accent); }
+  .switch input:checked + i::after { transform: translateX(18px); background: var(--on-accent); }
+  .switch input:focus-visible + i { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .stat { font-size: 14px; color: var(--ink-2); }
+  .modal .foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .modal .foot .saved { color: var(--muted); font-size: 14px; }
+  .modal .btn { min-height: 44px; font-size: 15px; padding: 0 18px; }
+  .modal .warnbox { margin: 0; padding: 12px 16px; border-radius: 16px; background: var(--note-bg); color: var(--note); font-size: 14px; }
+
+  /* ---------- Ctrl K: jump to a posting, a stack or an application ---------- */
+  .scrim.jump { place-items: start center; padding-top: 14vh; }
+  .jumpbox { width: min(560px, 100%); padding: 14px; border-radius: 26px; background: var(--surface); box-shadow: var(--pop);
+             animation: rise .28s var(--spring); }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px) scale(.97); } }
+  .jumpbox .field { min-height: 58px; padding: 0 18px; border-radius: 18px; }
+  .jumpbox .field input { font-size: 18px; }
+  .jumplist { max-height: min(340px, 50vh); overflow-y: auto; margin-top: 10px; scrollbar-width: thin; }
+  .jumplist .menulabel { margin: 6px 12px; }
+  .jr { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 6px 12px; border: 0; border-radius: 14px;
+        background: transparent; text-align: left; cursor: pointer; }
+  .jr:hover { background: var(--soft); }
+  .jr.is-on { background: var(--accent-tint); box-shadow: inset 0 0 0 1.5px var(--accent-ring); }
+  .jr .jl { flex: 1 1 auto; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .jr .jm { flex: 0 1 auto; max-width: 42%; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .jr .mono { width: 32px; height: 32px; border-radius: 10px; font-size: 12px; }
+  .jr .glyph { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; background: var(--soft); color: var(--muted); }
+  .jumphint { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 12px 4px; font-size: 13px; color: var(--muted); }
+
+  /* ---------- the right-click menu on a queue row ---------- */
+  .ctx { position: fixed; z-index: 80; left: 0; top: 0; min-width: 230px; max-width: 300px; padding: 6px; border-radius: 16px;
+         background: var(--raised); box-shadow: var(--pop); display: flex; flex-direction: column; animation: ctxin .12s var(--ease); }
+  @keyframes ctxin { from { opacity: 0; transform: scale(.96); } }
+  .ci { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 38px; padding: 0 12px; border: 0;
+        border-radius: 10px; background: transparent; color: var(--ink-2); font-size: 14px; font-weight: 500; text-align: left;
+        text-decoration: none; cursor: pointer; }
+  .ci:hover, .ci:focus-visible, .ci.is-open { background: var(--soft-2); color: var(--ink); outline: none; }
+  .ci[disabled] { opacity: .45; cursor: default; background: transparent; }
+  .ci.danger { color: var(--bad); }
+  .ci.danger:hover, .ci.danger:focus-visible, .ci.danger.is-open { background: var(--bad-bg); color: var(--bad); }
+  .ci kbd { margin-left: auto; }
+  .ci .chev { transform: rotate(-90deg); color: var(--muted); }
+  .csep { height: 1px; margin: 5px 8px; background: var(--line); }
+
+  /* ---------- a select's options: one listbox for every select on the page ---------- */
+  .selpop { position: fixed; z-index: 85; left: 0; top: 0; min-width: 180px; max-height: min(340px, 60vh); overflow-y: auto; padding: 6px;
+            border-radius: 16px; background: var(--raised); box-shadow: var(--pop); display: flex; flex-direction: column; gap: 2px;
+            animation: ctxin .12s var(--ease); scrollbar-width: thin; }
+  .opt { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 40px; padding: 0 10px 0 12px; border: 0;
+         border-radius: 10px; background: transparent; color: var(--ink-2); font-size: 14px; font-weight: 500; text-align: left;
+         white-space: nowrap; cursor: pointer; }
+  .opt:hover, .opt:focus { background: var(--soft-2); color: var(--ink); outline: none; }
+  .opt:focus-visible { box-shadow: inset 0 0 0 1.5px var(--accent-ring); }
+  .opt[aria-selected="true"] { color: var(--ink); font-weight: 650; }
+  .opt .tick { flex: 0 0 auto; color: var(--accent); }
+
+  /* ---------- apply panel, toast ---------- */
+  .applypanel { position: fixed; right: 20px; bottom: 20px; z-index: 40; width: min(460px, calc(100vw - 32px)); max-height: 72vh; overflow: auto;
+                padding: 22px; border-radius: 24px; background: var(--raised); box-shadow: var(--pop); display: grid; gap: 12px; }
+  .applypanel .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .applypanel h2 { margin: 0; font-size: 18px; font-weight: 650; }
+  .applypanel p { margin: 0; }
+  .applypanel .muted { color: var(--muted); font-size: 14px; }
+  .applypanel .warn { color: var(--bad); }
+  .applypanel .log { font: 12px/1.5 ui-monospace, monospace; color: var(--muted); }
+  .applypanel ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 14px; }
+  .applypanel .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .applypanel .btn { min-height: 44px; font-size: 15px; }
+  .toast { position: fixed; left: 50%; bottom: 24px; z-index: 70; transform: translate(-50%, 12px); max-width: min(560px, calc(100vw - 32px));
+           padding: 14px 18px; border-radius: 16px; background: var(--ink); color: var(--bg); font-size: 15px; opacity: 0;
+           pointer-events: none; transition: opacity .18s, transform .18s; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.err { background: var(--bad); color: #1D1B29; }
+
+  @media (max-width: 900px) {
+    body { overflow: auto; display: block; }
+    main { overflow: visible; }
+    /* The rail becomes a row under the header. */
+    .frame { display: block; }
+    .rail { flex-direction: row; align-items: center; gap: 8px; padding: 0 16px 10px; overflow-x: auto; overflow-y: hidden; }
+    .ri { width: auto; }
+    .ri::before { display: none; }
+    #view-search, #view-search > .wrap { height: auto; }
+    .desk { flex-direction: column; }
+    .queue { flex: 0 0 auto; }
+    .qlist { flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+    .queue .label, .queue .more { display: none; }
+    .q { flex: 0 0 240px; }
+    .stage { overflow: visible; container-type: inline-size; display: block; }
+    .cardbody { overflow: visible; margin-right: 0; padding-right: 0; }
+    .actions { flex-wrap: wrap; }
+    .actions .gap { display: none; }
+  }
+  @media (max-width: 600px) {
+    .wrap { padding: 0 16px; }
+    header.top { padding: 14px 16px 10px; }
+    .find { width: 44px; padding: 0; justify-content: center; }
+    .find span, .find kbd { display: none; }
+    .fresh, .hint { display: none; }
+    .card { padding: 20px; border-radius: 22px; }
+    .hero h1 { font-size: 28px; }
+    .btn { flex: 1 1 auto; }
+    .setrow { flex-wrap: wrap; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *:not(.cardbody), *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="mark" aria-hidden="true">J</span><span class="word">Job Hunt</span></div>
+  <button class="find" id="findbtn" type="button" aria-haspopup="dialog" aria-controls="jump">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+    <span>Найти вакансию, компанию, стопку</span><kbd>Ctrl K</kbd>
+  </button>
+  <div class="tools">
+    <span class="fresh" id="freshness"></span>
+    <button class="iconbtn" id="searchbtn" type="button" aria-label="Обновить площадки">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 4v5h-5"></path></svg>
+    </button>
+    <div class="menuwrap">
+      <button class="avatar" id="linksbtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="linksmenu" aria-label="Меню: настройки и мои ссылки">АП</button>
+      <div class="menu" id="linksmenu" hidden>
+        <button class="menuitem strong" id="opensettings" type="button">Настройки <small>Claude, тема, приложение</small></button>
+        <div class="menusep"></div>
+        <p class="menulabel">Мои ссылки</p>
+        <button class="menuitem" id="copy-linkedin" type="button" data-label="LinkedIn" data-url="https://www.linkedin.com/in/anton-perch-768578113/">LinkedIn <small>скопировать</small></button>
+        <button class="menuitem" id="copy-github" type="button" data-label="GitHub" data-url="https://github.com/Perchusha">GitHub <small>скопировать</small></button>
+        <button class="menuitem" id="copy-portfolio" type="button" data-label="Portfolio" data-url="https://perchusha.github.io/portfolio/">Портфолио <small>скопировать</small></button>
+      </div>
+    </div>
+  </div>
+</header>
+<div class="sweep" id="searchprogress" role="status" aria-label="Обновляю площадки" hidden><span></span></div>
+
+<div class="frame">
+<nav class="rail" id="rail" aria-label="Разделы">
+  <span class="ri"><button class="tab is-active" data-view="search" type="button" data-tip="Поиск" aria-label="Поиск">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.5 8.5 4.5-8.5 4.5L3.5 8 12 3.5z"></path><path d="m3.5 12.5 8.5 4.5 8.5-4.5"></path><path d="m3.5 16.5 8.5 4 8.5-4"></path></svg>
+    <span class="sr" id="searchcount"></span></button></span>
+  <span class="ri"><button class="tab" data-view="tracker" type="button" data-tip="Отклики" aria-label="Отклики">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 3 10.5 13.5M21 3l-6.5 18-4-7.5L3 9.5 21 3z"></path></svg>
+    <span class="sr" id="trackercount"></span></button></span>
+</nav>
+<main>
+  <!-- ---------------- Search: one posting at a time ---------------- -->
+  <section class="view" id="view-search" aria-label="Поиск">
+    <div class="wrap">
+      <details class="needsyou" id="needsyou" hidden></details>
+      <div class="stackbar">
+        <div class="stacks" id="stacks" role="group" aria-label="Что разбирать"></div>
+        <div class="stackinfo">
+          <span class="progresstext" id="progresstext"></span>
+          <span class="pbar" aria-hidden="true"><span id="progressfill"></span></span>
+          <span class="claudeline" id="claudeline"></span>
+          <div class="menuwrap">
+            <button class="pill" id="filtersbtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="filters">Фильтры <span class="filterdot" id="filterdot" hidden></span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+            </button>
+            <div class="popover" id="filters" hidden>
+              <label class="field">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+                <span class="sr">Искать среди вакансий</span>
+                <input type="search" id="jobsearch" placeholder="Компания, стек, город…" autocomplete="off">
+              </label>
+              <fieldset style="margin: 0; padding: 0; border: 0">
+                <legend><h3>Опубликовано</h3></legend>
+                <div class="seg" id="datefilter">
+                  <label><input type="radio" name="age" value="1"><span>сутки</span></label>
+                  <label><input type="radio" name="age" value="3"><span>3 дня</span></label>
+                  <label><input type="radio" name="age" value="7"><span>неделя</span></label>
+                  <label><input type="radio" name="age" value="14"><span>2 недели</span></label>
+                  <label><input type="radio" name="age" value="30" checked><span>месяц</span></label>
+                </div>
+              </fieldset>
+              <fieldset style="margin: 0; padding: 0; border: 0">
+                <legend><h3>Площадки</h3></legend>
+                <div class="checks" id="sourcefilter"></div>
+              </fieldset>
+              <fieldset style="margin: 0; padding: 0; border: 0">
+                <legend><h3>Показывать</h3></legend>
+                <label class="check"><input type="checkbox" id="hideApplied" checked><i aria-hidden="true"></i>Прятать отклики</label>
+                <label class="check"><input type="checkbox" id="showDismissed"><i aria-hidden="true"></i>Скрытые мной <span class="n" id="dismissedCount"></span></label>
+                <label class="check" title="отсеянные правилами скрининга (src/screening.ts), с причиной на карточке"><input type="checkbox" id="showRuleHidden"><i aria-hidden="true"></i>Скрытые правилами <span class="n" id="ruleHiddenCount"></span></label>
+              </fieldset>
+              <div>
+                <h3>Порядок</h3>
+                <button type="button" class="select wide" id="jobsort" data-select="jobsort" data-label="Порядок в очереди" value="match" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+                  <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="desk">
+        <aside class="queue" aria-label="Очередь">
+          <p class="label">Очередь</p>
+          <div id="queue" class="qlist"></div>
+          <p class="more" id="queuemore"></p>
+        </aside>
+        <div class="stage">
+          <div id="focus" aria-live="polite"></div>
+          <p class="hint" id="keyhint">Клавиши: <kbd>Enter</kbd> подать · <kbd>F</kbd> в воронку · <kbd>H</kbd> скрыть · <kbd>C</kbd> обсудить · <kbd>→</kbd> потом · <kbd>↑</kbd><kbd>↓</kbd> по очереди</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------------- Tracker ---------------- -->
+  <section class="view wrap" id="view-tracker" aria-label="Отклики" hidden>
+    <div class="hero">
+      <h1 id="trackertitle">Отклики</h1>
+      <p id="trackersub"></p>
+    </div>
+    <div class="tiles" id="cards"></div>
+    <section class="block">
+      <h2>Где сейчас отклики</h2>
+      <div class="funnelbar" id="funnel" role="img"></div>
+      <div class="legend" id="legend"></div>
+    </section>
+    <section class="block" style="padding-bottom: 64px">
+      <div class="listhead">
+        <h2 id="applicationcount">Отклики</h2>
+        <div class="listtools">
+          <label class="field" style="min-width: 260px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            <span class="sr">Искать среди откликов</span>
+            <input type="search" id="appsearch" placeholder="Компания, роль, город…" autocomplete="off">
+          </label>
+        </div>
+      </div>
+      <div class="statuspills" id="statuspills" role="group" aria-label="Статус"></div>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th><button type="button" data-sort="company">Компания <span class="arrow"></span></button></th>
+              <th>Роль</th>
+              <th><button type="button" data-sort="status">Статус <span class="arrow"></span></button></th>
+              <th><button type="button" data-sort="applied">Отправлен <span class="arrow"></span></button></th>
+              <th><button type="button" data-sort="days">Прошло <span class="arrow"></span></button></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p class="tableempty" id="empty" hidden></p>
+      </div>
+    </section>
+  </section>
+</main>
+</div>
+
+<div class="scrim" id="settings" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settingstitle">
+    <div class="head">
+      <h2 id="settingstitle">Настройки</h2>
+      <button class="iconbtn" type="button" data-close aria-label="Закрыть">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+      </button>
+    </div>
+    <section>
+      <h3>Внешний вид</h3>
+      <div class="setrow"><span>Тема<small>тёмная бережёт глаза; светлая — для яркого дня</small></span>
+        <button type="button" class="select" id="themepick" data-select="themepick" data-label="Тема" value="dark" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+      </div>
+    </section>
+    <section>
+      <h3>Claude</h3>
+      <p class="lead">Claude читает каждую вакансию из ленты и раскладывает по стопкам. Работает на подписке Claude Code этого компьютера — без API-ключа.</p>
+      <div class="setrow"><span>Оценивать новые вакансии сам<small>в фоне, по мере того как они появляются</small></span>
+        <label class="switch"><input type="checkbox" id="cl-auto" aria-label="Оценивать новые вакансии сам"><i></i></label></div>
+      <div class="setrow"><span>Модель<small>Opus читает внимательнее, но тратит вдвое больше лимитов</small></span>
+        <button type="button" class="select" id="cl-model" data-select="cl-model" data-label="Модель" value="sonnet" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+      <div class="setrow"><span>Усилие<small>на одну вакансию хватает низкого</small></span>
+        <button type="button" class="select" id="cl-effort" data-select="cl-effort" data-label="Усилие" value="low" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+      <div class="setrow"><span>Запусков в день<small>для фона; то, что вы просите сами, не считается</small></span>
+        <input type="number" id="cl-daily" min="0" max="1000" step="1" aria-label="Запусков в день"></div>
+      <p class="stat" id="cl-stat"></p>
+      <div class="foot"><button class="btn soft" type="button" id="cl-now">Оценить оставшиеся сейчас</button></div>
+    </section>
+    <section id="appsettings" hidden>
+      <h3>Приложение Job Hunt</h3>
+      <p class="warnbox" id="toastwarn" hidden>Уведомления Windows выключены — Job Hunt не сможет показать новые вакансии. <button class="linkbtn" id="opennotif" type="button">Открыть настройки уведомлений</button></p>
+      <div class="setrow"><span>Запускать вместе с Windows<small>сразу в трей, без окна</small></span><label class="switch"><input type="checkbox" data-app="autostart" aria-label="Запускать вместе с Windows"><i></i></label></div>
+      <div class="setrow"><span>Обновлять площадки каждые, ч<small>NoFluffJobs, justjoin.it, Indeed, Himalayas</small></span><input type="number" data-app="refreshHours" min="1" max="48" step="1" aria-label="Часы между обновлениями"></div>
+      <div class="setrow"><span>LinkedIn раз в день<small>только новое, по одному запросу</small></span><label class="switch"><input type="checkbox" data-app="linkedinBackground" aria-label="LinkedIn раз в день"><i></i></label></div>
+      <div class="setrow"><span>Уведомлять о новых вакансиях</span><label class="switch"><input type="checkbox" data-app="notifyNew" aria-label="Уведомлять о новых вакансиях"><i></i></label></div>
+      <div class="setrow"><span>Не раньше, чем наберётся</span><input type="number" data-app="notifyMin" min="1" max="50" step="1" aria-label="Минимум вакансий для уведомления"></div>
+      <div class="setrow"><span>Тихие часы<small>с … до …</small></span><span style="display: flex; gap: 8px"><input type="time" data-app="quietFrom" aria-label="Тихие часы с"><input type="time" data-app="quietTo" aria-label="Тихие часы до"></span></div>
+      <div class="setrow"><span>Сводка за сутки<small>«За сутки появилось N новых вакансий»</small></span><span style="display: flex; align-items: center; gap: 10px"><input type="time" data-app="digestTime" aria-label="Время сводки"><label class="switch"><input type="checkbox" data-app="digest" aria-label="Сводка за сутки"><i></i></label></span></div>
+      <div class="setrow"><span>Порт<small>после смены сервер перезапустится</small></span><input type="number" data-app="port" min="1024" max="65535" aria-label="Порт"></div>
+      <div class="setrow"><span>Доступ с телефона в той же Wi-Fi<small>без пароля — только для доверенной сети</small></span><label class="switch"><input type="checkbox" data-app="lanAccess" aria-label="Доступ с телефона"><i></i></label></div>
+      <div class="foot"><button class="btn soft" type="button" id="app-test">Проверить уведомление</button><button class="btn soft" type="button" id="app-log">Открыть лог</button></div>
+    </section>
+    <div class="foot">
+      <button class="btn main" type="button" id="settingssave">Сохранить</button>
+      <button class="btn soft" type="button" data-close>Закрыть</button>
+      <span class="saved" id="settingssaved" role="status"></span>
+    </div>
+  </div>
+</div>
+<div class="applypanel" id="applypanel" hidden aria-live="polite"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="scrim jump" id="jump" hidden>
+  <div class="jumpbox" role="dialog" aria-modal="true" aria-label="Перейти">
+    <label class="field">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+      <span class="sr">Куда перейти</span>
+      <input type="search" id="jumpq" placeholder="Вакансия, компания или стопка" autocomplete="off" role="combobox" aria-controls="jumplist" aria-expanded="true">
+    </label>
+    <div class="jumplist" id="jumplist" role="listbox" aria-label="Куда перейти"></div>
+    <p class="jumphint"><span><kbd>#</kbd> стопки</span><span><kbd>@</kbd> компании и отклики</span><span><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Enter</kbd></span></p>
+  </div>
+</div>
+<div class="ctx" id="ctx" role="menu" aria-label="Действия с вакансией" hidden></div>
+<div class="ctx" id="ctxsub" role="menu" aria-label="Почему скрыть" hidden></div>
+<div class="selpop" id="selpop" role="listbox" hidden></div>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script>
+const STATUSES = __STATUSES__;
+// The boards this dashboard may query, straight from SEARCH_DEFAULTS.sources.
+const SOURCES = __SOURCES__;
+const FUNNEL_ORDER = ["applied", "responded", "screening", "interview", "offer", "rejected", "dropped", "ghosted"];
+const STATUS_WORD = {
+  applied: "ждём ответа", responded: "ответили", screening: "скрининг", interview: "собеседование",
+  offer: "оффер", rejected: "отказ", dropped: "отозвал", ghosted: "тишина",
+};
+const SOURCE_NAME = {
+  nofluffjobs: "NoFluffJobs", justjoin: "justjoin.it", watchlist: "Компании", indeed: "Indeed",
+  linkedin: "LinkedIn", himalayas: "Himalayas", remoteok: "RemoteOK", arbeitnow: "Arbeitnow",
+};
+// The selects' options, by their data-select; a row's status takes STATUSES instead.
+const SELECT_OPTIONS = {
+  jobsort: [["match", "лучшие по профилю"], ["claude", "оценка Claude"], ["newest", "новые сначала"], ["company", "компания А–Я"]],
+  themepick: [["dark", "тёмная"], ["light", "светлая"], ["auto", "как в системе"]],
+  "cl-model": [["sonnet", "Sonnet"], ["opus", "Opus"]],
+  "cl-effort": [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"]],
+};
+const VERDICT_WORD = { apply: "Подходит", maybe: "Проверить", skip: "Не подходит" };
+const STATE_WORD = { queued: "ждёт очереди", reading: "читает вакансию…", thinking: "думает…" };
+const WORKMODE_WORD = { remote: "удалённо", hybrid: "гибрид", onsite: "офис", office: "офис", unclear: "не ясно" };
+const LEVEL_WORD = { junior: "Junior", mid: "Mid", senior: "Senior", lead: "Lead / Staff", unclear: "не указан" };
+const POLAND_WORD = { yes: "да", no: "нет", unclear: "не ясно" };
+/*
+ * One-click reasons for "скрыть". A reason teaches the screening rules: role
+ * reasons hide reposts of that role, and "не интересна компания" — the same
+ * string as COMPANY_REASON in src/screening.ts — hides the whole company.
+ */
+const HIDE_REASONS = ["не remote", "не тот стек", "уровень (mid/junior)", "не интересна компания",
+  "зарплата ниже", "уже откликался в другом месте"];
+// The stacks: what Claude said, then everything it did not take away.
+const STACKS = [
+  { id: "good", label: "Подходят", test: (job) => job.verdict && job.verdict.verdict === "apply" },
+  { id: "maybe", label: "Проверить", test: (job) => job.verdict && job.verdict.verdict === "maybe" },
+  { id: "all", label: "Все", test: (job) => !isClaudeSkip(job) },
+  { id: "skipped", label: "Убрал Claude", test: (job) => isClaudeSkip(job) },
+];
+
+/* ---------------- state ---------------- */
+
+let applications = [];
+let stats = null;
+let sort = { key: "applied", dir: "desc" };
+let statusFilter = "";
+let applicationQuery = "";
+// Job keys (src/jobkey.ts) already in the funnel. Keys, not raw URLs: a
+// tracking parameter appended by a board must not make a job new again.
+let trackedUrls = new Set();
+let currentView = "search";
+
+let lastSearchPayload = { jobs: [] };
+let searchResults = [];
+let searchLoaded = false;
+let searchSeq = 0;
+let searchAbort = null;
+let hideApplied = true;
+let showDismissed = false;
+let showRuleHidden = false;
+let jobQuery = "";
+let jobSort = "match";
+let activeSources = new Set(SOURCES);
+// Always a real window: the widest option is a month, SEARCH_DEFAULTS.hoursOld.
+let maxAgeDays = 30;
+// Postings first seen after this are "new": the server's last visit, fixed for this page session.
+let pageNewSince;
+let visitMarked = false;
+
+// Where I am in the stack. Decisions made in this page session keep their card
+// in the queue, marked, so the queue shows progress instead of shrinking under me.
+let stack = "good";
+let currentKey = null;
+const decided = new Map();
+// "Потом": these go to the end of the stack, in the order they were put off.
+let deferred = [];
+let hideOpen = false;
+// What #focus holds now, so a redraw that changes nothing is skipped.
+let lastFocusHtml = "";
+let lastFocusKey = undefined;
+
+// Ctrl K and the right-click menu: open or not, and what they list.
+let jumpOpen = false;
+let jumpItems = [];
+let jumpAt = 0;
+let ctxOpen = false;
+let ctxItems = [];
+let ctxSubItems = [];
+// The select whose options are open in #selpop, or null.
+let selFor = null;
+
+// Claude's verdict queue (src/verdict.ts): running, queued, failed.
+let claudeStatus = { running: [], queued: [], failures: {}, pausedUntil: null };
+let verdictsSince = null;
+let verdictPoll = null;
+let applyState = null;
+
+const $ = (id) => document.getElementById(id);
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function toast(message, isError) {
+  const el = $("toast");
+  el.textContent = message;
+  el.className = "toast show" + (isError ? " err" : "");
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = "toast"; }, 3200);
+}
+
+/** 1 отклик, 2 отклика, 5 откликов. */
+function plural(n, one, few, many) {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
+  return many;
+}
+function ageInDays(iso) {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return isNaN(t) ? null : Math.max(0, Math.floor((Date.now() - t) / 86400000));
+}
+function ageLabel(iso) {
+  const days = ageInDays(iso);
+  if (days === null) return "без даты";
+  if (days === 0) return "сегодня";
+  if (days === 1) return "вчера";
+  return days + " дн. назад";
+}
+function shortDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return isNaN(d) ? "—" : d.toLocaleDateString("ru", { day: "numeric", month: "short" });
+}
+/** "claude-sonnet-5-5" -> "Sonnet 5.5" */
+function modelName(model) {
+  const match = /claude-([a-z]+)-(\d+)-(\d+)/.exec(model || "");
+  return match ? match[1][0].toUpperCase() + match[1].slice(1) + " " + match[2] + "." + match[3] : (model || "Claude");
+}
+
+async function writeClipboard(text) {
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall through for browsers that expose the Clipboard API but deny it.
+    }
+  }
+  const field = document.createElement("textarea");
+  field.value = text;
+  field.setAttribute("readonly", "");
+  field.style.position = "fixed";
+  field.style.opacity = "0";
+  document.body.appendChild(field);
+  field.select();
+  const copied = document.execCommand("copy");
+  field.remove();
+  if (!copied) throw new Error("Copy command failed");
+}
+
+async function copyContactLink(button) {
+  const label = button.dataset.label;
+  try {
+    await writeClipboard(button.dataset.url);
+    button.classList.add("is-copied");
+    clearTimeout(button._copyTimer);
+    button._copyTimer = setTimeout(() => button.classList.remove("is-copied"), 1600);
+    toast("Ссылка " + label + " скопирована");
+  } catch {
+    toast("Не удалось скопировать ссылку " + label, true);
+  }
+}
+
+/* ---------------- search: what is in a stack ---------------- */
+
+/** A card my screening rules would hide (src/screening.ts); shown under its toggle. */
+function isRuleHidden(job) {
+  return Boolean(job.screen && job.screen.bucket === "dismiss");
+}
+
+/** Claude said "skip" (src/verdict.ts) and the rules did not already hide it. */
+function isClaudeSkip(job) {
+  return Boolean(job.verdict && job.verdict.verdict === "skip") && !isRuleHidden(job);
+}
+
+/** "queued" / "reading" / "thinking" while the server works on this job, else null. */
+function verdictState(job) {
+  const run = (claudeStatus.running || []).find((entry) => entry.key === job.key);
+  if (run) return run.state;
+  return (claudeStatus.queued || []).includes(job.key) ? "queued" : null;
+}
+
+function claudeBusy() {
+  return (claudeStatus.running || []).length > 0 || (claudeStatus.queued || []).length > 0;
+}
+
+function isNewJob(job) {
+  return Boolean(pageNewSince && job.firstSeenAt && job.firstSeenAt > pageNewSince);
+}
+
+/*
+ * The jobs the filters let through. A job decided in this page session stays
+ * even once it is hidden or applied to, so its card keeps its place in the queue.
+ */
+function visibleJobs() {
+  return (lastSearchPayload.jobs || []).filter((job) => {
+    const mine = decided.has(job.key);
+    if (job.dismissed && !showDismissed && !mine) return false;
+    if (isRuleHidden(job) && !showRuleHidden) return false;
+    if (hideApplied && trackedUrls.has(job.key) && !mine) return false;
+    if (jobQuery) {
+      const haystack = [job.title, job.company, job.location, job.source, job.salary,
+        job.verdict && job.verdict.mainStack && job.verdict.mainStack.join(" ")]
+        .filter(Boolean).join(" ").toLocaleLowerCase();
+      if (!haystack.includes(jobQuery)) return false;
+    }
+    // hoursOld only reaches the scraped boards; the free feeds ignore it, so
+    // the window is enforced again here. A posting that will not say how old
+    // it is cannot be shown to be inside the window, so it goes.
+    const age = ageInDays(job.postedAt);
+    if (age === null || age > maxAgeDays) return false;
+    return true;
+  });
+}
+
+function orderJobs(list) {
+  let out = list.slice();
+  if (jobSort === "newest") {
+    out.sort((a, b) => (Date.parse(b.postedAt || 0) || 0) - (Date.parse(a.postedAt || 0) || 0));
+  } else if (jobSort === "company") {
+    out.sort((a, b) => String(a.company || "").localeCompare(String(b.company || "")));
+  } else if (jobSort === "claude") {
+    const rank = (job) => (job.verdict ? { apply: 0, maybe: 1, skip: 3 }[job.verdict.verdict] : 2);
+    out.sort((a, b) => rank(a) - rank(b) || (b.verdict ? b.verdict.score : 0) - (a.verdict ? a.verdict.score : 0));
+  }
+  const later = out.filter((job) => deferred.includes(job.key))
+    .sort((a, b) => deferred.indexOf(a.key) - deferred.indexOf(b.key));
+  return out.filter((job) => !deferred.includes(job.key)).concat(later);
+}
+
+function stackJobs(id) {
+  const def = STACKS.find((s) => s.id === id) || STACKS[0];
+  return orderJobs(visibleJobs().filter(def.test));
+}
+
+/** The job on the card: the one I picked, else the first one not decided yet. */
+function currentJob(list) {
+  const jobs = list || stackJobs(stack);
+  const picked = jobs.find((job) => job.key === currentKey);
+  if (picked) return picked;
+  const next = jobs.find((job) => !decided.has(job.key)) || null;
+  currentKey = next ? next.key : null;
+  return next;
+}
+
+/** On to the next job not decided yet, wrapping round — deferred ones come back last. */
+function advance() {
+  const jobs = stackJobs(stack);
+  const at = jobs.findIndex((job) => job.key === currentKey);
+  const after = jobs.slice(at + 1).concat(jobs.slice(0, Math.max(0, at)));
+  const next = after.find((job) => !decided.has(job.key) && job.key !== currentKey) || null;
+  currentKey = next ? next.key : (decided.has(currentKey) ? null : currentKey);
+  hideOpen = false;
+  renderSearch();
+}
+
+function step(delta) {
+  const jobs = stackJobs(stack);
+  if (jobs.length === 0) return;
+  const at = Math.max(0, jobs.findIndex((job) => job.key === currentKey));
+  currentKey = jobs[(at + delta + jobs.length) % jobs.length].key;
+  hideOpen = false;
+  renderSearch();
+}
+
+/* ---------------- search: drawing ---------------- */
+
+function renderSearch() {
+  searchResults = lastSearchPayload.jobs || [];
+  const visible = visibleJobs();
+  const counts = Object.fromEntries(STACKS.map((s) => [s.id, visible.filter(s.test).length]));
+  $("stacks").innerHTML = STACKS.map((s) => '<button type="button" class="pill' + (s.id === stack ? " is-on" : "")
+    + '" data-stack="' + s.id + '" aria-pressed="' + (s.id === stack) + '">' + esc(s.label)
+    + ' <span class="n">' + counts[s.id] + "</span></button>").join("");
+  $("searchcount").textContent = searchLoaded ? String(counts.all) : "";
+  setTabTip("search", "Поиск" + (searchLoaded ? " · " + counts.all : ""));
+
+  const jobs = stackJobs(stack);
+  const job = currentJob(jobs);
+  const done = jobs.filter((j) => decided.has(j.key)).length;
+  const at = job ? jobs.indexOf(job) + 1 : jobs.length;
+  $("progresstext").textContent = jobs.length ? at + " из " + jobs.length : "";
+  $("progressfill").style.width = jobs.length ? Math.round(done / jobs.length * 100) + "%" : "0%";
+
+  $("queue").innerHTML = jobs.map((j) => queueItem(j, job)).join("");
+  $("queuemore").textContent = jobs.length === 0 ? "" : done ? "решено " + done + " из " + jobs.length : "";
+  const current = $("queue").querySelector && $("queue").querySelector(".q.is-on");
+  if (current && typeof current.scrollIntoView === "function") current.scrollIntoView({ block: "nearest" });
+  /*
+   * The card is redrawn only when it changed, and slides in only when it is
+   * another posting: a verdict landing for the same one must not replay the
+   * animation or close what is open on it.
+   */
+  const html = job ? cardHtml(job) : emptyHtml(jobs, counts);
+  const key = job ? job.key : null;
+  if (html !== lastFocusHtml || key !== lastFocusKey) {
+    // The same card redrawn (a verdict came in) stays where I scrolled it.
+    const body = key === lastFocusKey && $("focus").querySelector ? $("focus").querySelector(".cardbody") : null;
+    const scrolled = body ? body.scrollTop : 0;
+    $("focus").innerHTML = key !== lastFocusKey ? html.replace('class="card"', 'class="card in"') : html;
+    if (scrolled) $("focus").querySelector(".cardbody").scrollTop = scrolled;
+    lastFocusHtml = html;
+    lastFocusKey = key;
+  }
+  $("keyhint").hidden = !job;
+
+  const dismissedTotal = lastSearchPayload.dismissedCount || 0;
+  $("dismissedCount").textContent = dismissedTotal ? String(dismissedTotal) : "";
+  const ruleHiddenTotal = searchResults.filter((j) => !j.dismissed && isRuleHidden(j)).length;
+  $("ruleHiddenCount").textContent = ruleHiddenTotal ? String(ruleHiddenTotal) : "";
+  $("filterdot").hidden = !(jobQuery || maxAgeDays !== 30 || activeSources.size !== SOURCES.length
+    || !hideApplied || showDismissed || showRuleHidden || jobSort !== "match");
+  renderClaudeLine();
+}
+
+const DECIDED_WORD = { applying: "подаю…", applied: "подано", funnel: "в воронке", hidden: "скрыто",
+  restored: "возвращено", attempt: "нужно вам", "dry-run": "проверить форму", closed: "закрыта" };
+
+function queueItem(job, current) {
+  const v = job.verdict;
+  const state = verdictState(job);
+  const status = decided.get(job.key);
+  const badge = state && !v ? "busy" : v ? v.verdict : "";
+  const tail = status ? DECIDED_WORD[status] || status
+    : deferred.includes(job.key) ? "потом"
+      : isNewJob(job) ? "новая" : "";
+  return '<button type="button" class="q' + (current && job.key === current.key ? " is-on" : "") + (status ? " is-done" : "")
+    + '" data-key="' + esc(job.key) + '"' + (current && job.key === current.key ? ' aria-current="true"' : "") + ">"
+    + avatarHtml(job.company, badge, v ? v.score : "")
+    + '<span class="txt"><span class="tt">' + esc(job.title) + '</span><span class="cc">'
+    + (v ? '<span class="sr">' + esc(VERDICT_WORD[v.verdict]) + ", " + v.score + ", </span>" : "") + esc(job.company || "") + "</span></span>"
+    + (tail ? '<span class="st' + (tail === "новая" ? " new" : "") + '">' + esc(tail) + "</span>" : "")
+    + "</button>";
+}
+
+const BADGE_GLYPH = {
+  apply: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  maybe: '<path d="M9 9.2a3 3 0 1 1 4.2 2.8c-.8.4-1.2 1-1.2 1.8v.4M12 18.5h.01"/>',
+  skip: '<path d="M7 7l10 10M17 7 7 17"/>',
+};
+
+/** Two letters for a company tile: a camel-cased name's humps, else two words' initials, else its first two letters. */
+function initials(name) {
+  const clean = String(name || "?").replace(/\(.*?\)/g, "").trim();
+  const words = clean.split(/\s+/).filter((w) => /^[A-ZА-ЯЁ0-9]/.test(w) && !/^(sp\.|S\.A\.|Inc\.?|Ltd\.?|LLC|GmbH|UK)$/i.test(w));
+  const letters = (words[0] || clean).replace(/[^A-Za-zА-Яа-яЁё0-9]/g, "");
+  const humps = letters.match(/[A-ZА-ЯЁ]/g) || [];
+  if (humps.length >= 2 && letters !== letters.toUpperCase()) return humps.slice(0, 2).join("");
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return letters.charAt(0).toUpperCase() + letters.charAt(1).toLowerCase();
+}
+
+/** The same company gets the same tone every time. */
+function toneOf(name) {
+  let h = 7;
+  for (const ch of String(name || "")) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return h % 6;
+}
+
+/** A company's tile with Claude's score as a badge in its corner, coloured by the verdict; no badge = no verdict. */
+function avatarHtml(company, badge, score) {
+  return '<span class="av' + (badge ? " has-sb" : "") + '" aria-hidden="true"><span class="mono t' + toneOf(company) + '">' + esc(initials(company)) + "</span>"
+    + (badge ? '<span class="sb ' + badge + '">' + esc(badge === "busy" ? "" : score) + "</span>" : "") + "</span>";
+}
+
+/** What the posting says, beside what Claude read into it. */
+function facts(job) {
+  const v = job.verdict || {};
+  const signals = job.signals || {};
+  const salary = job.salary || v.salary || "не указана";
+  const mode = v.workModeQuote ? "«" + v.workModeQuote + "»"
+    : WORKMODE_WORD[v.workMode] || WORKMODE_WORD[job.workMode]
+      || (signals.mode === "onsite" ? "офис" : signals.mode === "hybrid" ? "офис N дней" : "не ясно");
+  const level = LEVEL_WORD[v.seniority] || job.seniorityLevel || "не указан";
+  const poland = POLAND_WORD[v.canWorkFromPoland]
+    || (job.eligibility && job.eligibility.level === "high" ? "да" : "проверить");
+  return [
+    ["Вилка", salary, job.belowSalaryFloor ? "low" : ""],
+    ["Формат", mode, ""],
+    ["Уровень", level, ""],
+    ["Из Польши", poland, ""],
+  ];
+}
+
+function notesHtml(job) {
+  const notes = [];
+  if (job.dismissed) notes.push(["plain", "Вы скрыли эту вакансию" ]);
+  if (trackedUrls.has(job.key)) notes.push(["plain", "Вы уже откликнулись на неё"]);
+  if (isRuleHidden(job)) notes.push(["plain", "Правило скрининга: " + job.screen.reason]);
+  for (const flag of (job.screen && job.screen.flags) || []) notes.push(["", flag]);
+  const signals = job.signals || {};
+  if (signals.mode) notes.push(["", (signals.mode === "onsite" ? "В тексте — работа в офисе" : "В тексте — дни в офисе")
+    + (signals.context ? ": «" + signals.context + "»" : "")]);
+  if (signals.polishRequired) notes.push(["", "В тексте просят свободный польский"]);
+  if (job.repostedAt) notes.push(["plain", "Площадка перевыложила её " + shortDate(job.repostedAt) + "; возраст — с первого появления"]);
+  return notes.map(([kind, text]) => '<p class="note ' + kind + '">' + esc(text) + "</p>").join("");
+}
+
+function claudeHtml(job) {
+  const v = job.verdict;
+  const state = verdictState(job);
+  const failure = (claudeStatus.failures || {})[job.key];
+  if (!v) {
+    if (state) {
+      return '<div class="claude"><p class="k">Claude</p><p class="say">Claude ' + esc(STATE_WORD[state]) + "</p>"
+        + '<div class="bars" aria-hidden="true"><span style="width: 92%"></span><span style="width: 74%"></span><span style="width: 51%"></span></div></div>';
+    }
+    return '<div class="claude"><p class="k">Claude</p>'
+      + '<p class="say">' + (failure ? "Не получилось: " + esc(failure) : "Claude ещё не смотрел эту вакансию.") + "</p>"
+      + '<div class="foot"><button type="button" class="linkbtn" data-act="ask">'
+      + (failure ? "Попробовать ещё раз" : "Спросить Claude — секунд 10") + "</button></div></div>";
+  }
+  const queueTakes = claudeStatus.auto && !job.dismissed && !trackedUrls.has(job.key) && !isRuleHidden(job) && !failure;
+  return '<div class="claude ' + esc(v.verdict) + '"><p class="k">Claude</p>'
+    + '<p class="say">' + esc(v.summary) + "</p>"
+    + '<div class="foot"><span>' + esc(modelName(v.model)) + " · " + esc(ageLabel(v.at)) + "</span>"
+    + (v.stale ? "<span>" + (queueTakes ? "по старым критериям, пересчитаю" : "по старым критериям") + "</span>" : "")
+    + (failure && !state ? '<span style="color: var(--bad)">не удалось пересчитать: ' + esc(failure) + "</span>" : "")
+    + (state ? "<span>пересчитываю…</span>" : '<button type="button" class="linkbtn" data-act="ask">спросить заново</button>')
+    + "</div></div>";
+}
+
+function cardHtml(job) {
+  const v = job.verdict;
+  const state = verdictState(job);
+  const tracked = trackedUrls.has(job.key);
+  const chip = v
+    ? '<span class="chip ' + esc(v.verdict) + (v.stale ? " is-stale" : "") + '"><span class="dot ' + esc(v.verdict) + '"></span>'
+      + esc(VERDICT_WORD[v.verdict]) + " · " + v.score + "</span>"
+    : '<span class="chip wait"><span class="dot' + (state ? " busy" : "") + '"></span>'
+      + (state ? "Claude " + esc(STATE_WORD[state]) : "Без оценки") + "</span>";
+  const where = job.location || (job.eligibility && job.eligibility.level === "high" ? "удалённо" : "место не указано");
+  const tags = (v && v.mainStack && v.mainStack.length ? v.mainStack : job.tags || []).slice(0, 8);
+  const deal = v ? v.dealbreakers || [] : [];
+  const reasonsHtml = hideOpen ? hideMenuHtml(job) : "";
+  const hideBtn = job.dismissed
+    ? '<button type="button" class="btn soft" data-act="restore">Вернуть</button>'
+    : '<button type="button" class="btn soft" data-act="hide" aria-expanded="' + hideOpen + '">Скрыть <kbd>H</kbd></button>';
+  return '<article class="card"><div class="cardbody">'
+    + '<div class="cardtop">' + chip
+    + '<span class="meta">' + esc(ageLabel(job.postedAt)) + " · " + esc(SOURCE_NAME[job.source] || job.source) + "</span>"
+    + (isNewJob(job) ? '<span class="newtag">новая</span>' : "")
+    + '<a href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener">Открыть вакансию ↗</a></div>'
+    + "<div><h1>" + esc(job.title) + '</h1><p class="co">' + esc(job.company) + " · " + esc(where) + "</p></div>"
+    + notesHtml(job)
+    + '<div class="facts">' + facts(job).map(([k, value, cls]) => '<div class="fact"><span class="k">' + esc(k)
+      + '</span><span class="v ' + cls + '">' + esc(value) + "</span></div>").join("") + "</div>"
+    + (tags.length ? '<div class="tags">' + tags.map((t) => '<span class="tag">' + esc(t) + "</span>").join("") + "</div>" : "")
+    + claudeHtml(job)
+    + deal.map((d) => '<p class="note bad">✕ ' + esc(d) + "</p>").join("")
+    + (v && (v.matches.length || v.concerns.length)
+      ? '<div class="why"><div><h2>Что совпадает</h2><ul>'
+        + v.matches.map((t) => '<li class="ok"><span aria-hidden="true">✓</span><span>' + esc(t) + "</span></li>").join("")
+        + "</ul></div><div><h2>Что смущает</h2><ul>"
+        + v.concerns.map((t) => '<li class="hm"><span aria-hidden="true">•</span><span>' + esc(t) + "</span></li>").join("")
+        + "</ul></div></div>"
+      : "")
+    + "</div>" + reasonsHtml
+    + '<div class="actions">' + hideBtn
+    + '<button type="button" class="btn soft" data-act="discuss"' + (v && v.session ? "" : ' disabled title="у вакансии ещё нет разговора с Claude"')
+      + ">Обсудить с Claude <kbd>C</kbd></button>"
+    + '<button type="button" class="btn soft" data-act="funnel"' + (tracked ? " disabled" : "") + ">"
+      + (tracked ? "✓ В воронке" : "В воронку <kbd>F</kbd>") + "</button>"
+    + '<span class="gap"></span>'
+    + '<button type="button" class="btn ghost" data-act="later">Потом <kbd>→</kbd></button>'
+    + '<button type="button" class="btn main" data-act="apply"' + (tracked ? " disabled" : "") + ">Подать <kbd>Enter</kbd></button>"
+    + "</div></article>";
+}
+
+/** The reasons to hide a job with, in order: Claude's own first when it said skip. */
+function hideReasons(job) {
+  const suggested = job.verdict && job.verdict.verdict === "skip" ? job.verdict.hideReason : "";
+  return { suggested, reasons: (suggested ? [suggested] : []).concat(HIDE_REASONS.filter((r) => r !== suggested)) };
+}
+
+function hideMenuHtml(job) {
+  const { suggested, reasons } = hideReasons(job);
+  return '<div class="reasons" role="group" aria-label="Почему скрыть">'
+    + reasons.map((r, i) => '<button type="button" class="reason' + (r === suggested ? " claude-pick" : "") + '" data-act="reason" data-reason="'
+      + esc(r) + '">' + (r === suggested ? "Claude предлагает: " : "") + esc(r) + " <kbd>" + (i + 1) + "</kbd></button>").join("")
+    + '<button type="button" class="reason" data-act="reason" data-reason="">Просто скрыть <kbd>0</kbd></button></div>';
+}
+
+/** No card to show: the stack is done, or there is nothing in it yet. */
+function emptyHtml(jobs, counts) {
+  const nextStack = stack === "good" ? "maybe" : stack === "maybe" ? "all" : null;
+  const next = nextStack ? STACKS.find((s) => s.id === nextStack) : null;
+  const nextBtn = next && counts[next.id]
+    ? '<button type="button" class="btn main" data-stack-go="' + next.id + '">Дальше — «' + esc(next.label) + "» · " + counts[next.id] + "</button>"
+    : "";
+  if (!searchLoaded) {
+    return '<section class="card empty"><span class="big soft" aria-hidden="true">…</span><h1>Загружаю вакансии</h1></section>';
+  }
+  if (jobs.length > 0) {
+    const tally = (kind) => jobs.filter((j) => decided.get(j.key) === kind).length;
+    return '<section class="card empty"><span class="big" aria-hidden="true">'
+      + '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></span>'
+      + "<h1>Эта стопка разобрана</h1><p>Подано: " + (tally("applying") + tally("applied") + tally("dry-run") + tally("attempt"))
+      + " · в воронке: " + tally("funnel") + " · скрыто: " + tally("hidden") + "</p>"
+      + '<div class="row">' + nextBtn + "</div></section>";
+  }
+  const why = claudeBusy() && (stack === "good" || stack === "maybe")
+    ? "Claude ещё оценивает вакансии — " + ((claudeStatus.queued || []).length + (claudeStatus.running || []).length)
+      + " в работе. Подходящие появятся здесь."
+    : "Здесь пусто" + (jobQuery || maxAgeDays !== 30 ? " — может, мешают фильтры." : ".");
+  return '<section class="card empty"><span class="big soft" aria-hidden="true">'
+    + '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span>'
+    + "<h1>Ничего нет</h1><p>" + esc(why) + '</p><div class="row">' + nextBtn + "</div></section>";
+}
+
+/** Claude's line next to the stack: what the verdict queue is doing. */
+function renderClaudeLine() {
+  const running = (claudeStatus.running || []).length;
+  const queued = (claudeStatus.queued || []).length;
+  $("claudeline").textContent = claudeStatus.pausedUntil
+    ? (claudeStatus.pauseReason || "Claude на паузе") + (running || queued ? " · в очереди " + (running + queued) : "")
+    : running || queued
+      ? "Claude оценивает " + running + (queued ? ", ждут " + queued : "")
+      : "";
+}
+
+/* ---------------- search: acting on the card ---------------- */
+
+/** Every button on the card and in the hide menu comes through here; so do the keys. */
+async function act(name, arg) {
+  const job = currentJob();
+  if (!job) return;
+  if (name === "hide") {
+    hideOpen = !hideOpen;
+    renderSearch();
+  } else if (name === "reason") {
+    await dismiss(job, arg || null);
+  } else if (name === "restore") {
+    await restore(job);
+  } else if (name === "funnel") {
+    await addToFunnel(job);
+  } else if (name === "apply") {
+    await startApplyRun(job, "dry-run");
+  } else if (name === "discuss") {
+    await discussInClaude(job);
+  } else if (name === "later") {
+    deferred = deferred.filter((key) => key !== job.key).concat(job.key);
+    toast("Отложил: вернётся в конце стопки");
+    advance();
+  } else if (name === "ask") {
+    await askClaude(job);
+  }
+}
+
+function pickStack(id) {
+  stack = STACKS.some((s) => s.id === id) ? id : "good";
+  currentKey = null;
+  hideOpen = false;
+  renderSearch();
+}
+
+function pickJob(key) {
+  currentKey = key;
+  hideOpen = false;
+  renderSearch();
+}
+
+async function postJson(path, body, method) {
+  const response = await fetch(path, {
+    method: method || "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json();
+  return { response, payload };
+}
+
+async function dismiss(job, reason) {
+  try {
+    const { response, payload } = await postJson("/api/dismissed",
+      { url: job.applyUrl, title: job.title, company: job.company, reason: reason || null });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    job.dismissed = true;
+    decided.set(job.key, "hidden");
+    toast(job.company + " скрыта" + (reason ? ": " + reason : ""));
+    advance();
+  } catch (error) {
+    toast("Не скрылось: " + error.message, true);
+  }
+}
+
+async function restore(job) {
+  try {
+    const { response, payload } = await postJson("/api/dismissed", { url: job.applyUrl }, "DELETE");
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    job.dismissed = false;
+    decided.set(job.key, "restored");
+    toast(job.company + " возвращена");
+    renderSearch();
+  } catch (error) {
+    toast("Не вернулась: " + error.message, true);
+  }
+}
+
+async function addToFunnel(job) {
+  try {
+    const { response, payload } = await postJson("/api/applications", {
+      url: job.applyUrl, title: job.title, company: job.company, source: job.source,
+      location: job.location, salary: job.salary, postedAt: job.postedAt,
+    });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    trackedUrls.add(job.key);
+    decided.set(job.key, "funnel");
+    toast(payload.result === "already_tracked" ? job.company + " уже в воронке" : job.company + ": записал в воронку");
+    advance();
+    await load();
+  } catch (error) {
+    toast("Не записалось: " + error.message, true);
+  }
+}
+
+/*
+ * "Спросить Claude" / "спросить заново": the server reads the posting and runs
+ * claude -p on it (src/verdict.ts), ~10–20 s; the verdict lands through pollVerdicts.
+ */
+async function askClaude(job) {
+  try {
+    const { response, payload } = await postJson("/api/verdict", { key: job.key });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    claudeStatus = payload.status || claudeStatus;
+    renderSearch();
+    pollVerdicts();
+  } catch (error) {
+    toast("Claude не запустился: " + error.message, true);
+  }
+}
+
+/** The verdict's own session, opened in Claude Desktop: the posting and the verdict are already in it. */
+async function discussInClaude(job) {
+  if (!job.verdict || !job.verdict.session) {
+    toast("У этой вакансии ещё нет разговора с Claude", true);
+    return;
+  }
+  try {
+    const { response, payload } = await postJson("/api/verdict/open", { key: job.key });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    toast(payload.opened === "desktop" ? "Открываю разговор в Claude Desktop…" : "Открываю Claude в терминале…");
+  } catch (error) {
+    toast("Не открылось: " + error.message, true);
+  }
+}
+
+/*
+ * Verdicts made since the last look, and the queue's state: every 3 s while
+ * the server is working on something, otherwise with the 15-second refresh.
+ */
+async function pollVerdicts() {
+  clearTimeout(verdictPoll);
+  verdictPoll = null;
+  if (!searchLoaded) return;
+  try {
+    const query = verdictsSince ? "?since=" + encodeURIComponent(verdictsSince) : "";
+    const payload = await fetch("/api/verdicts" + query).then((r) => r.json());
+    verdictsSince = payload.now || verdictsSince;
+    const before = verdictSignature();
+    claudeStatus = payload.status || claudeStatus;
+    for (const job of lastSearchPayload.jobs || []) {
+      const verdict = payload.verdicts && payload.verdicts[job.key];
+      if (verdict) job.verdict = verdict;
+    }
+    // Redraw only when what is on screen changed: a redraw would close an open hide menu.
+    if (verdictSignature() !== before) renderSearch();
+    else renderClaudeLine();
+  } catch {
+    // the next poll tries again
+  }
+  if (claudeBusy()) verdictPoll = setTimeout(pollVerdicts, 3000);
+}
+
+function verdictSignature() {
+  const shown = currentKey;
+  return (lastSearchPayload.jobs || []).map((job) => job.key + "=" + (job.verdict ? job.verdict.at : "")
+    + "/" + (verdictState(job) || "") + (job.key === shown ? "/" + ((claudeStatus.failures || {})[job.key] || "") : "")).join("|");
+}
+
+/* ---------------- search: running it ---------------- */
+
+/*
+ * quiet: a background re-read while the server is still refreshing boards —
+ * no progress bar. refresh: the ↻ button — the fast boards are asked again first.
+ */
+async function runSearch(refresh, quiet) {
+  const seq = ++searchSeq;
+  if (searchAbort) searchAbort.abort();
+  const abort = typeof AbortController === "function" ? new AbortController() : null;
+  searchAbort = abort;
+  if (!quiet) startSearchProgress();
+  try {
+    const params = [];
+    if (showDismissed) params.push("includeDismissed=1");
+    // Always explicit: the server intersects this with the profile's own list.
+    params.push("sources=" + [...activeSources].join(","));
+    params.push("hoursOld=" + maxAgeDays * 24);
+    if (refresh) params.push("refresh=1");
+    const response = await fetch("/api/search?" + params.join("&"), abort ? { signal: abort.signal } : undefined);
+    const payload = await response.json();
+    if (seq !== searchSeq) return;
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    lastSearchPayload = payload;
+    if (payload.claude) {
+      const { now, ...status } = payload.claude;
+      claudeStatus = status;
+      verdictsSince = now || verdictsSince;
+    }
+    if (pageNewSince === undefined) pageNewSince = payload.newSince || null;
+    searchLoaded = true;
+    renderSearch();
+    if (claudeBusy() && !verdictPoll) verdictPoll = setTimeout(pollVerdicts, 3000);
+    showFreshness(payload.freshness);
+    if (!visitMarked) {
+      visitMarked = true;
+      fetch("/api/visit", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+    }
+    // Boards still being fetched in the background: read again shortly.
+    if (payload.freshness && payload.freshness.refreshing) {
+      setTimeout(() => {
+        if (seq === searchSeq) runSearch(false, true);
+      }, 10000);
+    }
+  } catch (error) {
+    if (seq !== searchSeq || quiet) return;
+    toast("Поиск не удался: " + error.message, true);
+  } finally {
+    if (seq === searchSeq && !quiet) stopSearchProgress();
+  }
+}
+
+function startSearchProgress() {
+  $("searchprogress").hidden = false;
+  $("searchbtn").disabled = true;
+  $("searchbtn").classList.add("is-spinning");
+}
+
+function stopSearchProgress() {
+  $("searchprogress").hidden = true;
+  $("searchbtn").disabled = false;
+  $("searchbtn").classList.remove("is-spinning");
+}
+
+/** "обновлено 2 ч назад", with every board's age in the tooltip. */
+function showFreshness(freshness) {
+  if (!freshness || !freshness.sources) return;
+  const entries = Object.entries(freshness.sources);
+  const latest = entries.map(([, state]) => Date.parse(state.lastSuccessAt || 0) || 0).reduce((a, b) => Math.max(a, b), 0);
+  const hours = latest ? Math.floor((Date.now() - latest) / 3600000) : null;
+  $("freshness").textContent = freshness.refreshing ? "обновляю…"
+    : hours === null ? "" : hours < 1 ? "обновлено только что" : "обновлено " + hours + " ч назад";
+  $("searchbtn").title = "Обновить площадки. " + entries.map(([source, state]) => {
+    if (!state.lastSuccessAt) return (SOURCE_NAME[source] || source) + ": " + (state.lastError ? "ошибка" : "ещё не загружен");
+    const h = Math.floor((Date.now() - Date.parse(state.lastSuccessAt)) / 3600000);
+    return (SOURCE_NAME[source] || source) + ": " + (h < 1 ? "<1 ч" : h + " ч") + (state.lastError ? " (последняя попытка — ошибка)" : "");
+  }).join(", ");
+}
+
+/** The source checkboxes, from the profile's own list: the filter can only narrow it. */
+function renderSourceFilter() {
+  $("sourcefilter").innerHTML = SOURCES.map((source) => '<label class="check"><input type="checkbox" value="'
+    + esc(source) + '"' + (activeSources.has(source) ? " checked" : "") + '><i aria-hidden="true"></i>' + esc(SOURCE_NAME[source] || source) + "</label>").join("");
+}
+
+/* ---------------- "нужно вам" ---------------- */
+
+const ATTEMPT_LABEL = {
+  "needs-code": "код из письма", "captcha": "капча", "needs-account": "нужен аккаунт",
+  "missing-answers": "нет ответа на вопрос", "submit-failed": "отправка не прошла",
+  "no-form": "форма не найдена", "no-submit-button": "нет кнопки отправки", "not-remote": "не удалённо",
+  "board-form": "только через площадку", "closed": "вакансия закрыта", "dry-run": "полей для заполнения нет",
+};
+
+function renderAttempts(attempts) {
+  const box = $("needsyou");
+  box.hidden = attempts.length === 0;
+  if (attempts.length === 0) return;
+  const open = box.open;
+  box.innerHTML = "<summary>Нужно вам: " + attempts.length + " " + plural(attempts.length, "отклик ждёт", "отклика ждут", "откликов ждут")
+    + " ваших действий</summary><ul>"
+    + attempts.map((a) => "<li><b>" + esc(a.company || "?") + "</b> — " + esc(a.title || "?")
+      + " · " + esc(ATTEMPT_LABEL[a.result] || a.result)
+      + (a.tries > 1 ? " · попыток: " + a.tries : "")
+      + (a.detail ? " · " + esc(a.detail) : "")
+      + ' · <a href="' + esc(a.apply_url || a.url) + '" target="_blank" rel="noreferrer noopener">открыть форму</a></li>').join("")
+    + "</ul>";
+  box.open = open;
+}
+
+/* ---------------- "Подать": the apply panel ---------------- */
+
+/*
+ * One application at a time through the server (POST /api/apply): a dry run
+ * fills the form and shows what went in, then "Отправить отклик" submits. The
+ * server refuses a submit without that dry run. The stack moves on meanwhile;
+ * the panel keeps the run.
+ */
+async function startApplyRun(job, mode, acceptLowPay) {
+  try {
+    const { response, payload } = await postJson("/api/apply", { key: job.key, mode, acceptLowPay: Boolean(acceptLowPay) });
+    if (response.status === 409 && payload.lowPay) {
+      // Published pay under the floor: ask, do not guess.
+      applyState = { job, id: null, timer: null, acceptLowPay: false };
+      const panel = $("applypanel");
+      panel.hidden = false;
+      panel.innerHTML = panelHead(job) + '<p class="warn">Зарплата ниже вашего порога: ' + esc(job.salary || "?") + "</p>"
+        + '<div class="row"><button type="button" class="btn main" data-apply="lowpay">Всё равно подать</button>'
+        + '<button type="button" class="btn soft" data-apply="close">Не надо</button></div>';
+      return;
+    }
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    if (applyState && applyState.timer) clearTimeout(applyState.timer);
+    applyState = { job, id: payload.id, timer: null, acceptLowPay: Boolean(acceptLowPay) };
+    if (mode === "dry-run") {
+      decided.set(job.key, "applying");
+      // "Всё равно подать" can come after I have moved on: then only the queue changes.
+      if (job.key === currentKey) advance();
+      else renderSearch();
+    }
+    renderApplyPanel({ done: false, mode, log: [] });
+    pollApply();
+  } catch (error) {
+    toast("Не запустилось: " + error.message, true);
+  }
+}
+
+async function pollApply() {
+  if (!applyState || !applyState.id) return;
+  const current = applyState;
+  try {
+    const state = await fetch("/api/apply/" + current.id).then((r) => r.json());
+    if (applyState !== current) return;
+    renderApplyPanel(state);
+    if (!state.done) {
+      current.timer = setTimeout(pollApply, 1500);
+      return;
+    }
+    const result = state.result && state.result.result;
+    decided.set(current.job.key, result === "applied" ? "applied" : result === "dry-run" ? "dry-run" : result === "closed" ? "closed" : "attempt");
+    await load(); // the funnel row, or the new attempt under "нужно вам"
+    renderSearch();
+  } catch (error) {
+    toast("Не получил статус: " + error.message, true);
+  }
+}
+
+function panelHead(job) {
+  return '<div class="head"><div><h2>' + esc(job.company) + "</h2><p class=\"muted\">" + esc(job.title) + "</p></div>"
+    + '<button type="button" class="iconbtn" data-apply="close" aria-label="Закрыть">'
+    + '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button></div>';
+}
+
+function renderApplyPanel(state) {
+  const panel = $("applypanel");
+  const job = applyState.job;
+  const r = state.result || {};
+  // The form where apply.mjs found it: for a board's posting, the employer's page, not the card's link.
+  const formUrl = r.applyUrl || job.applyUrl;
+  let body = "";
+  if (!state.done) {
+    const waitingForCode = (state.log || []).some((line) => /verification code|e-mailed/i.test(line));
+    body = '<p class="muted">' + (state.mode === "submit" ? "Отправляю…" : "Заполняю форму без отправки…") + "</p>"
+      + (waitingForCode ? '<p class="warn">На почту пришёл код — введите его в открытом окне Chrome и нажмите Submit.</p>' : "")
+      + '<div class="log">' + (state.log || []).slice(-6).map(esc).join("<br>") + "</div>";
+  } else if (r.result === "dry-run" && (r.filled || []).length) {
+    body = "<p>Заполнено полей: " + (r.filled || []).length + ". Проверьте и отправьте:</p>"
+      + "<ul>" + (r.filled || []).map((field) => "<li>" + esc(field) + "</li>").join("") + "</ul>"
+      + (r.screenshot ? '<p class="muted">Скриншот: ' + esc(r.screenshot) + "</p>" : "")
+      + '<div class="row"><button type="button" class="btn main" data-apply="submit">Отправить отклик</button>'
+      + '<a class="btn soft" href="' + esc(formUrl) + '" target="_blank" rel="noreferrer noopener" style="text-decoration: none">Открыть форму</a></div>';
+  } else if (r.result === "applied") {
+    body = "<p>Отклик отправлен и записан: " + esc(r.funnel || "") + "</p>";
+  } else {
+    body = '<p class="warn">' + esc(ATTEMPT_LABEL[r.result] || r.result || "?") + "</p>"
+      + (r.reason ? '<p class="muted">' + esc(r.reason) + "</p>" : "")
+      + (r.missing ? "<ul>" + r.missing.map((field) => "<li>" + esc(field.label)
+          + (field.options && field.options.length ? " [" + esc(field.options.slice(0, 5).join(" / ")) + "]" : "")
+          + "</li>").join("") + '</ul><p class="muted">Повторяющийся вопрос можно ответить один раз: '
+          + 'node scripts/apply.mjs --remember "вопрос" "ответ"</p>' : "")
+      + (r.errors && r.errors.length ? '<p class="muted">' + esc(r.errors.join("; ")) + "</p>" : "")
+      + (r.result === "closed" ? ""
+        : '<p><a href="' + esc(formUrl) + '" target="_blank" rel="noreferrer noopener">'
+          + (r.result === "board-form" ? "открыть вакансию и подать там" : "открыть форму") + "</a></p>");
+  }
+  panel.hidden = false;
+  panel.innerHTML = panelHead(job) + body;
+}
+
+function onApplyPanel(what) {
+  if (!applyState) return;
+  if (what === "close") $("applypanel").hidden = true;
+  else if (what === "submit") startApplyRun(applyState.job, "submit", applyState.acceptLowPay);
+  else if (what === "lowpay") startApplyRun(applyState.job, "dry-run", true);
+}
+
+/* ---------------- tracker ---------------- */
+
+function renderStats(s) {
+  stats = s;
+  const f = s.funnel || {};
+  const waiting = f.applied || 0;
+  const talks = (f.responded || 0) + (f.screening || 0) + (f.interview || 0);
+  const total = s.total || 0;
+  const responded = s.responded || 0;
+  $("trackercount").textContent = String(total);
+  setTabTip("tracker", "Отклики · " + total);
+  $("trackertitle").textContent = total + " " + plural(total, "отклик", "отклика", "откликов") + ", "
+    + responded + " " + plural(responded, "ответ", "ответа", "ответов");
+  const pct = Math.round((s.responseRate || 0) * 100);
+  $("trackersub").textContent = total === 0 ? "Пока ни одного — найдите вакансию на вкладке «Поиск»."
+    : "Отвечают " + pct + "%" + (s.avgDaysToResponse !== null ? ", в среднем через " + s.avgDaysToResponse + " дн." : "")
+      + " " + waiting + " " + plural(waiting, "отклик ждёт", "отклика ждут", "откликов ждут") + " ответа.";
+  $("trackersub").title = "Тишина дольше " + s.staleDays + " дн. считается «без ответа». База: " + (s.dbPath || "");
+  const tiles = [
+    ["Ждут ответа", waiting, "моложе " + s.staleDays + " дн."],
+    ["Ответили", responded, pct + "% откликов"],
+    ["В процессе", talks, "ответ, скрининг, собеседование"],
+    ["Офферы", f.offer || 0, (f.offer ? "поздравляю" : "пока впереди")],
+    ["Без ответа", f.ghosted || 0, Math.round((s.ghostRate || 0) * 100) + "%, тишина дольше " + s.staleDays + " дн."],
+    ["Ответ в среднем", s.avgDaysToResponse === null ? "—" : String(s.avgDaysToResponse).replace(".", ","), "от отклика до письма",
+      s.avgDaysToResponse === null ? "" : "дн."],
+  ];
+  $("cards").innerHTML = tiles.map(([k, v, sub, unit]) => '<div class="tile"><span class="k">' + esc(k) + '</span><span class="v">'
+    + esc(v) + (unit ? "<small>" + esc(unit) + "</small>" : "") + '</span><span class="s">' + esc(sub) + "</span></div>").join("");
+  const parts = [
+    ["Ждут ответа", waiting, "var(--accent)"],
+    ["В процессе", talks, "var(--warn-dot)"],
+    ["Оффер", f.offer || 0, "var(--good-dot)"],
+    ["Отказ", f.rejected || 0, "var(--ink-2)"],
+    ["Без ответа", f.ghosted || 0, "var(--bar-rest)"],
+    ["Отозвал сам", f.dropped || 0, "var(--bar-dropped)"],
+  ].filter(([, n]) => n > 0);
+  const sum = parts.reduce((acc, [, n]) => acc + n, 0) || 1;
+  $("funnel").innerHTML = parts.map(([, n, color]) => '<span style="width: ' + (n / sum * 100).toFixed(1)
+    + "%; background: " + color + '"></span>').join("");
+  $("funnel").setAttribute("aria-label", parts.map(([k, n]) => k + ": " + n).join(", "));
+  $("legend").innerHTML = parts.map(([k, n, color]) => '<span><i style="background: ' + color + '"></i>' + esc(k) + " · " + n + "</span>").join("");
+}
+
+const PILLS = [["", "Все"], ["open", "В работе"], ["applied", "Ждём"], ["rejected", "Отказ"], ["ghosted", "Тишина"],
+  ["interview", "Собеседование"], ["offer", "Оффер"], ["dropped", "Отозвал"]];
+
+function sortedApplications() {
+  const dir = sort.dir === "asc" ? 1 : -1;
+  const rank = (s) => { const i = FUNNEL_ORDER.indexOf(s); return i === -1 ? 99 : i; };
+  // "open" = still alive: sent, and not yet closed out or ghosted.
+  const matches = (a) => {
+    const statusMatches = !statusFilter
+      || (statusFilter === "open" ? ["applied", "responded", "screening", "interview"].includes(a.status) : a.status === statusFilter);
+    if (!statusMatches) return false;
+    if (!applicationQuery) return true;
+    return [a.company, a.title, a.location, a.source, a.salary].filter(Boolean).join(" ").toLocaleLowerCase().includes(applicationQuery);
+  };
+  return applications.filter(matches).sort((a, b) => {
+    switch (sort.key) {
+      case "company": return dir * a.company.localeCompare(b.company);
+      case "status": return dir * (rank(a.status) - rank(b.status));
+      case "days": return dir * (a.daysSinceApplied - b.daysSinceApplied);
+      default: return dir * (Date.parse(a.applied_at || 0) - Date.parse(b.applied_at || 0));
+    }
+  });
+}
+
+function renderRows() {
+  const rows = sortedApplications();
+  const count = (id) => id === "" ? applications.length
+    : id === "open" ? applications.filter((a) => ["applied", "responded", "screening", "interview"].includes(a.status)).length
+      : applications.filter((a) => a.status === id).length;
+  $("statuspills").innerHTML = PILLS.filter(([id]) => id === "" || id === "open" || count(id) > 0)
+    .map(([id, label]) => '<button type="button" class="pill' + (id === statusFilter ? " is-on" : "") + '" data-status="' + id
+      + '" aria-pressed="' + (id === statusFilter) + '">' + esc(label) + ' <span class="n">' + count(id) + "</span></button>").join("");
+  $("applicationcount").textContent = rows.length === applications.length
+    ? "Все отклики" : rows.length + " из " + applications.length;
+  $("empty").hidden = rows.length > 0;
+  $("empty").textContent = applications.length ? "Таких откликов нет." : "Пока пусто — откликнитесь на что-нибудь на вкладке «Поиск».";
+  $("rows").innerHTML = rows.map((a) => {
+    const title = a.url ? '<a href="' + esc(a.url) + '" target="_blank" rel="noreferrer noopener">' + esc(a.title) + "</a>" : esc(a.title);
+    // How early I applied: days from publication (or first sighting) to the application.
+    const lead = a.posted_at ? Math.max(0, Math.floor((Date.parse(a.applied_at) - Date.parse(a.posted_at)) / 86400000)) : null;
+    const sub = [SOURCE_NAME[a.source] || a.source, a.location, a.salary, lead === null ? null : "через " + lead + " дн. после публикации"]
+      .filter(Boolean).map(esc).join(" · ");
+    const age = a.daysSinceApplied === 0 ? "сегодня" : a.daysSinceApplied + " дн.";
+    return '<tr class="' + (a.ghosted ? "is-ghosted" : "") + '">'
+      + '<td class="company">' + esc(a.company) + "</td>"
+      + '<td class="title">' + title + (sub ? '<div class="meta">' + sub + "</div>" : "") + "</td>"
+      + "<td>" + selectHtml("status", a.status, "Статус: " + a.company, ' data-s="' + esc(a.status) + '" data-id="' + a.id + '"') + "</td>"
+      + '<td class="num">' + shortDate(a.applied_at) + (a.response_at ? '<div class="meta">ответ ' + shortDate(a.response_at) + "</div>" : "") + "</td>"
+      + '<td class="num">' + age + (a.daysToResponse !== null ? '<div class="meta">ответ за ' + a.daysToResponse + " дн.</div>" : "") + "</td>"
+      + "</tr>";
+  }).join("");
+  // On each button, not delegated: the 15-second reload can redraw the rows while
+  // a status list is open, and a choice made in it must still reach its row.
+  document.querySelectorAll("#rows [data-select]").forEach((button) => {
+    button.addEventListener("change", () => setStatus(button.dataset.id, button.value));
+  });
+}
+
+async function setStatus(id, status) {
+  try {
+    const { response, payload } = await postJson("/api/applications/" + id + "/status", { status });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    toast("#" + id + ": " + (STATUS_WORD[status] || status));
+  } catch (error) {
+    toast("Не обновилось: " + error.message, true);
+  }
+  await load();
+}
+
+/* ---------------- the rail: the two sections ---------------- */
+
+function setTabTip(view, text) {
+  const tab = document.querySelector && document.querySelector('.tab[data-view="' + view + '"]');
+  if (tab && tab.dataset) tab.dataset.tip = text;
+}
+
+/* One tooltip for every [data-tip]: beside the rail, under it when the rail is a row. */
+let tipFor = null;
+
+function showTip(el) {
+  const tip = $("tip");
+  tipFor = el;
+  tip.textContent = el.dataset.tip;
+  const r = el.getBoundingClientRect();
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  const beside = !(typeof matchMedia === "function" && matchMedia("(max-width: 900px)").matches);
+  const x = beside ? r.right + 12 : Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8));
+  const y = beside ? r.top + r.height / 2 - h / 2 : r.bottom + 8;
+  tip.style.left = Math.round(x) + "px";
+  tip.style.top = Math.round(y) + "px";
+  tip.classList.add("show");
+}
+
+function hideTip() {
+  tipFor = null;
+  $("tip").classList.remove("show");
+}
+
+function onPointerOver(event) {
+  if (event.pointerType && event.pointerType !== "mouse") return;
+  const el = event.target && event.target.closest && event.target.closest("[data-tip]");
+  if (el === tipFor) return;
+  if (el) showTip(el);
+  else hideTip();
+}
+
+/* ---------------- Ctrl K: jump anywhere ---------------- */
+
+function openJump() {
+  closeCtx();
+  closeSelect();
+  hideTip();
+  jumpOpen = true;
+  $("jump").hidden = false;
+  $("jumpq").value = "";
+  jumpAt = 0;
+  renderJump();
+  setTimeout(() => $("jumpq").focus(), 0);
+}
+
+function closeJump() {
+  if (!jumpOpen) return;
+  jumpOpen = false;
+  $("jump").hidden = true;
+}
+
+/**
+ * What Ctrl K offers for a query: "#" the stacks, "@" a company's postings
+ * and applications; anything else, postings by title or company, then the
+ * stacks and applications it matches. Empty: what is next in this stack,
+ * then the stacks.
+ */
+function jumpResults(raw) {
+  const q = String(raw || "").trim().toLocaleLowerCase();
+  const has = (text, needle) => String(text || "").toLocaleLowerCase().includes(needle);
+  const shown = visibleJobs();
+  const stacks = STACKS.map((s) => ({ kind: "stack", id: s.id, label: s.label, meta: "стопка · " + shown.filter(s.test).length }));
+  const jobs = shown.map((job) => ({ kind: "job", id: job.key, job, label: job.title, meta: job.company }));
+  const apps = applications.map((a) => ({ kind: "app", id: a.id, app: a, label: a.company + " — " + a.title, meta: "отклик · " + (STATUS_WORD[a.status] || a.status) }));
+  if (q.startsWith("#")) return stacks.filter((s) => has(s.label, q.slice(1)));
+  if (q.startsWith("@")) {
+    const name = q.slice(1);
+    return jobs.filter((j) => has(j.job.company, name)).slice(0, 8).concat(apps.filter((a) => has(a.app.company, name)).slice(0, 6));
+  }
+  if (!q) {
+    const next = stackJobs().filter((job) => !decided.has(job.key)).slice(0, 6);
+    return next.map((job) => jobs.find((j) => j.id === job.key)).filter(Boolean).concat(stacks);
+  }
+  return jobs.filter((j) => has(j.label, q) || has(j.job.company, q)).slice(0, 8)
+    .concat(stacks.filter((s) => has(s.label, q)), apps.filter((a) => has(a.label, q)).slice(0, 4));
+}
+
+function badgeHtml(kind) {
+  return '<span class="sg ' + kind + '">'
+    + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">' + BADGE_GLYPH[kind] + "</svg></span>";
+}
+
+function jumpIcon(item) {
+  if (item.kind === "job") {
+    const v = item.job.verdict;
+    return avatarHtml(item.job.company, verdictState(item.job) && !v ? "busy" : v ? v.verdict : "", v ? v.score : "");
+  }
+  if (item.kind === "app") return avatarHtml(item.app.company, "");
+  const kind = { good: "apply", maybe: "maybe", skipped: "skip" }[item.id];
+  return '<span class="glyph" aria-hidden="true">' + (kind ? badgeHtml(kind) : "≡") + "</span>";
+}
+
+function renderJump() {
+  jumpItems = jumpResults($("jumpq").value);
+  jumpAt = Math.min(jumpAt, Math.max(0, jumpItems.length - 1));
+  $("jumplist").innerHTML = jumpItems.length
+    ? '<p class="menulabel">' + ($("jumpq").value.trim() ? "Найдено" : "Дальше в стопке") + "</p>"
+      + jumpItems.map((item, i) => '<button type="button" class="jr' + (i === jumpAt ? " is-on" : "") + '" role="option" aria-selected="' + (i === jumpAt)
+        + '" data-jump="' + i + '">' + jumpIcon(item) + '<span class="jl">' + esc(item.label) + '</span><span class="jm">' + esc(item.meta) + "</span></button>").join("")
+    : '<p class="menulabel">Ничего не нашлось</p>';
+  const on = $("jumplist").querySelector && $("jumplist").querySelector(".jr.is-on");
+  if (on && typeof on.scrollIntoView === "function") on.scrollIntoView({ block: "nearest" });
+}
+
+/** A posting found from Ctrl K: its own stack. */
+function goToJob(job) {
+  const home = STACKS.find((s) => s.id !== "all" && s.test(job)) || STACKS.find((s) => s.id === "all");
+  if (currentView !== "search") showView("search");
+  stack = home.id;
+  currentKey = job.key;
+  hideOpen = false;
+  renderSearch();
+}
+
+function jumpGo(index) {
+  const item = jumpItems[index];
+  if (!item) return;
+  closeJump();
+  if (item.kind === "stack") {
+    if (currentView !== "search") showView("search");
+    pickStack(item.id);
+  } else if (item.kind === "job") {
+    goToJob(item.job);
+  } else {
+    showView("tracker");
+    statusFilter = "";
+    applicationQuery = item.app.company.toLocaleLowerCase();
+    $("appsearch").value = item.app.company;
+    renderRows();
+  }
+}
+
+/* ---------------- the right-click menu on a queue row ---------------- */
+
+/** What the menu offers for a job; every action opens the job first, as a click on its row would. */
+function jobMenu(job) {
+  const tracked = trackedUrls.has(job.key);
+  const open = (fn) => () => { pickJob(job.key); return fn(); };
+  const { suggested, reasons } = hideReasons(job);
+  return [
+    { label: "Подать", key: "Enter", disabled: tracked, run: open(() => act("apply")) },
+    { label: "В воронку", key: "F", disabled: tracked, run: open(() => act("funnel")) },
+    { label: "Потом", key: "→", run: open(() => act("later")) },
+    { label: "Обсудить с Claude", key: "C", disabled: !(job.verdict && job.verdict.session), run: open(() => act("discuss")) },
+    { label: job.verdict ? "Спросить Claude заново" : "Спросить Claude", disabled: Boolean(verdictState(job)), run: open(() => act("ask")) },
+    { sep: true },
+    job.dismissed
+      ? { label: "Вернуть", run: open(() => act("restore")) }
+      : { label: "Скрыть", danger: true,
+          sub: reasons.map((r) => ({ label: (r === suggested ? "Claude: " : "") + r, danger: true, run: open(() => act("reason", r)) }))
+            .concat([{ label: "Просто скрыть", danger: true, run: open(() => act("reason", "")) }]) },
+    { sep: true },
+    { label: "Открыть вакансию", href: job.applyUrl },
+    { label: "Копировать ссылку", run: () => copyJobLink(job) },
+  ];
+}
+
+async function copyJobLink(job) {
+  try {
+    await writeClipboard(job.applyUrl);
+    toast("Ссылка на " + job.company + " скопирована");
+  } catch {
+    toast("Не удалось скопировать ссылку", true);
+  }
+}
+
+function ctxHtml(items, attr) {
+  return items.map((item, i) => {
+    if (item.sep) return '<div class="csep" role="separator"></div>';
+    if (item.href) {
+      return '<a class="ci" role="menuitem" href="' + esc(item.href) + '" target="_blank" rel="noreferrer noopener">' + esc(item.label) + ' <span aria-hidden="true">↗</span></a>';
+    }
+    return '<button type="button" class="ci' + (item.danger ? " danger" : "") + '" role="menuitem" ' + attr + '="' + i + '"'
+      + (item.disabled ? " disabled" : "") + (item.sub ? ' aria-haspopup="true" aria-expanded="false"' : "") + ">" + esc(item.label)
+      + (item.key ? "<kbd>" + esc(item.key) + "</kbd>" : "")
+      + (item.sub ? '<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>' : "")
+      + "</button>";
+  }).join("");
+}
+
+/** Where the pointer is, kept inside the window. */
+function placeAt(el, x, y) {
+  const w = el.offsetWidth || 0, h = el.offsetHeight || 0;
+  el.style.left = Math.round(Math.max(8, Math.min(x, innerWidth - w - 8))) + "px";
+  el.style.top = Math.round(Math.max(8, Math.min(y, innerHeight - h - 8))) + "px";
+}
+
+function menuButtons(menu) {
+  return menu.querySelectorAll ? [...menu.querySelectorAll(".ci:not([disabled])")] : [];
+}
+
+function focusMenuItem(menu, index) {
+  const items = menuButtons(menu);
+  if (items.length) items[(index + items.length) % items.length].focus();
+}
+
+function openCtx(x, y, items) {
+  hideTip();
+  closeSelect();
+  closeSub();
+  ctxItems = items;
+  const menu = $("ctx");
+  menu.innerHTML = ctxHtml(items, "data-ci");
+  menu.hidden = false;
+  ctxOpen = true;
+  placeAt(menu, x, y);
+  focusMenuItem(menu, 0);
+}
+
+function closeCtx() {
+  if (!ctxOpen) return;
+  ctxOpen = false;
+  $("ctx").hidden = true;
+  closeSub();
+}
+
+function openSub(button) {
+  const item = ctxItems[button.dataset.ci];
+  if (!item || !item.sub || button.classList.contains("is-open")) return;
+  closeSub();
+  ctxSubItems = item.sub;
+  const sub = $("ctxsub");
+  sub.innerHTML = ctxHtml(item.sub, "data-si");
+  sub.hidden = false;
+  const r = button.getBoundingClientRect();
+  const w = sub.offsetWidth;
+  placeAt(sub, r.right + 6 + w > innerWidth - 8 ? r.left - w - 6 : r.right + 6, r.top - 6);
+  button.classList.add("is-open");
+  button.setAttribute("aria-expanded", "true");
+}
+
+function closeSub() {
+  $("ctxsub").hidden = true;
+  const open = $("ctx").querySelector && $("ctx").querySelector(".ci.is-open");
+  if (open) {
+    open.classList.remove("is-open");
+    open.setAttribute("aria-expanded", "false");
+  }
+}
+
+function onContextMenu(event) {
+  const row = event.target && event.target.closest && event.target.closest("#queue [data-key]");
+  if (!row) {
+    closeCtx();
+    return;
+  }
+  const job = (lastSearchPayload.jobs || []).find((j) => j.key === row.dataset.key);
+  if (!job) return;
+  event.preventDefault();
+  // From the keyboard (the menu key, Shift+F10) there is no pointer: open by the row.
+  const r = row.getBoundingClientRect();
+  openCtx(event.clientX || r.left + 24, event.clientY || r.bottom - 8, jobMenu(job));
+}
+
+/* Arrows walk the menu, → opens «Скрыть», ← goes back; Enter is the focused button's own. */
+function onMenuKey(event) {
+  const active = document.activeElement;
+  const inSub = Boolean(active && active.closest && active.closest("#ctxsub"));
+  const menu = inSub ? $("ctxsub") : $("ctx");
+  const at = menuButtons(menu).indexOf(active);
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    focusMenuItem(menu, at + (event.key === "ArrowDown" ? 1 : -1));
+  } else if (event.key === "ArrowRight" && !inSub && active && active.getAttribute && active.getAttribute("aria-haspopup")) {
+    event.preventDefault();
+    openSub(active);
+    focusMenuItem($("ctxsub"), 0);
+  } else if (event.key === "ArrowLeft" && inSub) {
+    event.preventDefault();
+    const parent = $("ctx").querySelector(".ci.is-open");
+    closeSub();
+    if (parent) parent.focus();
+  } else if (event.key === "Tab") {
+    closeCtx();
+  }
+}
+
+/* ---------------- selects: a button, and its options in #selpop ---------------- */
+
+/*
+ * A select is <button class="select" data-select="…" value="…"> holding the
+ * chosen word. Its value is the button's own .value; a choice sets it and
+ * fires "change" on the button, as a native select would, so the listeners read
+ * event.target.value either way.
+ */
+const CHEVRON = '<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>';
+const TICK = '<svg class="tick" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
+
+/** [value, word] pairs for a select. */
+function selectOptions(button) {
+  const kind = button.dataset ? button.dataset.select : "";
+  return kind === "status" ? STATUSES.map((s) => [s, STATUS_WORD[s] || s]) : SELECT_OPTIONS[kind] || [];
+}
+
+/** A select drawn in a list (the tracker's rows); the static ones are in the markup. */
+function selectHtml(kind, value, label, attrs) {
+  const option = selectOptions({ dataset: { select: kind } }).find(([v]) => v === value);
+  const word = option ? option[1] : value;
+  return '<button type="button" class="select ' + esc(kind) + '" data-select="' + esc(kind) + '" value="' + esc(value) + '"'
+    + ' data-label="' + esc(label) + '" aria-label="' + esc(label + ": " + word) + '" aria-haspopup="listbox" aria-expanded="false"' + (attrs || "") + ">"
+    + '<span class="sv">' + esc(word) + "</span>" + CHEVRON + "</button>";
+}
+
+/** Sets a select's value and its word; the name read aloud says both. */
+function setSelect(button, value) {
+  const option = selectOptions(button).find(([v]) => v === value);
+  const word = option ? option[1] : value;
+  button.value = value;
+  const shown = button.querySelector && button.querySelector(".sv");
+  if (shown) shown.textContent = word;
+  if (button.dataset && button.dataset.label) button.setAttribute("aria-label", button.dataset.label + ": " + word);
+}
+
+/** Opens a select's options under it (over it when there is no room below), the chosen one focused. */
+function openSelect(button) {
+  closeSelect();
+  closeCtx();
+  hideTip();
+  selFor = button;
+  const pop = $("selpop");
+  pop.innerHTML = selectOptions(button).map(([value, word], i) => '<button type="button" class="opt" role="option" data-opt="' + i
+    + '" aria-selected="' + (value === button.value) + '"><span>' + esc(word) + "</span>" + (value === button.value ? TICK : "") + "</button>").join("");
+  pop.setAttribute("aria-label", button.dataset.label || "");
+  pop.hidden = false;
+  button.setAttribute("aria-expanded", "true");
+  const r = button.getBoundingClientRect();
+  pop.style.minWidth = Math.round(r.width) + "px";
+  const h = pop.offsetHeight;
+  placeAt(pop, r.left, r.bottom + 6 + h > innerHeight - 8 && r.top - 6 - h >= 8 ? r.top - 6 - h : r.bottom + 6);
+  const options = [...pop.querySelectorAll(".opt")];
+  const chosen = options.find((el) => el.getAttribute("aria-selected") === "true") || options[0];
+  if (chosen) chosen.focus();
+}
+
+function closeSelect() {
+  if (!selFor) return;
+  selFor.setAttribute("aria-expanded", "false");
+  selFor = null;
+  $("selpop").hidden = true;
+}
+
+function chooseOption(index) {
+  const button = selFor;
+  const option = button ? selectOptions(button)[index] : null;
+  closeSelect();
+  if (!option) return;
+  button.focus();
+  if (option[0] === button.value) return;
+  setSelect(button, option[0]);
+  button.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+/* Arrows, Home and End walk the options; Esc and Tab close them; Enter and Space are the focused option's own. */
+function onSelectKey(event) {
+  const options = [...$("selpop").querySelectorAll(".opt")];
+  const at = options.indexOf(document.activeElement);
+  const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: options.length - 1 }[event.key];
+  if (to !== undefined) {
+    event.preventDefault();
+    if (options.length) options[(to + options.length) % options.length].focus();
+  } else if (event.key === "Escape" || event.key === "Tab") {
+    event.preventDefault();
+    const button = selFor;
+    closeSelect();
+    button.focus();
+  }
+}
+
+/* ---------------- views, wiring, boot ---------------- */
+
+function showView(name) {
+  closeCtx();
+  closeSelect();
+  currentView = name === "tracker" ? "tracker" : "search";
+  // First visit to Search runs the profile search; after that it is manual.
+  if (currentView === "search" && !searchLoaded) runSearch();
+  $("view-tracker").hidden = currentView !== "tracker";
+  $("view-search").hidden = currentView !== "search";
+  document.querySelectorAll(".tab").forEach((tab) => {
+    tab.classList.toggle("is-active", tab.dataset.view === currentView);
+  });
+}
+
+function toggleMenu(buttonId, menuId, open) {
+  const menu = $(menuId);
+  const next = open === undefined ? menu.hidden : open;
+  menu.hidden = !next;
+  $(buttonId).setAttribute("aria-expanded", String(next));
+}
+
+/* ---------------- Настройки: theme, Claude, the desktop app ---------------- */
+
+// Inside the desktop app its preload exposes the app's own settings; in a browser there are none.
+const appBridge = typeof window === "object" && window.jobHunt ? window.jobHunt : null;
+
+function themePref() {
+  try {
+    return localStorage.getItem("jobhunt-theme") || "dark";
+  } catch {
+    return "dark";
+  }
+}
+
+function applyTheme(pref) {
+  const light = pref === "light"
+    || (pref === "auto" && typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches);
+  if (document.documentElement) document.documentElement.dataset.theme = light ? "light" : "dark";
+}
+
+function setTheme(pref) {
+  try {
+    localStorage.setItem("jobhunt-theme", pref);
+  } catch {
+    // storage blocked: the choice lasts until the page reloads
+  }
+  applyTheme(pref);
+}
+
+function fillClaudeSettings(c) {
+  $("cl-auto").checked = Boolean(c.auto);
+  setSelect($("cl-model"), c.model);
+  setSelect($("cl-effort"), c.effort);
+  $("cl-daily").value = String(c.daily);
+  const left = (claudeStatus.queued || []).length + (claudeStatus.running || []).length;
+  $("cl-stat").textContent = "Сегодня в фоне: " + c.runsToday + " из " + c.daily
+    + (left ? " · сейчас в работе " + left : "")
+    + (claudeStatus.pausedUntil ? " · " + (claudeStatus.pauseReason || "пауза") : "");
+}
+
+const APP_FIELDS = ["autostart", "refreshHours", "linkedinBackground", "notifyNew", "notifyMin", "quietFrom", "quietTo",
+  "digest", "digestTime", "port", "lanAccess"];
+
+function appField(name) {
+  return document.querySelector && document.querySelector('[data-app="' + name + '"]');
+}
+
+async function openSettings() {
+  toggleMenu("linksbtn", "linksmenu", false);
+  $("settings").hidden = false;
+  $("settingssaved").textContent = "";
+  setSelect($("themepick"), themePref());
+  try {
+    const { claude } = await fetch("/api/settings").then((r) => r.json());
+    fillClaudeSettings(claude);
+  } catch (error) {
+    toast("Настройки не загрузились: " + error.message, true);
+  }
+  if (appBridge) {
+    try {
+      const { settings, toastsOff } = await appBridge.get();
+      for (const name of APP_FIELDS) {
+        const input = appField(name);
+        if (!input) continue;
+        if (input.type === "checkbox") input.checked = Boolean(settings[name]);
+        else input.value = settings[name];
+      }
+      $("toastwarn").hidden = !toastsOff;
+      $("appsettings").hidden = false;
+    } catch {
+      $("appsettings").hidden = true;
+    }
+  }
+}
+
+function closeSettings() {
+  closeSelect();
+  $("settings").hidden = true;
+}
+
+/* Claude's settings go to the server (stored in the database, used from the next run on); the app's to the app. */
+async function saveSettings() {
+  $("settingssaved").textContent = "Сохраняю…";
+  try {
+    const { response, payload } = await postJson("/api/settings/claude", {
+      auto: $("cl-auto").checked,
+      model: $("cl-model").value,
+      effort: $("cl-effort").value,
+      daily: Number($("cl-daily").value),
+    });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    claudeStatus.auto = payload.claude.auto;
+    fillClaudeSettings(payload.claude);
+    if (appBridge && !$("appsettings").hidden) {
+      const next = {};
+      for (const name of APP_FIELDS) {
+        const input = appField(name);
+        if (!input) continue;
+        next[name] = input.type === "checkbox" ? input.checked : input.type === "number" ? Number(input.value) : input.value;
+      }
+      // A changed port or network setting restarts the server; the app reloads this window then.
+      await appBridge.save(next);
+    }
+    $("settingssaved").textContent = "Сохранено";
+    renderSearch();
+    pollVerdicts();
+  } catch (error) {
+    $("settingssaved").textContent = "";
+    toast("Не сохранилось: " + error.message, true);
+  }
+}
+
+/* Every shown card without a current verdict, asked for by hand: past the daily cap. */
+async function judgeRemaining() {
+  try {
+    const { response, payload } = await postJson("/api/verdicts/queue", { scope: "missing" });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    claudeStatus = payload.status || claudeStatus;
+    toast(payload.queued ? "Claude взял в работу " + payload.queued + " " + plural(payload.queued, "вакансию", "вакансии", "вакансий")
+      : "Оценивать нечего: у всех карточек есть свежая оценка");
+    renderSearch();
+    pollVerdicts();
+  } catch (error) {
+    toast("Не запустилось: " + error.message, true);
+  }
+}
+
+function bindChrome() {
+  document.querySelectorAll(".tab").forEach((tab) => {
+    tab.addEventListener("click", () => showView(tab.dataset.view));
+  });
+  $("linksbtn").addEventListener("click", () => toggleMenu("linksbtn", "linksmenu"));
+  for (const id of ["copy-linkedin", "copy-github", "copy-portfolio"]) {
+    const button = $(id);
+    button.addEventListener("click", () => copyContactLink(button));
+  }
+  $("opensettings").addEventListener("click", () => openSettings());
+  $("settings").addEventListener("click", (event) => {
+    // The ✕, "Закрыть", or a click on the dimmed backdrop itself.
+    const close = event.target && (event.target === $("settings") || (event.target.closest && event.target.closest("[data-close]")));
+    if (close) closeSettings();
+  });
+  $("settingssave").addEventListener("click", () => saveSettings());
+  $("cl-now").addEventListener("click", () => judgeRemaining());
+  $("themepick").addEventListener("change", (event) => setTheme(event.target.value));
+  if (appBridge) {
+    $("app-test").addEventListener("click", () => appBridge.testNotification());
+    $("app-log").addEventListener("click", () => appBridge.openLog());
+    $("opennotif").addEventListener("click", () => appBridge.openNotificationSettings());
+  }
+  $("searchbtn").addEventListener("click", () => runSearch(true));
+  $("filtersbtn").addEventListener("click", () => toggleMenu("filtersbtn", "filters"));
+
+  // Ctrl K, the right-click menu, the selects' options.
+  $("findbtn").addEventListener("click", () => openJump());
+  $("jumpq").addEventListener("input", () => { jumpAt = 0; renderJump(); });
+  $("jumpq").addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (jumpItems.length) jumpAt = (jumpAt + (event.key === "ArrowDown" ? 1 : -1) + jumpItems.length) % jumpItems.length;
+      renderJump();
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      jumpGo(jumpAt);
+    }
+  });
+  $("jumplist").addEventListener("click", (event) => {
+    const button = event.target.closest && event.target.closest("[data-jump]");
+    if (button) jumpGo(Number(button.dataset.jump));
+  });
+  $("jump").addEventListener("click", (event) => { if (event.target === $("jump")) closeJump(); });
+  $("ctx").addEventListener("pointerover", (event) => {
+    const button = event.target.closest && event.target.closest(".ci");
+    if (!button) return;
+    if (button.getAttribute("aria-haspopup")) openSub(button);
+    else closeSub();
+  });
+  // The pointer and the keys share one highlight: an option under the pointer takes the focus.
+  $("selpop").addEventListener("pointerover", (event) => {
+    const option = event.target.closest && event.target.closest(".opt");
+    if (option && document.activeElement !== option) option.focus();
+  });
+  // The options are placed once, beside their button: anything that moves the button closes them.
+  document.addEventListener("scroll", (event) => { if (selFor && event.target !== $("selpop")) closeSelect(); }, true);
+  if (typeof window === "object") window.addEventListener("resize", () => closeSelect());
+  document.addEventListener("contextmenu", onContextMenu);
+  document.addEventListener("pointerover", onPointerOver);
+  document.addEventListener("pointerdown", hideTip);
+  document.addEventListener("focusin", (event) => {
+    const el = event.target && event.target.closest && event.target.closest("[data-tip]");
+    if (el && el.matches(":focus-visible")) showTip(el);
+  });
+  document.addEventListener("focusout", hideTip);
+
+  $("stacks").addEventListener("click", (event) => {
+    const button = event.target.closest && event.target.closest("[data-stack]");
+    if (button) pickStack(button.dataset.stack);
+  });
+  $("queue").addEventListener("click", (event) => {
+    const button = event.target.closest && event.target.closest("[data-key]");
+    if (button) pickJob(button.dataset.key);
+  });
+  $("focus").addEventListener("click", (event) => {
+    const target = event.target.closest ? event.target : null;
+    if (!target) return;
+    const go = target.closest("[data-stack-go]");
+    if (go) return pickStack(go.dataset.stackGo);
+    const button = target.closest("[data-act]");
+    if (button && !button.disabled) act(button.dataset.act, button.dataset.reason);
+  });
+  $("applypanel").addEventListener("click", (event) => {
+    const button = event.target.closest && event.target.closest("[data-apply]");
+    if (button) onApplyPanel(button.dataset.apply);
+  });
+
+  // The date window goes to the server: recency is not the first sort key,
+  // so a local cut over the ranked list would mostly show nothing.
+  document.querySelectorAll("#datefilter input[type=radio]").forEach((radio) => {
+    radio.addEventListener("change", () => {
+      const days = Number(radio.value);
+      if (days === maxAgeDays) return;
+      maxAgeDays = days;
+      return searchLoaded ? runSearch() : renderSearch();
+    });
+  });
+  $("sourcefilter").addEventListener("change", (event) => {
+    const box = event.target;
+    if (!box || box.type !== "checkbox") return;
+    if (box.checked) activeSources.add(box.value);
+    else activeSources.delete(box.value);
+    // Zero boards is not a search. Refuse rather than fetch nothing.
+    if (activeSources.size === 0) {
+      activeSources.add(box.value);
+      box.checked = true;
+      toast("Хотя бы одна площадка должна остаться", true);
+      return;
+    }
+    if (searchLoaded) runSearch();
+  });
+  $("hideApplied").addEventListener("change", (event) => { hideApplied = event.target.checked; renderSearch(); });
+  $("showRuleHidden").addEventListener("change", (event) => { showRuleHidden = event.target.checked; renderSearch(); });
+  // Hidden jobs are not in the payload at all unless asked for: re-run the search.
+  $("showDismissed").addEventListener("change", (event) => {
+    showDismissed = event.target.checked;
+    if (searchLoaded) runSearch();
+  });
+  $("jobsearch").addEventListener("input", (event) => {
+    jobQuery = event.target.value.trim().toLocaleLowerCase();
+    currentKey = null;
+    renderSearch();
+  });
+  $("jobsort").addEventListener("change", (event) => { jobSort = event.target.value; renderSearch(); });
+
+  $("statuspills").addEventListener("click", (event) => {
+    const button = event.target.closest && event.target.closest("[data-status]");
+    if (!button) return;
+    statusFilter = button.dataset.status;
+    renderRows();
+  });
+  $("appsearch").addEventListener("input", (event) => {
+    applicationQuery = event.target.value.trim().toLocaleLowerCase();
+    renderRows();
+  });
+  document.querySelectorAll("th button[data-sort]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.sort;
+      sort = { key, dir: sort.key === key && sort.dir === "desc" ? "asc" : "desc" };
+      document.querySelectorAll("th .arrow").forEach((arrow) => { arrow.textContent = ""; });
+      button.querySelector(".arrow").textContent = sort.dir === "desc" ? "↓" : "↑";
+      renderRows();
+    });
+  });
+
+  // A click on a select opens its options, a click on an option picks it; a click outside an open menu closes it.
+  document.addEventListener("click", (event) => {
+    const inside = (id) => event.target.closest && event.target.closest("#" + id);
+    const option = inside("selpop") && event.target.closest("[data-opt]");
+    const select = !option && event.target.closest && event.target.closest("[data-select]");
+    if (option) chooseOption(Number(option.dataset.opt));
+    else if (select) {
+      if (select === selFor) closeSelect();
+      else openSelect(select);
+    } else if (selFor && !inside("selpop")) closeSelect();
+    if (ctxOpen) {
+      const item = inside("ctx") && event.target.closest("[data-ci]");
+      const subItem = inside("ctxsub") && event.target.closest("[data-si]");
+      const chosen = item ? ctxItems[item.dataset.ci] : subItem ? ctxSubItems[subItem.dataset.si] : null;
+      if (chosen && chosen.sub) openSub(item);
+      else if (chosen || (!inside("ctx") && !inside("ctxsub")) || (event.target.closest && event.target.closest("#ctx a"))) {
+        closeCtx();
+        if (chosen && !chosen.disabled) chosen.run();
+      }
+    }
+    if (!$("linksmenu").hidden && !inside("linksmenu") && !inside("linksbtn")) toggleMenu("linksbtn", "linksmenu", false);
+    // The queue's order is a select inside Фильтры: picking from its options keeps Фильтры open.
+    if (!$("filters").hidden && !inside("filters") && !inside("filtersbtn") && !option) toggleMenu("filtersbtn", "filters", false);
+  });
+  document.addEventListener("keydown", onKey);
+}
+
+/*
+ * The keys, by physical position (event.code) so they work in the Russian
+ * layout too. Never while typing, never with a modifier, and Enter on a
+ * focused button or link is that button's, not "Подать".
+ */
+function onKey(event) {
+  // Ctrl K from anywhere, typing included — but not over Настройки.
+  if ((event.ctrlKey || event.metaKey) && event.code === "KeyK") {
+    event.preventDefault();
+    if (!$("settings").hidden) return;
+    if (jumpOpen) closeJump();
+    else openJump();
+    return;
+  }
+  // An open select's options have their own keys; ↑ ↓ on a select open them.
+  if (selFor) {
+    onSelectKey(event);
+    return;
+  }
+  const select = event.target && event.target.closest ? event.target.closest("[data-select]") : null;
+  if (select && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+    event.preventDefault();
+    openSelect(select);
+    return;
+  }
+  if (event.key === "Escape" && (jumpOpen || ctxOpen)) {
+    closeJump();
+    closeCtx();
+    return;
+  }
+  // Their own keys: the jump field handles its arrows, an open menu its own.
+  if (jumpOpen) return;
+  if (ctxOpen) {
+    onMenuKey(event);
+    return;
+  }
+  if (event.key === "Escape") {
+    toggleMenu("linksbtn", "linksmenu", false);
+    toggleMenu("filtersbtn", "filters", false);
+    closeSettings();
+    if (hideOpen) { hideOpen = false; renderSearch(); }
+    return;
+  }
+  // The card's keys are not for the settings dialog behind which it sits.
+  if (!$("settings").hidden) return;
+  if (currentView !== "search" || event.ctrlKey || event.metaKey || event.altKey) return;
+  const tag = (event.target && event.target.tagName) || "";
+  if (/^(INPUT|TEXTAREA)$/.test(tag)) return;
+  if (event.code === "Enter" && /^(BUTTON|A|SUMMARY)$/.test(tag)) return;
+  if (hideOpen && /^Digit\d$/.test(event.code)) {
+    const job = currentJob();
+    if (!job) return;
+    const { reasons } = hideReasons(job);
+    const n = Number(event.code.slice(5));
+    if (n === 0) act("reason", "");
+    else if (reasons[n - 1]) act("reason", reasons[n - 1]);
+    event.preventDefault();
+    return;
+  }
+  const keys = { Enter: "apply", KeyF: "funnel", KeyH: "hide", KeyC: "discuss", ArrowRight: "later" };
+  const moves = { ArrowDown: 1, ArrowUp: -1, ArrowLeft: -1 };
+  if (keys[event.code]) {
+    event.preventDefault();
+    act(keys[event.code]);
+  } else if (moves[event.code]) {
+    event.preventDefault();
+    step(moves[event.code]);
+  }
+}
+
+async function load() {
+  try {
+    const [s, list] = await Promise.all([
+      fetch("/api/stats").then((r) => r.json()),
+      fetch("/api/applications").then((r) => r.json()),
+    ]);
+    applications = list.applications || [];
+    trackedUrls = new Set(applications.map((a) => a.url_key).filter(Boolean));
+    renderStats(s);
+    renderRows();
+    const { attempts } = await fetch("/api/attempts").then((r) => r.json());
+    renderAttempts(attempts || []);
+  } catch (error) {
+    toast("Не загрузилось: " + error.message, true);
+  }
+  showNewCount();
+  // Verdicts the background queue made while nothing here was waiting for one.
+  if (searchLoaded && !verdictPoll) pollVerdicts();
+}
+
+/*
+ * "(N) Job Hunt" in the browser tab and a badge on "Поиск": postings the
+ * background refresh found since the Search tab was last opened.
+ */
+async function showNewCount() {
+  try {
+    const { count } = await fetch("/api/new-count").then((r) => r.json());
+    document.title = (count > 0 ? "(" + count + ") " : "") + "Job Hunt";
+    const tab = document.querySelector('.tab[data-view="search"]');
+    if (tab) tab.dataset.new = count > 0 ? "+" + count : "";
+  } catch {
+    // The count is a nicety; a failed poll leaves the title as it was.
+  }
+}
+
+applyTheme(themePref());
+// The static selects' words come from SELECT_OPTIONS, so the markup holds only their values.
+document.querySelectorAll("[data-select]").forEach((button) => setSelect(button, button.value));
+bindChrome();
+renderSourceFilter();
+load();
+// "#tracker" opens on the tracker; anything else (the desktop app's "#search") on Search;
+// "#settings" (the tray's "Настройки…") on Search with the settings open.
+const startHash = typeof location === "object" ? location.hash : "";
+showView(startHash === "#tracker" ? "tracker" : "search");
+if (startHash === "#settings") openSettings();
+// The MCP server may write while this page is open; WAL makes the reads safe.
+setInterval(load, 15000);
+</script>
+</body>
+</html>

@@ -14,7 +14,8 @@
  *   - notifies: "N новых вакансий" when a refresh finds postings, and a daily
  *     digest "За сутки появилось N новых вакансий" at a set time, both
  *     outside quiet hours;
- *   - a settings window for all of it.
+ *   - its settings sit in the dashboard's own Настройки (avatar menu), through
+ *     preload.cjs.
  *
  * Nothing about searching or applying lives here — the server does that,
  * exactly as before. The app needs the repo (node_modules, .venv) and Node on
@@ -187,7 +188,6 @@ async function restartServer() {
 const ICON = () => nativeImage.createFromPath(join(HERE, "assets", "icon.png"));
 let win = null;
 let tray = null;
-let settingsWin = null;
 let newCount = 0;
 
 function showWindow(view) {
@@ -199,12 +199,20 @@ function showWindow(view) {
       icon: ICON(),
       autoHideMenuBar: true,
       show: false,
-      webPreferences: { contextIsolation: true, nodeIntegration: false },
+      // The dashboard's Настройки edits this app's settings through this
+      // bridge; preload.cjs exposes it only to the local dashboard.
+      webPreferences: { preload: join(HERE, "preload.cjs"), contextIsolation: true, nodeIntegration: false },
     });
-    // Postings and apply forms open in the real browser, not in this window.
+    // Postings and apply forms open in the real browser, not in this window —
+    // and nothing else is ever navigated to in it, so no other page gets the bridge.
     win.webContents.setWindowOpenHandler(({ url }) => {
       void shell.openExternal(url);
       return { action: "deny" };
+    });
+    win.webContents.on("will-navigate", (event, url) => {
+      if (url.startsWith(`${base()}/`)) return;
+      event.preventDefault();
+      void shell.openExternal(url);
     });
     win.on("close", (event) => {
       if (quitting) return;
@@ -221,23 +229,6 @@ function showWindow(view) {
   else win.show();
 }
 
-function showSettings() {
-  if (settingsWin) return settingsWin.focus();
-  settingsWin = new BrowserWindow({
-    width: 560,
-    height: 720,
-    title: "Job Hunt — настройки",
-    icon: ICON(),
-    autoHideMenuBar: true,
-    resizable: true,
-    webPreferences: { preload: join(HERE, "preload.cjs"), contextIsolation: true, nodeIntegration: false },
-  });
-  void settingsWin.loadFile(join(HERE, "settings.html"));
-  settingsWin.on("closed", () => {
-    settingsWin = null;
-  });
-}
-
 function refreshTray() {
   if (!tray) return;
   tray.setImage(nativeImage.createFromPath(join(HERE, "assets", newCount > 0 ? "tray-new.png" : "tray.png")));
@@ -249,7 +240,6 @@ function refreshTray() {
       { label: "Обновить сейчас", click: () => void refreshNow() },
       { type: "separator" },
       ...(toastsOff ? [{ label: "⚠ Уведомления Windows выключены…", click: () => void shell.openExternal("ms-settings:notifications") }] : []),
-      { label: "Настройки…", click: () => showSettings() },
       { label: "Выйти", click: () => quit() },
     ]),
   );

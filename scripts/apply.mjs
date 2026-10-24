@@ -15,7 +15,11 @@
  * Exit codes: 0 submitted (or dry run ok) · 2 required field has no answer
  * (the JSON on stdout lists them; put answers in --answers and re-run) ·
  * 3 submit failed (validation errors / no confirmation) · 4 needs an account
- * or a CAPTCHA — apply by hand.
+ * or a CAPTCHA, takes applications only through the board's own form
+ * ("board-form"), or is closed — apply by hand.
+ *
+ * A job board's page is not the employer's form: boardTarget() first asks the
+ * board where its Apply leads, and the script fills that form instead.
  *
  * Answers come from .claude/skills/job-apply/profile.json via label rules in
  * answerFor(). A label that matches nothing is left empty when optional and
@@ -73,6 +77,9 @@ const DEBUG = Boolean(process.env["JH_DEBUG"]) || Boolean(flags.debug);
  * fifth of the funnel is repeat applications to the same company.
  */
 let PRIOR = [];
+// Where the form is, once known: the employer's link a board gave, then the page the form was found on.
+// Every result carries it as applyUrl — the posting's own URL is a board page for half the cards.
+let formUrl = null;
 
 const COMPANY_NOISE = /\b(sp\.? ?z ?o\.? ?o\.?|s\.? ?a\.?|ltd|limited|inc|llc|gmbh|ag|plc|group|poland|polska)\b/g;
 const companyKey = (name) =>
@@ -510,7 +517,11 @@ async function fillControls(page, scopeSelector, extra, report) {
     const loc = scope.locator(`[data-jh="${c.idx}"]`).first();
     const label = c.label || c.optionLabel;
     const answer = answerFor(label, c, extra);
-    const note = (what) => report.push(`${label.slice(0, 50) || c.name || c.id} ← ${what}`);
+    // Once per field: the second pass refills what the first did, and the panel counts these lines.
+    const note = (what) => {
+      const line = `${label.slice(0, 50) || c.name || c.id} ← ${what}`;
+      if (!report.includes(line)) report.push(line);
+    };
 
     if (c.type === "radio" || c.role === "radio") {
       const key = c.name || c.label;
@@ -696,6 +707,111 @@ function vendorOf(url) {
   return "generic";
 }
 
+/* ------------------------------------------------------------------ */
+/* Boards: where their Apply leads                                     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * A posting found on a job board is the board's page, and opened as it was,
+ * the script filled the board's page instead of the employer's form: nothing
+ * at all on justjoin.it (a cookie banner over an Apply button, then a "dry
+ * run" with zero fields and a submit button), NoFluffJobs's own form with its
+ * CAPTCHA, "needs an account" on Himalayas — 23 of the 54 cards Claude kept
+ * on 2026-10-24. So the board is asked first.
+ *
+ * Returns { url } — the employer's form, to fill as any other; { byHand,
+ * reason } — only the board's own form takes the application, so no browser
+ * is opened; { closed, reason }; or null for a URL that is not a board's.
+ */
+async function boardTarget(url) {
+  const justJoin = /^https?:\/\/(?:www\.)?justjoin\.it\/(?:[a-z]{2}\/)?job-offer\/([^/?#]+)/i.exec(url);
+  if (justJoin) return justJoinTarget(url, decodeURIComponent(justJoin[1]));
+  if (/^https?:\/\/(?:www\.)?nofluffjobs\.com\//i.test(url)) {
+    // Read from its front-end code on 2026-10-24: both apply modes wait on a CAPTCHA —
+    // its own form (apply.option "email") and the redirect to the employer's form
+    // ("url": verifyCaptchaCall before the redirect id is handed out). The API never
+    // carries the employer's link.
+    return { byHand: true, reason: "NoFluffJobs отдаёт отклик только через свою кнопку «Aplikuj», с капчей" };
+  }
+  if (/^https?:\/\/(?:www\.)?himalayas\.app\/companies\/[^/]+\/jobs\//i.test(url)) {
+    // Its API's applicationLink points back at its own page since October 2026, and the
+    // page answers even a real Chrome with Cloudflare's "Just a moment…".
+    return { byHand: true, reason: "Himalayas не отдаёт ссылку работодателя: она только за кнопкой Apply на его странице" };
+  }
+  return null;
+}
+
+/*
+ * justjoin.it renders the offer into the page's Next.js data, with applyUrl:
+ * the employer's form (traffit, recruitee, Greenhouse…; 65 of 86 stored offers
+ * on 2026-10-24), or null for justjoin's own form. A plain fetch is enough.
+ */
+async function justJoinTarget(url, slug) {
+  let response;
+  try {
+    response = await fetch(url, { headers: { "user-agent": UA, "accept-language": "en-US,en;q=0.9" } });
+  } catch (error) {
+    return { byHand: true, reason: `justjoin.it не открылся: ${error.message}` };
+  }
+  const offer = justJoinOffer(await response.text().catch(() => ""), slug);
+  if (!offer) {
+    if (response.status === 404 || response.status === 410) return { closed: true, reason: "justjoin.it: вакансии больше нет" };
+    return { byHand: true, reason: `justjoin.it: на странице нет данных вакансии (HTTP ${response.status})` };
+  }
+  if (offer.isOfferActive === false) return { closed: true, reason: "justjoin.it: вакансия закрыта" };
+  if (typeof offer.applyUrl === "string" && /^https?:\/\//i.test(offer.applyUrl)) return { url: offer.applyUrl };
+  return { byHand: true, reason: "отклик принимает только форма justjoin.it" };
+}
+
+/** The offer object in the page's flight data: the one starting with its slug that carries applyUrl (a listing card does not). */
+function justJoinOffer(html, slug) {
+  let text = "";
+  for (const match of html.matchAll(/self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)/g)) {
+    try {
+      text += JSON.parse(match[1]);
+    } catch {}
+  }
+  const start = `{"slug":${JSON.stringify(slug)}`;
+  for (let at = text.indexOf(start); at >= 0; at = text.indexOf(start, at + 1)) {
+    const end = closingBrace(text, at);
+    if (end < 0) continue;
+    try {
+      const offer = JSON.parse(text.slice(at, end + 1));
+      if ("applyUrl" in offer) return offer;
+    } catch {}
+  }
+  return null;
+}
+
+/** Where a link lands after its redirects; the link itself when that cannot be told. */
+async function landing(url) {
+  try {
+    const response = await fetch(url, { headers: { "user-agent": UA }, redirect: "follow", signal: AbortSignal.timeout(15_000) });
+    await response.body?.cancel();
+    return response.url || url;
+  } catch {
+    return url;
+  }
+}
+
+/** Index of the brace that closes the one at `start`, skipping strings. */
+function closingBrace(text, start) {
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i += 1) {
+    const c = text[i];
+    if (inString) {
+      if (c === "\\") i += 1;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === "{") depth += 1;
+    else if (c === "}" && --depth === 0) return i;
+  }
+  return -1;
+}
+
 const APPLY_BUTTON = /^\s*(apply|apply now|apply for this (job|position)|apply to position|i'm interested|aplikuj|aplikuj teraz|złóż aplikację|submit your application|start application|easy apply)\s*$/i;
 const SUBMIT_BUTTON = /^\s*(submit|submit application|submit your application|send|send application|apply|apply now|wyślij|wyślij aplikację|aplikuj|complete application|finish)\s*$/i;
 const SUCCESS = /thank you for (applying|your application|your interest in this|submitting)|thanks for applying|application (has been |was )?(submitted|received|sent|complete)|we('ve| have) received your application|successfully (submitted|applied)|your application (is|was) (in|submitted)|dziękujemy za (aplikacj|zgłoszeni|przesłani)|aplikacja została wysłana|you('ve| have) applied|application sent/i;
@@ -811,8 +927,15 @@ async function openForm(page, vendor, applyUrl) {
         .filter((e) => re.test(e.text));
     }, APPLY_BUTTON.source).catch(() => []);
     const withHref = candidates.find((c) => c.href && !/^(#|javascript:)/.test(c.href) && !/mailto:/.test(c.href));
-    if (withHref) {
-      await page.goto(new URL(withHref.href, page.url()).toString(), { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+    // An apply link in the employer's own words ("join cerebre" on traffit, whose markup holds
+    // only a translation key): known by where it goes or by its class instead of its text.
+    const byMarkup = withHref ? null : await page.evaluate(() => {
+      const el = document.querySelector('a[href*="/public/form/"], a[class*="apply" i][href]:not([href^="#"]):not([href^="javascript"]):not([href^="mailto"])');
+      return el ? el.getAttribute("href") : null;
+    }).catch(() => null);
+    const href = withHref?.href ?? byMarkup;
+    if (href) {
+      await page.goto(new URL(href, page.url()).toString(), { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
       await page.waitForTimeout(2500);
     } else if (candidates.length) {
       const visibleOne = candidates.find((c) => c.visible) ?? candidates[0];
@@ -911,9 +1034,11 @@ async function recordInFunnel(args, applyUrl, vendor) {
  * record but screenshot file names. The dashboard lists open attempts as
  * "нужно вам". Never writes anything else to stdout.
  */
-async function emit(outcome, pretty = false) {
+async function emit(result, pretty = false) {
+  const outcome = { ...result, applyUrl: result.applyUrl ?? result.url ?? formUrl ?? positional[0] };
   console.log(pretty ? JSON.stringify(outcome, null, 1) : JSON.stringify(outcome));
-  if (outcome.result === "applied" || outcome.result === "dry-run") return;
+  // A closed posting needs nothing from me: it is not an attempt to come back to.
+  if (outcome.result === "applied" || outcome.result === "dry-run" || outcome.result === "closed") return;
   const detail =
     outcome.reason ??
     outcome.errors?.join("; ") ??
@@ -925,7 +1050,7 @@ async function emit(outcome, pretty = false) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         url: flags.url ?? positional[0],
-        applyUrl: outcome.applyUrl ?? outcome.url ?? positional[0],
+        applyUrl: outcome.applyUrl,
         title: flags.title,
         company: flags.company,
         result: outcome.result,
@@ -974,10 +1099,21 @@ async function main() {
     return 0;
   }
 
-  const applyUrl = positional[0];
+  let applyUrl = positional[0];
   if (!applyUrl || !flags.title || !flags.company) {
     log("usage: apply.mjs <applyUrl> --url <postingUrl> --company .. --title .. [--source ..] [--cover ..] [--answers ..] [--dry-run] [--headed]");
     return 1;
+  }
+  const board = await boardTarget(applyUrl);
+  if (board?.closed || board?.byHand) {
+    await emit({ result: board.closed ? "closed" : "board-form", reason: board.reason, applyUrl });
+    return 4;
+  }
+  if (board?.url) {
+    // Followed, so a short link (grnh.se) is read as the ATS it lands on: Greenhouse must run headed.
+    applyUrl = await landing(board.url);
+    formUrl = applyUrl;
+    log(`board → the employer's form: ${applyUrl.slice(0, 120)}`);
   }
   let vendor = vendorOf(applyUrl);
   if (vendor === "portal") {
@@ -1032,6 +1168,7 @@ async function main() {
       await emit({ result: opened.notRemote ? "not-remote" : "no-form", reason: opened.reason, url: page.url(), screenshot: file });
       return opened.notRemote ? 5 : 4;
     }
+    formUrl = page.url();
     const html = await page.content();
     if (/sign in to apply|log in to apply|create (an )?account to apply|create your account/i.test(html)) {
       await emit({ result: "needs-account", url: page.url() });
@@ -1056,6 +1193,8 @@ async function main() {
       // Second pass: fields revealed by the first one (CV parse, conditional questions).
       if (missing.length) missing = await fillControls(target, scope, extra, report);
       if (missing.length) break;
+      // Nothing answered and nothing asked: not a form (LinkedIn's Easy Apply dialog is one, whatever its first step holds).
+      if (report.length === 0 && vendor !== "linkedin") break;
       if (flags["dry-run"]) break;
       const scoped = scope ? target.locator(scope) : target;
       const nextText = vendor === "linkedin" ? await clickButton(scoped, /^(next|continue|continue to next step|review|review your application)$/i) : null;
@@ -1076,6 +1215,12 @@ async function main() {
       const file = await shot("missing");
       await emit({ result: "missing-answers", missing, filled: report, screenshot: file }, true);
       return 2;
+    }
+    // Was reported as a dry run with zero fields — and the page then offered to submit it.
+    if (report.length === 0 && vendor !== "linkedin") {
+      const file = await shot("noform");
+      await emit({ result: "no-form", reason: "на странице нет полей анкеты", url: page.url(), screenshot: file });
+      return 4;
     }
     if (flags["dry-run"]) {
       const file = await shot("dryrun");
