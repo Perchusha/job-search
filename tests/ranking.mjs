@@ -277,6 +277,24 @@ assert.notEqual(titled("Front-end Automation Engineer").bucket, "dismiss", "Fron
 assert.equal(titled("Senior AI Engineer").reason, "AI/ML role, not frontend");
 console.log("PASS  screening: «Full-Stack AI Engineer» and «Front-end Automation Engineer» are not AI or QA roles");
 
+/* ---- a level range that reaches senior is not a mid role; "mobile" beside web and desktop is not a mobile role ---- */
+const MID = "mid-level role, CV is senior";
+for (const range of ["Middle/Senior Full Stack Engineer", "Software Engineer (Regular/Senior)",
+  "Sr. Software Engineer II / Tech lead, Agentic Platform", "Senior Fullstack Developer 2.0 (React)", "Fullstack Developer 2.0",
+  "Full Stack Agentic Developer (Mid / Senior)", "Mid-Market Frontend Engineer"]) {
+  assert.notEqual(titled(range).reason, MID, range);
+}
+for (const mid of ["Middle Fullstack Engineer", "Regular Fullstack Developer", "Software Engineer II (Full-stack Web)", "Mid-level React Developer",
+  "Mid Full Stack Engineer (Frontend-Focused)", "Software Engineer (Mid) – Legal Tech"]) {
+  assert.equal(titled(mid).reason, MID, mid);
+}
+assert.notEqual(titled("React / Electron Developer (Web + Mobile + Desktop)").bucket, "dismiss", "mobile as one platform of several");
+assert.equal(titled("Mobile Fullstack Team Leader").reason, "mobile role");
+assert.equal(titled("Frontend Developer (React Native)").reason, "mobile role", "a native stack in the title still hides it");
+assert.equal(titled("Senior Software Engineer, Gemini Enterprise Mobile").reason, "mobile role");
+assert.ok(SCREEN_RULES.find((rule) => rule.id === MID).words.includes("developer 2/ii"), "the shown words leave the lookahead out");
+console.log("PASS  screening: «Middle/Senior», «Regular/Senior», «Sr. … II» and «Developer 2.0» pass the mid rule; «Web + Mobile + Desktop» passes the mobile one");
+
 /* ---- Настройки → Компании и память: forget a hide, give a company back, a memory window ---- */
 const memJob = { title: "Senior Frontend Engineer, Payments", company: "Memco", url: "https://example.com/mem-new", source: "linkedin",
   postedAt: null, eligibility: { level: "high", reason: "Poland" } };

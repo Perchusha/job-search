@@ -742,7 +742,10 @@ const T = (pattern: string): RegExp => new RegExp(`(?<![a-z0-9])(?:${pattern})(?
 /** Title-level rejections. Order matters: the first match is the reason. */
 export const SCREEN_TITLE_RULES: Array<[reason: string, pattern: RegExp]> = [
   ["junior/intern level", T("junior|intern|internship|trainee|graduate|new[- ]grad|early[- ]careers?|entry[- ]level|mlodszy|młodszy|staz|staż|praktyk\\w*|apprentice")],
-  ["mid-level role, CV is senior", T("middle|mid[- ]?level|regular|engineer (?:2|ii)|developer (?:2|ii)")],
+  // "Developer 2.0" is a version, not level 2. A title that also names senior
+  // ("Middle/Senior", "Regular/Senior", "Sr. Engineer II") is a range that
+  // includes me: screening.ts lets it through.
+  ["mid-level role, CV is senior", T("middle|mid(?![- ]?market)|mid[- ]?level|regular|engineer (?:2|ii)(?!\\.\\d)|developer (?:2|ii)(?!\\.\\d)")],
   ["management role, not engineering", T("head of|engineering manager|director|cto|vp|vice president|chief")],
   // AI-training gigs (rating model output, writing prompts for a lab) are not
   // engineering work, whatever the title says about TypeScript.

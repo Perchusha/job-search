@@ -248,6 +248,7 @@ function patternWords(pattern: RegExp): string[] {
   words.push(inner.slice(start));
   return words.map((word) =>
     word
+      .replace(/\(\?<?[!=][^)]*\)/g, "")
       .replace(/\(\?:([^)]*)\)/g, (_, alternatives: string) => alternatives.split("|").join("/"))
       .replace(/\[- \]\??/g, "-")
       .replace(/\[([a-z])[a-z]*\]/g, "$1")
@@ -530,6 +531,13 @@ export function decide(
     // "Full-Stack AI Engineer" had no "fullstack" and went as an AI role.
     if (reason.startsWith("AI/ML") && SCREEN_FRONTEND.test(plain)) continue;
     if (reason.startsWith("QA") && SCREEN_FRONTEND.test(plain) && !/\bqa\b|tester|sdet/i.test(title)) continue;
+    // A level range that reaches senior: "Middle/Senior", "Regular/Senior",
+    // "Sr. Software Engineer II / Tech lead". 6 of 12 hits on 2026-10-24.
+    if (reason.startsWith("mid-level") && SENIOR_WORD.test(title)) continue;
+    // "Mobile" as one platform of several: "React / Electron Developer (Web +
+    // Mobile + Desktop)". A native stack named in the title still hides it.
+    if (reason === "mobile role" && /\b(?:web|frontend|desktop)\b/.test(plain)
+      && !/react native|android|\bios\b|flutter|swift|kotlin/i.test(title)) continue;
     return { bucket: "dismiss", reason, flags };
   }
 

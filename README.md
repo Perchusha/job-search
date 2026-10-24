@@ -957,6 +957,11 @@ once and both surfaces follow.
   decision when the search sends one, so the switches and freed cards hold there too.
   The AI and QA exceptions ("AI" or "automation" in a frontend title is not an AI or QA
   role) now read the normalised title: "Full-Stack AI Engineer" used to go as an AI role.
+  The mid-level rule passes a range that reaches senior ("Middle/Senior", "Regular/Senior",
+  "Sr. Software Engineer II") and a version ("Developer 2.0") — 6 of its 12 hits on
+  2026-10-24 were such — and catches a bare "Mid". The mobile rule passes "mobile" as one
+  platform beside web or desktop ("React / Electron Developer (Web + Mobile + Desktop)")
+  unless the title names a native stack.
 - **The soft lane.** Fit tier 2 — no stack recognised either way — is mostly LinkedIn,
   nofluffjobs and justjoin.it, which store no text: every title that names no stack,
   "Senior Software Engineer" at Asana or Sezzle. Those used to be dropped unread. Now an
