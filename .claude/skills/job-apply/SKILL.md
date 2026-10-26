@@ -27,8 +27,7 @@ node scripts/apply.mjs <applyUrl> --url <postingUrl> --company "<co>" --title "<
 
 - `--office-ok`: the company is one of the giants in Настройки → «Мои условия»
   (Google, Apple, Netflix, Meta, Microsoft, Amazon, Nvidia, …; `OFFICE_OK` in
-  src/profile.ts reads them) and the office is in the city named there (Warsaw). Then LinkedIn's Hybrid/On-site tag does not stop the run. The
-  dashboard's «Подать» passes it itself.
+  src/profile.ts reads them) and the office is in the city named there (Warsaw). Then LinkedIn's Hybrid/On-site tag does not stop the run.
 
 - `applyUrl` is the ATS page (`applyUrl` from `jobs-fetch`), `--url` is the
   posting as the dashboard knows it — that is the funnel's dedupe key.
@@ -49,7 +48,7 @@ Result line (stdout, JSON) and exit code:
 | --- | --- | --- |
 | `applied` | 0 | Submitted and confirmed; `funnel` says `#id inserted`. Done. |
 | `dry-run` | 0 | Filled, not sent. Read `filled`, then run again without `--dry-run`. |
-| `missing-answers` | 2 | A required field matched no rule. `missing[]` lists label (cut at 200 characters: the `--answers` key), the whole `question`, type and options. Write `{"label substring": "answer"}` into a JSON file and re-run with `--answers`. For dropdowns the answer may be `"a|b|c"` — alternatives in order of preference. Open questions: 3–4 sentences, plain words, facts from the CV only. From the dashboard the «Подать» panel does this itself, with Claude's drafts. |
+| `missing-answers` | 2 | A required field matched no rule. `missing[]` lists label (cut at 200 characters: the `--answers` key), the whole `question`, type and options. Write `{"label substring": "answer"}` into a JSON file and re-run with `--answers`. For dropdowns the answer may be `"a|b|c"` — alternatives in order of preference. Open questions: 3–4 sentences, plain words, facts from the CV only. |
 | `submit-failed` | 3 | Submit clicked, no confirmation. `errors[]` has the validation text; `screenshot` shows the page. Fix the rule, re-run. |
 | `no-form` / `needs-account` / `captcha` | 4 | Nothing to fill, or the board wants an account or a CAPTCHA. Hand the URL to the user — never create accounts, never solve CAPTCHAs. |
 | `board-form` | 4 | A job board's posting whose application only its own form takes: justjoin.it offers without an employer link, every NoFluffJobs posting (both its modes sit behind a CAPTCHA), Himalayas. Answered at once, no browser opened. Hand the posting to the user. |

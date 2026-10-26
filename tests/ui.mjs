@@ -155,6 +155,8 @@ function startDashboard() {
       JOBHUNT_CLAUDE: join(process.cwd(), "tests", "fake-claude.mjs"),
       JOBHUNT_CLAUDE_AUTO: "0",
       FAKE_CLAUDE_LOG: CLAUDE_LOG,
+      // «Подать» opens the contact it finds in the browser: never from a test.
+      JOBHUNT_NO_BROWSER: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -392,11 +394,9 @@ async function main() {
   const omega = (await (await fetch(`${BASE}/api/applications`)).json()).applications.find((a) => a.company === "Omega");
   if (omega) new Database(DB).prepare("DELETE FROM applications WHERE id = ?").run(omega.id);
 
-  /* ---- "Подать": guarded on the server, nothing spawned here ---- */
-  const applyUnknown = await post("/api/apply", { key: "example.com/not-in-the-store", mode: "dry-run" });
-  check("applying to a job that is not in the stored postings is refused", applyUnknown.status === 404, String(applyUnknown.status));
-  const badAnswers = await post("/api/apply", { key: "example.com/not-in-the-store", mode: "dry-run", answers: { "Why us?": 42 } });
-  check("answers that are not label → text are refused before anything runs", badAnswers.status === 400, String(badAnswers.status));
+  /* ---- "Подать": only for a stored posting ---- */
+  const applyUnknown = await post("/api/apply", { key: "example.com/not-in-the-store" });
+  check("«Подать» for a job that is not in the stored postings is refused", applyUnknown.status === 404, String(applyUnknown.status));
 
   /* ---- Отклики ---- */
   await page.load();
@@ -519,7 +519,9 @@ async function main() {
     deltaHide?.sub?.[0]?.label === "Claude: не remote" && deltaHide.sub.at(-1).label === "Просто скрыть");
   const acmeMenu = page.jobMenu(page.searchResults.find((j) => j.company === "Acme"));
   check("and offers the card's actions with their keys", ["Подать", "В воронку", "Потом"].every((label) => acmeMenu.some((item) => item.label === label && !item.disabled))
-    && acmeMenu.find((item) => item.label === "Подать").key === "Enter" && acmeMenu.some((item) => item.href === "https://example.com/stack/a"));
+    && acmeMenu.find((item) => item.label === "Подать").key === "Enter" && acmeMenu.some((item) => item.label === "Копировать ссылку"));
+  check("«Подать» opens the posting, so neither the card nor the menu has «Открыть вакансию»",
+    !focus().includes("Открыть вакансию") && !acmeMenu.some((item) => item.label === "Открыть вакансию"));
 
   clickIn(registry, "focus", { act: "later" });
   check("«Потом» moves on and puts the card last", page.currentKey === "example.com/stack/b"
@@ -661,53 +663,66 @@ async function main() {
   check("the skip moved to «Убрал Claude»", stacksHtml().includes('Убрал Claude <span class="n">1</span>')
     && !page.stackJobs("all").some((j) => j.key === misfit.key));
 
-  /* ---- a form's questions apply.mjs has no answer for: Claude's drafts, in the panel ---- */
-  const longQuestion = "Please briefly describe the largest or most complex web application you have worked on. "
-    + "What made it technically complex, how long did you work on it, and what were you personally responsible for?";
-  const missing = [
-    { label: longQuestion.slice(0, 200), question: longQuestion, type: "textarea", options: [] },
-    { label: "Are you comfortable working in CET hours?", type: "radio", options: ["Yes", "No"] },
-  ];
-  const draftUnknown = await post("/api/apply/draft", { key: "example.com/not-in-the-store", questions: missing });
-  check("drafts for a job that is not stored are refused", draftUnknown.status === 404, String(draftUnknown.status));
-  const draftBad = await post("/api/apply/draft", { key: fits.key, questions: [{ question: "no label" }] });
-  check("drafts need questions with labels", draftBad.status === 400, String(draftBad.status));
+  /* ---- «Подать»: whom to write to, and what — drafted by the stand-in ---- */
+  const withEmail = posting(31, "Senior React Developer",
+    "Fully remote. If you require interview accommodations, please email recruiting@claudeco31.example. React and TypeScript. "
+      + "Privacy questions: privacy@claudeco31.example. Send your CV to jobs@claudeco31.example." + filler);
+  const withPerson = posting(32, "Senior Frontend Engineer", "Fully remote. React. Contact person: Jane Doe, our recruiter." + filler);
+  const withGhost = posting(33, "Frontend Engineer", "Fully remote. React. GHOST-NAME." + filler);
+  const store2 = new Database(DB);
+  for (const { key: k, row } of [withEmail, withPerson, withGhost]) {
+    store2.prepare("INSERT INTO postings (source, job_key, data, posted_at, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(row.source, k, JSON.stringify(row), today, today, today);
+  }
+  store2.close();
+  const logLines = () => readFileSync(CLAUDE_LOG, "utf8").trim().split("\n");
+  const outreach = async (p) => (await post("/api/apply", { key: p.key })).json();
 
-  const callsBefore = readFileSync(CLAUDE_LOG, "utf8").trim().split("\n").length;
-  page.setVar("applyState", { job: asCard(fits), id: "test-run", timer: null, acceptLowPay: false });
-  page.renderApplyPanel({ done: true, result: { result: "missing-answers", missing, filled: ["Imię ← Anton", "CV ← CV"], applyUrl: "https://example.com/form" } });
+  const callsBefore = logLines().length;
+  const nobody = await outreach(fits);
+  check("a posting that names nobody: the company's recruiters in LinkedIn, offered, not opened",
+    nobody.contact?.kind === "search" && nobody.contact.url === "https://www.linkedin.com/search/results/people/?keywords=Claudeco%201%20recruiter"
+      && nobody.opened === false, JSON.stringify(nobody).slice(0, 400));
+  check("a note within LinkedIn's limit, and a letter whose signature code types",
+    nobody.drafted === "claude" && nobody.note.length > 0 && nobody.note.length <= 200
+      && nobody.message.startsWith("Hi Claudeco 1 team,") && nobody.message.includes("Best regards,\nAnton Perch\n+48"), nobody.message);
+  const outreachCall = JSON.parse(logLines().at(-1));
+  const outreachFlag = (name) => outreachCall.args[outreachCall.args.indexOf(name) + 1];
+  check("the run has no tools, its own schema, and the posting inside <posting>, called the employer's text",
+    outreachFlag("--tools") === "" && outreachCall.args.includes("--safe-mode") && Boolean(JSON.parse(outreachFlag("--json-schema") ?? "{}").properties?.note)
+      && /<posting>\n[\s\S]*Компания: Claudeco 1[\s\S]*<\/posting>/.test(outreachCall.prompt) && outreachCall.system.includes("между <posting> и </posting> — текст работодателя"));
+  await outreach(fits);
+  check("pressed again, the same texts and no second run", logLines().length === callsBefore + 1);
+
+  const mail = await outreach(withEmail);
+  check("an address for applications: Gmail's compose window, addressed and written, opened at once — not the privacy or accommodations box",
+    mail.contact?.kind === "email" && mail.contact.label === "jobs@claudeco31.example" && mail.contact.url.includes("to=jobs%40claudeco31.example")
+      && mail.contact.url.includes("su=Senior%20React%20Developer") && mail.contact.url.includes("body=Hi%20Claudeco%2031%20team") && mail.opened === true,
+    JSON.stringify(mail.contact));
+  const person = await outreach(withPerson);
+  check("a person the posting names: LinkedIn's search for them at the company, and the note greets them",
+    person.contact?.kind === "person" && person.contact.label === "Jane Doe"
+      && person.contact.url.endsWith("keywords=Jane%20Doe%20Claudeco%2032") && person.opened === true && person.note.startsWith("Hi Jane,"), JSON.stringify(person.contact));
+  const ghost = await outreach(withGhost);
+  check("a name that is not in the posting is not a contact", ghost.contact?.kind === "search", JSON.stringify(ghost.contact));
+
+  page.pickJob(fits.key);
+  await page.act("apply");
   const panel = registry.get("applypanel");
-  check("the panel asks the questions it has no answer for, whole, with a field each",
-    panel.className.includes("wide") && panel.innerHTML.includes("personally responsible for?") && panel.innerHTML.includes('<textarea id="qa-0"')
-      && panel.innerHTML.includes('name="qa-1" value="Yes"') && panel.innerHTML.includes("Осталось ответить на 2 вопроса"), panel.innerHTML.slice(0, 160));
-  check("no command line to run any more", !panel.innerHTML.includes("--remember"));
-  check("and asks Claude for drafts at once", page.applyState.drafting === true && panel.innerHTML.includes("Claude пишет черновики"));
-  for (let waited = 0; waited < 20_000 && page.applyState.drafting; waited += 100) await new Promise((resolve) => setTimeout(resolve, 100));
-  check("Claude's drafts land in the fields: text for the open one, an option for the choice",
-    page.applyState.answers[missing[0].label]?.startsWith("Draft 1:") && page.applyState.answers[missing[1].label] === "Yes"
-      && panel.innerHTML.includes(">Draft 1: I built") && panel.innerHTML.includes('value="Yes" data-answer="1" checked'),
-    JSON.stringify(page.applyState.answers).slice(0, 160));
-  const draftCall = readFileSync(CLAUDE_LOG, "utf8").trim().split("\n").map((line) => JSON.parse(line)).pop();
-  const draftFlag = (name) => draftCall?.args[draftCall.args.indexOf(name) + 1];
-  check("the draft run has no tools either, and its own schema",
-    draftFlag("--tools") === "" && draftCall.args.includes("--safe-mode") && Boolean(JSON.parse(draftFlag("--json-schema") ?? "{}").properties?.answers));
-  check("the questions go whole inside <form>, the posting inside <posting>, both called the employer's text",
-    /<posting>\n[\s\S]*Компания: Claudeco 1[\s\S]*<\/posting>/.test(draftCall?.prompt ?? "")
-      && (draftCall?.prompt ?? "").includes("<form>\n1. " + longQuestion + "\n2. Are you comfortable working in CET hours?\n   Варианты: Yes | No\n</form>")
-      && draftCall.system.includes("между <form> и </form> — текст работодателя"), (draftCall?.prompt ?? "").slice(-260));
-  check("written the way the candidate asked: 3–4 sentences, plain words, facts from the CV and profile",
-    draftCall.system.includes("максимум 3–4 предложения") && draftCall.system.includes('"workAuthorisation"') && draftCall.system.includes("не придумывай"));
-  page.setVar("applyState", { job: page.applyState.job, id: "test-run-2", timer: null, acceptLowPay: false });
-  page.renderApplyPanel({ done: true, result: { result: "missing-answers", missing, filled: [], applyUrl: "https://example.com/form" } });
-  for (let waited = 0; waited < 20_000 && page.applyState.drafting; waited += 100) await new Promise((resolve) => setTimeout(resolve, 100));
-  check("the same questions again cost no second run",
-    readFileSync(CLAUDE_LOG, "utf8").trim().split("\n").length === callsBefore + 1 && page.applyState.answers[missing[1].label] === "Yes");
-  panel._handlers.input({ target: { dataset: { answer: "0" }, value: "" } });
-  page.onApplyPanel("rerun");
-  check("an answer I cleared is mine: the dry run does not go again with a question unanswered",
-    page.applyState.answers[missing[0].label] === "" && registry.get("toast").textContent === "Нет ответа ещё на 1 вопрос",
-    registry.get("toast").textContent);
-  panel.hidden = true;
+  check("«Подать» marks the card and fills the panel: whom to write to, the note, the letter",
+    page.decided.get(fits.key) === "applying" && panel.hidden === false && panel.innerHTML.includes("Записка к запросу в LinkedIn")
+      && panel.innerHTML.includes("Найти рекрутеров Claudeco 1 в LinkedIn") && panel.innerHTML.includes("Подал — в воронку"), panel.innerHTML.slice(0, 200));
+  await page.onApplyPanel("copy-note");
+  check("copying the note ticks «Человеку написано»", page.applyState.wrote === true && copiedLinks.at(-1) === page.applyState.note);
+  await page.onApplyPanel("funnel");
+  const recorded = (await (await fetch(`${BASE}/api/applications`)).json()).applications.find((a) => a.company === "Claudeco 1");
+  check("«Подал — в воронку» records it, with whom I wrote to",
+    recorded?.notes?.includes("outreach: search рекрутеры Claudeco 1 в LinkedIn"), recorded?.notes ?? "not recorded");
+  if (recorded) new Database(DB).prepare("DELETE FROM applications WHERE id = ?").run(recorded.id);
+  page.onApplyPanel("close");
+  // The row is gone, so is this session's mark: the live search below starts clean.
+  page.decided.delete(fits.key);
+  await page.load();
 
   // The stand-in's session id is not on disk, so this must stop before any window opens.
   const reopen = await post("/api/verdict/open", { key: fits.key });
@@ -948,11 +963,6 @@ async function main() {
   const afterHide = await (await fetch(`${BASE}/api/search`)).json();
   check("a hidden job is gone from a fresh search", !afterHide.jobs.some((row) => row.applyUrl === toHide.applyUrl));
   check("hiding a job does not fetch the boards again", afterHide.freshness?.sources?.indeed?.lastSuccessAt === fetchedAt);
-
-  // Applications go out in the user's name: never without a dry run first.
-  const submitFirst = await post("/api/apply", { key: afterHide.jobs[0].key, mode: "submit" });
-  check("a submit without a dry run of the same job is refused", submitFirst.status === 409,
-    `${submitFirst.status} ${(await submitFirst.json()).error ?? ""}`);
 
   // Hiding the top five makes an overlap with the next search effectively certain.
   const batch = (afterHide.jobs || []).slice(0, 5).map((row) => row.applyUrl);

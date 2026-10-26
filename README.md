@@ -244,7 +244,7 @@ src/profile.ts reads them). Their hybrid or onsite roles in the city named there
 onsite rule, pass the stack-fit filter unless the title itself rules them out (their titles
 name no stack and their requirements list languages — "Java, C++, Python or Go" — which cut
 10 of 13 such postings in a month before Claude saw them), are never blocked as a company
-by hides without a reason, and «Подать» passes `--office-ok` so LinkedIn's Hybrid tag does
+by hides without a reason, and `apply-batch.mjs` passes `--office-ok` so LinkedIn's Hybrid tag does
 not stop the script. LinkedIn is also asked for them by name once a day, beside the remote
 queries (`OFFICE_OK.linkedin`: one OR-query, Warsaw, not remote; rows that are not a giant's
 Warsaw office are dropped) — the remote queries let such roles through only by accident. The same giant in Kraków stays `medium`: no relocation. Claude's criteria get the
@@ -420,6 +420,7 @@ is what feeds the response-rate and days-to-response stats. `dropped` is the exc
 | `POST /api/applications/:id/status`  | `{ status, responseAt? }`                                   |
 | `POST /api/verdict`                  | `{ key }` → queue Claude's verdict on a stored job (202)    |
 | `GET /api/verdicts`                  | `?since=<iso>` optional — verdicts made after it, and what the queue is doing |
+| `POST /api/apply`                    | `{ key, fresh?, open? }` → «Подать»: whom to write to and the drafted note and letter; someone found opens in the browser, this computer only |
 | `POST /api/verdict/open`             | `{ key }` → open that verdict's session in Claude Desktop; this computer only |
 | `POST /api/verdicts/queue`           | Queue every shown card without a current verdict, as manual requests (202, `{ queued, status }`) |
 | `POST /api/verdict/feedback`         | `{ key, expected }` → «Верно» / «Мимо» on a verdict |
@@ -547,12 +548,12 @@ at a time — a queue on the left, one large card on the right, five actions und
    **Скрыть** `H` opens the reasons — Claude's own first for a skip — and `1`–`6` picks one,
    `0` hides without one; **Обсудить с Claude** `C` opens the verdict's session in Claude
    Desktop; **В воронку** `F` records an application (`applied`, there is no bookmark stage);
-   **Потом** `→` puts the card at the end of the stack; **Подать** `Enter` starts the dry
-   run of the application form (see *Applying by script*) — the panel keeps it while you
-   go on. `↑` `↓` walk the queue without deciding; `Esc` closes a menu. Enter on a focused
+   **Потом** `→` puts the card at the end of the stack; **Подать** `Enter` opens the
+   posting in the browser and finds whom to write to (see *«Подать»* below) — the panel
+   keeps it while you go on. `↑` `↓` walk the queue without deciding; `Esc` closes a menu. Enter on a focused
    button or link is that button's.
 4. Every decision moves to the next undecided card, which slides in. A decided card keeps
-   its place in the queue for the rest of the page session, marked *подано*, *в воронке* or
+   its place in the queue for the rest of the page session, marked *подаю…*, *в воронке* or
    *скрыто*, so the queue shows progress instead of shrinking; the next search leaves out
    what is hidden or applied to. When a stack is done the card says so, with what happened
    and a button to the next stack.
@@ -577,8 +578,8 @@ at a time — a queue on the left, one large card on the right, five actions und
    company, `#` for a stack, `@` for a company's postings and applications;
    `↑` `↓` and `Enter` pick, `Esc` closes. Opening a posting takes you to its own stack.
    **Right-click** on a queue row (or the menu key) gives the card's actions for that row —
-   Подать, В воронку, Потом, Обсудить, Спросить Claude, Скрыть ▸ with the reasons, open or
-   copy the link; an action opens the row's card and runs on it, as its button would.
+   Подать, В воронку, Потом, Обсудить, Спросить Claude, Скрыть ▸ with the reasons, copy
+   the link; an action opens the row's card and runs on it, as its button would.
 8. **The date window** (сутки / 3 дня / неделя / 2 недели / месяц) narrows by posting age.
    A month is both the default and the ceiling — it is `SEARCH_DEFAULTS.hoursOld`, and the
    server clamps anything wider back down to it, so a hand-edited URL cannot widen the
@@ -1021,36 +1022,35 @@ not seen in a dry run. They are thin wrappers over four scripts:
 | `scripts/funnel.mjs` | CLI over the dashboard API: `search`, `screen [--commit]`, `dismiss`, `undismiss`, `add`, `applied`, `dismissed`, `stats`, `status`. `screen` writes nothing — the dashboard applies the rules on every read; `--commit` would make the hits permanent hides, written as `auto: <reason>` so they never count as the user's own |
 | `scripts/jobs-fetch.mjs` | Reads postings without a browser (board JSON APIs, LinkedIn guest API, stripped HTML, Chrome only for JS-only pages) and prints one line per job: work mode, stack, level, language/country constraints, ATS, form questions |
 | `scripts/apply.mjs` | Fills and submits one application with Playwright on the installed Chrome; records it via `POST /api/applications`; exit codes for missing answers, account walls, CAPTCHAs, e-mailed verification codes |
-| `scripts/apply-batch.mjs` | Runs `apply.mjs` over a list, one result line per job. Dry runs unless `--submit`, and the stops «Подать» has: no current Claude `apply`, pay under the floor or a role like one applied to is skipped with the reason (`--force` / `--accept-low-pay` per index); `--pay`, `--contract` and `--office-ok` are passed as «Подать» passes them |
+| `scripts/apply-batch.mjs` | Runs `apply.mjs` over a list, one result line per job. Dry runs unless `--submit`; no current Claude `apply`, pay under the floor or a role like one applied to is skipped with the reason (`--force` / `--accept-low-pay` per index); it passes `--pay`, `--contract` and `--office-ok` |
 
-**From the dashboard:** **Подать** (`Enter`) on a card runs `apply.mjs` for that job through the server
-([src/apply-runner.ts](src/apply-runner.ts)). It always starts as a dry run — the form is
-filled, nothing is sent, and the panel lists every field and value — and only then offers
-"Отправить отклик". The server refuses a submit that was not preceded by a dry run of the
-same job within 30 minutes, runs one application per Chrome profile at a time, and accepts
-the request only from this computer (the Chrome window, and the Greenhouse code typed into
-it, are here). A posting whose published pay is under the floor asks "Всё равно подать?"
-first; such pay is also flagged on its card. A submitted application lands in the funnel
-by itself, with the posting's date (the Tracker shows how many days after publication it
-went out); anything short of that
-— a code, a CAPTCHA, an account wall, a missing answer — lands under **нужно вам** on the
-Search tab and in `node scripts/funnel.mjs attempts`, until the job is applied to or hidden.
+**«Подать» in the dashboard fills no forms** (since 2026-10-26, at my request: the
+filled forms did not work out, and 112 cold applications had brought 0 interviews). It
+opens the posting in the browser at once — in the click, so no popup blocker stops it —
+and I apply there myself. Meanwhile the server (`POST /api/apply`,
+[src/outreach.ts](src/outreach.ts)) finds whom to write to and drafts two texts, ~10–20 s:
 
-**Questions no rule answers** ("the most complex app you worked on", "a hard frontend
-problem you solved", a dropdown nobody taught the script) used to end the panel at «нет
-ответа на вопрос» with a command line to run; cerebre's traffit form stopped there three
-times on 2026-10-24. Now the panel shows each such question whole (the script matches
-labels on their first 200 characters but reports the full text) with a field under it, and
-asks Claude for drafts at once (`POST /api/apply/draft`, [src/form-drafts.ts](src/form-drafts.ts)):
-the same headless `claude -p` as the verdicts, no tools, the CV and profile.json as the
-only source of facts, the posting read as a verdict reads it, the employer's text marked as
-such, and the rule for open answers (3–4 sentences, plain words, the question's language).
-On cerebre that took ~11 s for three answers. You correct them and press «Заполнить с
-ответами»: the dry run goes again with them as `--answers`, and its panel lists them
-in full under the filled fields. The submit after it sends exactly the answers that dry run
-was given, never new ones from the page. A job's answers and drafts are kept until the
-server restarts, so pressing «Подать» again later starts from them. «Набросать заново» asks
-Claude again.
+- **Whom**, best first: an e-mail the posting gives for applications or questions
+  (`jobs@`, `careers@`, or an address next to "send your CV"; privacy and no-reply boxes
+  never) → Gmail's compose window, addressed and written, opened at once — attach the CV
+  and send; a person the posting names (a recruiter, "osoba kontaktowa"), word for word in
+  its text → LinkedIn's people search for them at the company, opened at once; a LinkedIn
+  posting → its own page, already open, where "Meet the hiring team" sits when the poster
+  filled it in; otherwise a link to LinkedIn's search for the company's recruiters, not
+  opened. LinkedIn is never read with the login: its guest pages carry no hiring team
+  (probed 2026-10-26), and a scripted logged-in session puts the account at risk.
+- **What**: a note for a LinkedIn connection request (200 characters, a free account's
+  limit; the panel counts) and a 3–4 sentence letter whose signature code types, both by
+  the same headless `claude -p` as the verdicts — no tools, the posting marked as the
+  employer's text, facts from the CV and profile.json only. If Claude cannot answer, a
+  template stands in and the panel says why. Both are editable; «Скопировать» copies one;
+  «Написать заново» asks Claude again. A job's texts are kept until the server restarts.
+
+«Подал — в воронку» records the application; with «Человеку написано» ticked (copying a
+text ticks it) its notes say whom I wrote to (`outreach: <kind> <label>`), so replies can
+later be compared with and without a note. Published pay under the floor is a warning in
+the panel. The card stays in its stack, marked *подаю…*, until recorded; closing the panel
+clears the mark.
 
 **A board's posting is not the employer's form**, and `apply.mjs` asks the board first.
 justjoin.it renders each offer's `applyUrl` into its page: the employer's form (traffit,
@@ -1064,14 +1064,13 @@ offer comes back as `closed`. Before this, a justjoin card was "dry run" on the 
 page, with zero fields filled and «Отправить отклик» offered anyway. A dry run that fills
 nothing is now `no-form`, and the server refuses to submit one.
 
-**Salary fields ask for the posting's top when it beats the target.** The server passes the
+**Salary fields ask for the posting's top when it beats the target.** `apply-batch.mjs` passes the
 posting's published ranges (`--pay`); where the top of a range on the field's contract and
 in its currency is above profile.json's figure, the field gets that top instead — cerebre
 published B2B 5.8k–8.3k USD and its form used to get $7,000, now $8,300 (≈ $100k / year).
 Hourly, daily and yearly ranges are converted to a month; a range with no contract
 (Himalayas) counts as B2B; another currency is never converted. A lower range, or none,
-leaves the answers exactly as they were. Claude's drafts and the «Обсудить» brief carry the
-same rule.
+leaves the answers exactly as they were. The «Обсудить» brief carries the same rule.
 
 Facts the forms ask for live in `.claude/skills/job-apply/profile.json`. Chrome
 profiles: `~/.job-hunt/chrome-profile` (LinkedIn, log in once with

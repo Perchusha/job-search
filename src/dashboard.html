@@ -558,25 +558,20 @@
   .applypanel ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 14px; }
   .applypanel .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .applypanel .btn { min-height: 44px; font-size: 15px; }
-  /* The buttons stay in reach while a long dry run or long answers scroll above them. */
+  /* The buttons stay in reach while the texts scroll above them. */
   .applypanel:has(> .foot) { padding-bottom: 0; }
   .applypanel > .foot { position: sticky; bottom: 0; margin: 0 -22px; padding: 14px 22px 22px; background: var(--raised);
                         border-top: 1px solid var(--line); }
-  /* The form's open questions: room to read a question and write three or four sentences. */
+  /* With the texts: room to read and edit a four-sentence letter. */
   .applypanel.wide { width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px); }
   .applypanel .qa { display: grid; gap: 8px; }
   .applypanel .ql { font-size: 14px; font-weight: 600; line-height: 1.45; color: var(--ink-2); }
-  /* Grows with the draft (field-sizing), so four sentences read without scrolling inside the field. */
-  .applypanel textarea { width: 100%; min-height: 128px; max-height: 340px; field-sizing: content; padding: 12px 14px; border: 0;
+  /* Grows with the text (field-sizing), so the letter reads without scrolling inside the field. */
+  .applypanel textarea { width: 100%; min-height: 72px; max-height: 340px; field-sizing: content; padding: 12px 14px; border: 0;
                          border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line);
                          color: var(--ink); font: 14px/1.55 var(--font); resize: vertical; }
   .applypanel textarea:hover { box-shadow: inset 0 0 0 1px var(--faint); }
   .applypanel textarea:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--accent-ring); }
-  .applypanel textarea::placeholder { color: var(--muted); }
-  .applypanel .seg span { white-space: normal; }
-  .applypanel dl { margin: 0; font-size: 14px; }
-  .applypanel dt { color: var(--muted); }
-  .applypanel dd { margin: 2px 0 10px; color: var(--ink-2); white-space: pre-wrap; }
   .toast { position: fixed; left: 50%; bottom: 24px; z-index: 70; transform: translate(-50%, 12px); max-width: min(560px, calc(100vw - 32px));
            padding: 14px 18px; border-radius: 16px; background: var(--ink); color: var(--bg); font-size: 15px; opacity: 0;
            pointer-events: none; transition: opacity .18s, transform .18s; }
@@ -1276,8 +1271,7 @@ function renderSearch() {
   renderClaudeLine();
 }
 
-const DECIDED_WORD = { applying: "подаю…", applied: "подано", funnel: "в воронке", hidden: "скрыто",
-  restored: "возвращено", attempt: "нужно вам", "dry-run": "проверить форму", closed: "закрыта" };
+const DECIDED_WORD = { applying: "подаю…", funnel: "в воронке", hidden: "скрыто", restored: "возвращено" };
 
 function queueItem(job, current) {
   const v = job.verdict;
@@ -1465,8 +1459,7 @@ function cardHtml(job) {
   return '<article class="card"><div class="cardbody">'
     + '<div class="cardtop">' + chip
     + '<span class="meta">' + esc(ageLabel(job.postedAt)) + " · " + esc(SOURCE_NAME[job.source] || job.source) + "</span>"
-    + (isNewJob(job) ? '<span class="newtag">новая</span>' : "")
-    + '<a href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener">Открыть вакансию ↗</a></div>'
+    + (isNewJob(job) ? '<span class="newtag">новая</span>' : "") + "</div>"
     + "<div><h1>" + esc(job.title) + '</h1><p class="co">' + esc(job.company) + " · " + esc(where) + "</p></div>"
     + notesHtml(job)
     + '<div class="facts">' + facts(job).map(([k, value, cls]) => '<div class="fact"><span class="k">' + esc(k)
@@ -1521,8 +1514,8 @@ function emptyHtml(jobs, counts) {
     const tally = (kind) => jobs.filter((j) => decided.get(j.key) === kind).length;
     return '<section class="card empty"><span class="big" aria-hidden="true">'
       + '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></span>'
-      + "<h1>Эта стопка разобрана</h1><p>Подано: " + (tally("applying") + tally("applied") + tally("dry-run") + tally("attempt"))
-      + " · в воронке: " + tally("funnel") + " · скрыто: " + tally("hidden") + "</p>"
+      + "<h1>Эта стопка разобрана</h1><p>В воронке: " + tally("funnel") + " · подаю: " + tally("applying")
+      + " · скрыто: " + tally("hidden") + "</p>"
       + '<div class="row">' + nextBtn + "</div></section>";
   }
   const why = claudeBusy() && (stack === "good" || stack === "maybe")
@@ -1561,7 +1554,7 @@ async function act(name, arg) {
   } else if (name === "funnel") {
     await addToFunnel(job);
   } else if (name === "apply") {
-    await startApplyRun(job, "dry-run");
+    await openApply(job);
   } else if (name === "discuss") {
     await discussInClaude(job);
   } else if (name === "later") {
@@ -1652,17 +1645,19 @@ async function restore(job) {
   }
 }
 
-async function addToFunnel(job) {
+async function addToFunnel(job, notes) {
   try {
     const { response, payload } = await postJson("/api/applications", {
       url: job.applyUrl, title: job.title, company: job.company, source: job.source,
-      location: job.location, salary: job.salary, postedAt: job.postedAt,
+      location: job.location, salary: job.salary, postedAt: job.postedAt, notes: notes || null,
     });
     if (!response.ok) throw new Error(payload.error || response.statusText);
     trackedUrls.add(job.key);
     decided.set(job.key, "funnel");
     toast(payload.result === "already_tracked" ? job.company + " уже в воронке" : job.company + ": записал в воронку");
-    advance();
+    // From the «Подать» panel I may be on another card by now: that one stays.
+    if (job.key === currentKey) advance();
+    else renderSearch();
     await load();
   } catch (error) {
     toast("Не записалось: " + error.message, true);
@@ -1843,61 +1838,40 @@ function renderAttempts(attempts) {
   box.open = open;
 }
 
-/* ---------------- "Подать": the apply panel ---------------- */
+/* ---------------- "Подать": the posting, and whom to write to ---------------- */
 
 /*
- * One application at a time through the server (POST /api/apply): a dry run
- * fills the form and shows what went in, then "Отправить отклик" submits. The
- * server refuses a submit without that dry run. The stack moves on meanwhile;
- * the panel keeps the run.
+ * «Подать» opens the posting in the browser at once — in the click, so no
+ * popup blocker stands in the way — and I apply there myself. Meanwhile the
+ * server (POST /api/apply, src/outreach.ts) finds whom to write to and drafts
+ * a LinkedIn note and a short letter; someone found opens in the browser too.
+ * «Подал — в воронку» records the application. The card stays until then.
  */
-async function startApplyRun(job, mode, acceptLowPay, answers) {
-  try {
-    const { response, payload } = await postJson("/api/apply", { key: job.key, mode, acceptLowPay: Boolean(acceptLowPay), answers: answers || {} });
-    if (response.status === 409 && payload.lowPay) {
-      // Published pay under the floor: ask, do not guess.
-      applyState = { job, id: null, timer: null, acceptLowPay: false };
-      const panel = $("applypanel");
-      panel.hidden = false;
-      panel.innerHTML = panelHead(job) + '<p class="warn">Зарплата ниже вашего порога: ' + esc(job.salary || "?") + "</p>"
-        + '<div class="row"><button type="button" class="btn main" data-apply="lowpay">Всё равно подать</button>'
-        + '<button type="button" class="btn soft" data-apply="close">Не надо</button></div>';
-      return;
-    }
-    if (!response.ok) throw new Error(payload.error || response.statusText);
-    if (applyState && applyState.timer) clearTimeout(applyState.timer);
-    applyState = { job, id: payload.id, timer: null, acceptLowPay: Boolean(acceptLowPay) };
-    if (mode === "dry-run") {
-      decided.set(job.key, "applying");
-      // "Всё равно подать" can come after I have moved on: then only the queue changes.
-      if (job.key === currentKey) advance();
-      else renderSearch();
-    }
-    renderApplyPanel({ done: false, mode, log: [] });
-    pollApply();
-  } catch (error) {
-    toast("Не запустилось: " + error.message, true);
-  }
+async function openApply(job) {
+  if (typeof window === "object" && typeof window.open === "function") window.open(job.applyUrl, "_blank", "noopener");
+  applyState = { job, loading: true, data: null, error: "", note: "", message: "", wrote: false };
+  decided.set(job.key, "applying");
+  renderSearch();
+  renderApplyPanel();
+  await fetchOutreach(applyState, false);
 }
 
-async function pollApply() {
-  if (!applyState || !applyState.id) return;
-  const current = applyState;
+async function fetchOutreach(current, fresh) {
+  current.loading = true;
+  current.error = "";
+  if (fresh) renderApplyPanel();
   try {
-    const state = await fetch("/api/apply/" + current.id).then((r) => r.json());
-    if (applyState !== current) return;
-    renderApplyPanel(state);
-    if (!state.done) {
-      current.timer = setTimeout(pollApply, 1500);
-      return;
-    }
-    const result = state.result && state.result.result;
-    decided.set(current.job.key, result === "applied" ? "applied" : result === "dry-run" ? "dry-run" : result === "closed" ? "closed" : "attempt");
-    await load(); // the funnel row, or the new attempt under "нужно вам"
-    renderSearch();
+    // Asked again, nothing opens a second time: the first answer already did.
+    const { response, payload } = await postJson("/api/apply", { key: current.job.key, fresh, open: !fresh });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    current.data = payload;
+    current.note = payload.note || "";
+    current.message = payload.message || "";
   } catch (error) {
-    toast("Не получил статус: " + error.message, true);
+    current.error = error.message;
   }
+  current.loading = false;
+  if (applyState === current) renderApplyPanel();
 }
 
 function panelHead(job) {
@@ -1906,133 +1880,106 @@ function panelHead(job) {
     + '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button></div>';
 }
 
-function renderApplyPanel(state) {
-  const panel = $("applypanel");
-  const job = applyState.job;
-  const r = state.result || {};
-  applyState.state = state;
-  // The form where apply.mjs found it: for a board's posting, the employer's page, not the card's link.
-  const formUrl = r.applyUrl || job.applyUrl;
-  const answered = Object.entries(state.answers || {});
-  let body = "";
-  let wide = false;
-  if (!state.done) {
-    const waitingForCode = (state.log || []).some((line) => /verification code|e-mailed/i.test(line));
-    // The script's own log lines (board → form URL, earlier applications) stay out: they read as noise here.
-    body = '<p class="muted">' + (state.mode === "submit" ? "Отправляю…" : "Заполняю форму без отправки…") + "</p>"
-      + '<div class="sweep" aria-hidden="true"><span></span></div>'
-      + (waitingForCode ? '<p class="warn">На почту пришёл код — введите его в открытом окне Chrome и нажмите Submit.</p>' : "");
-  } else if (r.result === "dry-run" && (r.filled || []).length) {
-    body = "<p>Заполнено полей: " + (r.filled || []).length + ". Проверьте и отправьте:</p>"
-      + "<ul>" + (r.filled || []).map((field) => "<li>" + esc(field) + "</li>").join("") + "</ul>"
-      // The list above cuts each value at 40 characters; what was written for the questions goes out whole.
-      + (answered.length ? '<p>Ответы на вопросы анкеты:</p><dl class="answers">'
-          + answered.map(([label, text]) => "<dt>" + esc(label) + "</dt><dd>" + esc(text) + "</dd>").join("") + "</dl>" : "")
-      + (r.screenshot ? '<p class="muted">Скриншот: ' + esc(r.screenshot) + "</p>" : "")
-      + '<div class="row foot"><button type="button" class="btn main" data-apply="submit">Отправить отклик</button>'
-      + '<a class="btn soft" href="' + esc(formUrl) + '" target="_blank" rel="noreferrer noopener" style="text-decoration: none">Открыть форму</a></div>';
-  } else if (r.result === "applied") {
-    body = "<p>Отклик отправлен и записан: " + esc(r.funnel || "") + "</p>";
-  } else if (r.result === "missing-answers" && (r.missing || []).length) {
-    wide = true;
-    body = questionsBody(r, formUrl);
-  } else {
-    body = '<p class="warn">' + esc(ATTEMPT_LABEL[r.result] || r.result || "?") + "</p>"
-      + (r.reason ? '<p class="muted">' + esc(r.reason) + "</p>" : "")
-      + (r.errors && r.errors.length ? '<p class="muted">' + esc(r.errors.join("; ")) + "</p>" : "")
-      + (r.result === "closed" ? ""
-        : '<p><a href="' + esc(formUrl) + '" target="_blank" rel="noreferrer noopener">'
-          + (r.result === "board-form" ? "открыть вакансию и подать там" : "открыть форму") + "</a></p>");
+/** As src/outreach.ts NOTE_LIMIT: a free LinkedIn account's limit for a connection note. */
+const NOTE_LIMIT = 200;
+
+function contactHtml(d, job) {
+  const c = d.contact;
+  const link = (label) => '<a href="' + esc(c.url) + '" target="_blank" rel="noreferrer noopener">' + esc(label) + "</a>";
+  if (c.kind === "email") {
+    return "<p>В вакансии есть адрес: <b>" + esc(c.label) + "</b>. "
+      + (d.opened ? "Письмо открыто в Gmail — приложите резюме и отправьте." : link("Открыть письмо в Gmail") + " и приложить резюме.") + "</p>";
   }
-  // A redraw while I type in an answer keeps me there.
-  const typing = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.answer : undefined;
+  if (c.kind === "person") {
+    return "<p>В вакансии назван человек: <b>" + esc(c.label) + "</b>. "
+      + (d.opened ? "Поиск по нему открыт в LinkedIn." : link("Найти в LinkedIn") + ".") + "</p>";
+  }
+  if (c.kind === "posting") {
+    return "<p>На открытой странице LinkedIn — блок «Meet the hiring team», если автор вакансии его заполнил: напишите ему.</p>";
+  }
+  return '<p class="muted">В вакансии никого не назвали. ' + link("Найти рекрутеров " + job.company + " в LinkedIn") + "</p>";
+}
+
+function textBlock(id, title, text, extra) {
+  return '<div class="qa"><div class="row" style="justify-content: space-between"><label class="ql" for="ap-' + id + '">' + esc(title)
+    + (extra ? ' <span class="muted">' + esc(extra) + "</span>" : "") + "</label>"
+    + '<button type="button" class="linkbtn" data-apply="copy-' + id + '">Скопировать</button></div>'
+    + '<textarea id="ap-' + id + '" data-text="' + id + '" rows="' + (id === "note" ? 3 : 7) + '">' + esc(text) + "</textarea></div>";
+}
+
+function renderApplyPanel() {
+  const panel = $("applypanel");
+  const st = applyState;
+  if (!st) return;
+  const job = st.job;
+  const d = st.data;
+  let body = '<p class="muted">Вакансия открыта в браузере — подайте там. '
+    + '<a href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener">Открыть ещё раз</a></p>'
+    + (d && d.lowPay ? '<p class="warn">Зарплата ниже вашего порога: ' + esc(job.salary || "?") + "</p>" : "");
+  if (st.loading && !d) {
+    body += "<p>Ищу, кому написать, и пишу текст…</p>" + '<div class="sweep" aria-hidden="true"><span></span></div>';
+  } else if (!d) {
+    body += '<p class="warn">Не получилось: ' + esc(st.error) + "</p>";
+  } else {
+    const len = st.note.length;
+    body += contactHtml(d, job)
+      + textBlock("note", "Записка к запросу в LinkedIn", st.note, len + "/" + NOTE_LIMIT + (len > NOTE_LIMIT ? " — длинновато" : ""))
+      + textBlock("message", d.contact.kind === "email" ? "Письмо (уже в Gmail)" : "Сообщение или письмо", st.message)
+      + (d.drafted === "template" ? '<p class="muted">Текст по шаблону: Claude не ответил' + (d.error ? " (" + esc(d.error) + ")" : "") + ".</p>" : "")
+      + (st.loading ? '<p class="muted">Пишу заново…</p>' : "")
+      + (st.error ? '<p class="warn">' + esc(st.error) + "</p>" : "");
+  }
+  const tracked = isTracked(job);
+  body += '<div class="row foot">'
+    + '<button type="button" class="btn main" data-apply="funnel"' + (tracked ? " disabled" : "") + ">" + (tracked ? "✓ В воронке" : "Подал — в воронку") + "</button>"
+    + (d ? '<label class="check"><input type="checkbox" data-apply-wrote' + (st.wrote ? " checked" : "") + '><i aria-hidden="true"></i><span>Человеку написано</span></label>' : "")
+    + (d && !st.loading ? '<button type="button" class="btn ghost" data-apply="redraft">Написать заново</button>' : "")
+    + "</div>";
+  // A redraw while I edit a text keeps me there.
+  const editing = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.text : undefined;
   panel.hidden = false;
-  panel.className = "applypanel" + (wide ? " wide" : "");
+  panel.className = "applypanel" + (d ? " wide" : "");
   panel.innerHTML = panelHead(job) + body;
-  if (typing !== undefined) {
-    const field = panel.querySelector('textarea[data-answer="' + typing + '"]');
+  if (editing !== undefined) {
+    const field = panel.querySelector('textarea[data-text="' + editing + '"]');
     if (field) field.focus();
   }
 }
 
-/*
- * The questions the form asks and apply.mjs has no rule for: a field each,
- * which Claude fills with a draft from the CV (POST /api/apply/draft) while I
- * wait, and I correct. "Заполнить с ответами" runs the dry run again with
- * them; the submit after it sends exactly those.
- */
-function questionsBody(r, formUrl) {
-  if (!applyState.questions) {
-    applyState.questions = r.missing.map((field) => ({ label: field.label, question: field.question || field.label, options: field.options || [] }));
-    applyState.answers = {};
-    requestDrafts(false);
-  }
-  const questions = applyState.questions;
-  const filled = (r.filled || []).length;
-  const status = applyState.drafting ? "Claude пишет черновики по резюме…"
-    : applyState.draftError ? "Черновика нет: " + applyState.draftError
-    : "Черновики Claude по резюме — проверьте и поправьте.";
-  return "<p>" + (filled ? "Заполнено полей: " + filled + ". " : "") + "Осталось ответить на "
-      + questions.length + " " + plural(questions.length, "вопрос", "вопроса", "вопросов") + " анкеты.</p>"
-    + '<p class="' + (applyState.draftError ? "warn" : "muted") + '">' + esc(status) + "</p>"
-    + questions.map((q, i) => {
-      const answer = applyState.answers[q.label] || "";
-      const head = esc(q.question);
-      if (q.options.length) {
-        return '<div class="qa" role="radiogroup" aria-label="' + head + '"><span class="ql">' + head + '</span><div class="seg">'
-          + q.options.map((option) => '<label><input type="radio" name="qa-' + i + '" value="' + esc(option) + '" data-answer="' + i + '"'
-            + (option === answer ? " checked" : "") + "><span>" + esc(option) + "</span></label>").join("") + "</div></div>";
-      }
-      return '<div class="qa"><label class="ql" for="qa-' + i + '">' + head + "</label>"
-        + '<textarea id="qa-' + i + '" data-answer="' + i + '" rows="5"'
-        + (applyState.drafting && !answer ? ' placeholder="Claude пишет…"' : "") + ">" + esc(answer) + "</textarea></div>";
-    }).join("")
-    + '<div class="row foot"><button type="button" class="btn main" data-apply="rerun">Заполнить с ответами</button>'
-    + '<button type="button" class="btn soft" data-apply="redraft"' + (applyState.drafting ? " disabled" : "") + ">Набросать заново</button>"
-    + '<a class="btn ghost" href="' + esc(formUrl) + '" target="_blank" rel="noreferrer noopener" style="text-decoration: none">Открыть форму</a></div>';
-}
-
-/**
- * Claude's drafts into the empty fields — or into all of them, `fresh`, for
- * "Набросать заново". The first call comes from inside the panel's render,
- * which then draws the waiting state itself.
- */
-async function requestDrafts(fresh) {
-  const current = applyState;
-  current.drafting = true;
-  current.draftError = "";
-  if (fresh) renderApplyPanel(current.state);
-  try {
-    const { response, payload } = await postJson("/api/apply/draft", { key: current.job.key, questions: current.questions, fresh });
-    if (!response.ok) throw new Error(payload.error || response.statusText);
-    for (const q of current.questions) {
-      const draft = (payload.answers || {})[q.label];
-      if (draft && (fresh || !(current.answers[q.label] || "").trim())) current.answers[q.label] = draft;
-    }
-  } catch (error) {
-    current.draftError = error.message;
-  }
-  current.drafting = false;
-  if (applyState === current && current.state) renderApplyPanel(current.state);
-}
-
-function onAnswerInput(event) {
+function onPanelInput(event) {
   const field = event.target;
-  if (!applyState || !applyState.questions || !field || !field.dataset || field.dataset.answer === undefined) return;
-  const q = applyState.questions[Number(field.dataset.answer)];
-  if (q) applyState.answers[q.label] = field.value;
+  if (!applyState || !field || !field.dataset) return;
+  if (field.dataset.text === "note") applyState.note = field.value;
+  else if (field.dataset.text === "message") applyState.message = field.value;
+  else if (field.dataset.applyWrote !== undefined) applyState.wrote = Boolean(field.checked);
 }
 
-function onApplyPanel(what) {
-  if (!applyState) return;
-  if (what === "close") $("applypanel").hidden = true;
-  else if (what === "submit") startApplyRun(applyState.job, "submit", applyState.acceptLowPay);
-  else if (what === "lowpay") startApplyRun(applyState.job, "dry-run", true);
-  else if (what === "redraft") requestDrafts(true);
-  else if (what === "rerun") {
-    const empty = applyState.questions.filter((q) => !(applyState.answers[q.label] || "").trim()).length;
-    if (empty) return toast("Нет ответа ещё на " + empty + " " + plural(empty, "вопрос", "вопроса", "вопросов"), true);
-    startApplyRun(applyState.job, "dry-run", applyState.acceptLowPay, applyState.answers);
+async function onApplyPanel(what) {
+  const st = applyState;
+  if (!st) return;
+  if (what === "close") {
+    $("applypanel").hidden = true;
+    // Closed without recording: the card is not «подаю» any more.
+    if (decided.get(st.job.key) === "applying") decided.delete(st.job.key);
+    renderSearch();
+  } else if (what === "copy-note" || what === "copy-message") {
+    try {
+      await writeClipboard(what === "copy-note" ? st.note : st.message);
+      // Copied is as close to "sent" as the page can see; the box can be unticked.
+      st.wrote = true;
+      toast(what === "copy-note" ? "Записка скопирована" : "Текст скопирован");
+    } catch {
+      toast("Не удалось скопировать", true);
+    }
+    renderApplyPanel();
+  } else if (what === "redraft") {
+    await fetchOutreach(st, true);
+  } else if (what === "funnel") {
+    const d = st.data;
+    // What went with the application, so reply rates can later be compared with and without a note.
+    const notes = d && st.wrote ? "outreach: " + d.contact.kind + " " + d.contact.label : null;
+    await addToFunnel(st.job, notes);
+    renderApplyPanel();
   }
 }
 
@@ -2306,7 +2253,6 @@ function jobMenu(job) {
           sub: reasons.map((r) => ({ label: (r === suggested ? "Claude: " : "") + r, danger: true, run: open(() => act("reason", r)) }))
             .concat([{ label: "Просто скрыть", danger: true, run: open(() => act("reason", "")) }]) },
     { sep: true },
-    { label: "Открыть вакансию", href: job.applyUrl },
     { label: "Копировать ссылку", run: () => copyJobLink(job) },
   ];
 }
@@ -3185,8 +3131,8 @@ function bindChrome() {
     const button = event.target.closest && event.target.closest("[data-apply]");
     if (button && !button.disabled) onApplyPanel(button.dataset.apply);
   });
-  $("applypanel").addEventListener("input", onAnswerInput);
-  $("applypanel").addEventListener("change", onAnswerInput);
+  $("applypanel").addEventListener("input", onPanelInput);
+  $("applypanel").addEventListener("change", onPanelInput);
 
   // The date window goes to the server: recency is not the first sort key,
   // so a local cut over the ranked list would mostly show nothing.

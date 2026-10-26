@@ -10,9 +10,9 @@
  * prompt and the system prompt — so the test can check what the dashboard
  * actually sent.
  *
- * Asked for a form's answers (the schema has `answers`), it drafts one per
- * numbered question in <form>: the first option of a choice, a sentence
- * naming the question's number otherwise.
+ * Asked whom to write to (the schema has `note`), it names the person after
+ * "Contact person:" in the posting — or "Jane Ghost", who is not in it, when
+ * the posting says GHOST-NAME — and writes a note and a letter.
  */
 
 import { appendFileSync, readFileSync } from "node:fs";
@@ -45,13 +45,15 @@ process.stdin.on("end", () => {
         modelUsage: { "claude-test-1-0": {} },
       }),
     );
-  if (JSON.parse(flag("--json-schema") ?? "{}").properties?.answers) {
-    const form = prompt.slice(prompt.indexOf("<form>"), prompt.indexOf("</form>"));
-    const answers = [...form.matchAll(/^(\d+)\. .*(?:\n {3}Варианты: (.*))?$/gm)].map(([, n, options]) => ({
-      n: Number(n),
-      answer: options ? options.split(" | ")[0] : `Draft ${n}: I built the Google Maps event explorer at ITSharkz.`,
-    }));
-    reply({ answers });
+  if (JSON.parse(flag("--json-schema") ?? "{}").properties?.note) {
+    const named = prompt.match(/Contact person: ([A-Z][a-z]+ [A-Z][a-z]+)/)?.[1] ?? (prompt.includes("GHOST-NAME") ? "Jane Ghost" : "");
+    const company = prompt.match(/Компания: (.*)/)?.[1] ?? "?";
+    reply({
+      contactName: named,
+      contactRole: named ? "Recruiter" : "",
+      note: `Hi${named ? " " + named.split(" ")[0] : ""}, I just applied for your React role. I built a Next.js SaaS with Stripe. Open to a quick chat?`,
+      message: `Hi ${company} team,\n\nI've just applied for the role.`,
+    });
     return;
   }
   if (prompt.includes("LIMIT-TEST")) {

@@ -7,14 +7,13 @@
  *   node scripts/apply-batch.mjs --fetched <fetched.json> [--only 2,10,19] [--skip 5] [--out results.json]
  *                                [--submit] [--force 3,7] [--accept-low-pay 4]
  *
- * A dry run unless --submit: every form is filled and nothing is sent, as
- * «Подать» on the dashboard always starts. "Applications go out in my name;
- * nothing is sent unseen" (src/apply-runner.ts) — show the dry-run lines to the
- * user and re-run with --submit (and --only) for the ones they approve.
+ * A dry run unless --submit: every form is filled and nothing is sent.
+ * "Applications go out in my name; nothing is sent unseen" — show the dry-run
+ * lines to the user and re-run with --submit (and --only) for the ones they approve.
  *
  * A row is attempted when it has no `error`, is not `closed`, its applyVendor
  * is one apply.mjs can drive (not portal / himalayas-account / indeed), and the
- * stops «Подать» has hold (rows carry them from funnel.mjs screen through
+ * stops the dashboard's form filling had hold (rows carry them from funnel.mjs screen through
  * jobs-fetch.mjs):
  *   - Claude's verdict is a current "apply". maybe, skip, an old verdict or
  *     none is skipped with the reason; --force <idx> attempts it anyway.
@@ -60,7 +59,7 @@ const acceptLowPay = indexes(flags["accept-low-pay"]);
 const submit = flags.submit === true;
 if (!submit) console.log("dry run: forms are filled, nothing is sent (--submit sends)");
 
-/** Why «Подать» would not send this row unasked, or null. */
+/** Why this row is not sent unasked, or null. */
 function stop(row) {
   const v = row.verdict;
   if (!force.has(row.index)) {
@@ -77,7 +76,7 @@ function stop(row) {
   return null;
 }
 
-/** "uop" / "b2b" when every published range agrees, as src/apply-runner.ts contractOf. */
+/** "uop" / "b2b" when every published range agrees. */
 function contractOf(pay) {
   const contracts = new Set((pay ?? []).map((range) => range.contract));
   const only = contracts.size === 1 ? [...contracts][0] : null;
@@ -114,7 +113,7 @@ for (const row of rows) {
     "--stack", (row.stack ?? []).join(","),
   ];
   if (row.location) args.push("--location", String(row.location));
-  // As «Подать» passes them (src/apply-runner.ts): the contract the published
+  // The contract the published
   // ranges agree on picks the gross UoP or the net B2B figure, the ranges let a
   // salary field ask for the posting's top, and a giant's Warsaw office must
   // not stop the run on LinkedIn's Hybrid tag.

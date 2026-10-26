@@ -59,7 +59,7 @@ a hide is permanent and teaches the screening rules (same role, same company).
 
 Split the candidates into two JSON lists (`batch-ats.json`, `batch-linkedin.json`)
 and dry-run them with `apply-batch.mjs`: it fills every form and sends nothing.
-It also refuses on its own what «Подать» would not send unasked — no current
+It also refuses on its own what should not go out unasked — no current
 Claude `apply`, pay under the floor, a role like one applied to — and says why.
 
 ```
@@ -72,8 +72,8 @@ answers) and send only what they approve:
 `--submit --only <idx,…>`. `--force <idx>` / `--accept-low-pay <idx>` only on
 their word. Applications go out in their name; nothing is sent unseen.
 Boards that e-mail a verification code (Greenhouse) run headed and need the
-user at the keyboard, so run those last and say so. One card at a time is the
-dashboard's «Подать» — the same dry run, then «Отправить отклик».
+user at the keyboard, so run those last and say so. The dashboard's «Подать»
+fills no forms: it opens the posting and drafts a note to a person there.
 
 Then clear the `missing-answers` rows: write `$S/answers/<idx>.json`, re-run
 with `--only`. A label that will recur goes into the answer bank once:

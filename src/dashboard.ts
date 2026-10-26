@@ -49,8 +49,8 @@ import {
   updateStatus,
   type Status,
 } from "./db.ts";
-import { getRun, readAnswers, refusal, startApply } from "./apply-runner.ts";
-import { draftAnswers, readQuestions } from "./form-drafts.ts";
+import { belowSalaryFloor } from "./boards-pl.ts";
+import { draftOutreach, openInBrowser, opensAtOnce } from "./outreach.ts";
 import { jobKey } from "./jobkey.ts";
 import { inDateWindow, presentJob, searchStored } from "./pipeline.ts";
 import { evalStatus, startEval } from "./verdict-eval.ts";
@@ -806,79 +806,26 @@ const server = createServer(async (request, response) => {
     }
 
     /*
-     * "Подать" on a card: run scripts/apply.mjs for it (src/apply-runner.ts).
-     * Only from this machine — Chrome opens here, and the Greenhouse code is
-     * typed here — and only as dry run first; the runner refuses a submit that
-     * was not preceded by one.
+     * "Подать" on a card (src/outreach.ts): the page has opened the posting
+     * itself; this finds whom to write to and drafts the texts, ~10–20 s with
+     * Claude. Someone found is opened here too — only for a request from this
+     * machine, where the browser is; a phone gets the links. `fresh` drafts again.
      */
     if (request.method === "POST" && path === "/api/apply") {
-      if (!fromThisComputer(request)) {
-        sendJson(response, 403, { error: "applications start only from this computer" });
-        return;
-      }
       const body = JSON.parse((await readBody(request)) || "{}") as Record<string, unknown>;
       const key = typeof body["key"] === "string" ? body["key"] : "";
-      const mode = body["mode"] === "submit" ? "submit" : "dry-run";
-      const answers = readAnswers(body["answers"]);
-      if (!answers) {
-        sendJson(response, 400, { error: "answers must map a question's label to text" });
-        return;
-      }
-      const stored = storedFeed(SEARCH_DEFAULTS.sources).jobs.find((candidate) => jobKey(candidate.url) === key);
-      const job = stored ? withTextPay(stored, key, verdictViews()) : undefined;
-      if (!job) {
+      // The card's copy first; a posting the feed no longer shows is still in the store.
+      const shown = storedFeed(SEARCH_DEFAULTS.sources).jobs.find((candidate) => jobKey(candidate.url) === key);
+      const copies = [...(shown ? [shown] : []), ...findPostings(key)];
+      if (copies.length === 0) {
         sendJson(response, 404, { error: "no such job in the stored postings" });
         return;
       }
-      const refused = refusal(key, job, mode, body["acceptLowPay"] === true);
-      if (refused) {
-        sendJson(response, 409, { error: refused.message, lowPay: refused.lowPay ?? false });
-        return;
-      }
-      const run = startApply(key, job, mode, `http://127.0.0.1:${PORT}`, answers);
-      sendJson(response, 202, { id: run.id, mode, profile: run.profile });
-      return;
-    }
-
-    /*
-     * The questions a dry run had no answer for (its `missing`), drafted by
-     * Claude from the CV (src/form-drafts.ts) for the panel to show in
-     * editable fields. Answered when Claude is done, ~10–30 s; `fresh` asks
-     * again instead of returning the drafts already made.
-     */
-    if (request.method === "POST" && path === "/api/apply/draft") {
-      if (!fromThisComputer(request)) {
-        sendJson(response, 403, { error: "applications start only from this computer" });
-        return;
-      }
-      const body = JSON.parse((await readBody(request)) || "{}") as Record<string, unknown>;
-      const key = typeof body["key"] === "string" ? body["key"] : "";
-      const shown = storedFeed(SEARCH_DEFAULTS.sources).jobs.find((candidate) => jobKey(candidate.url) === key);
-      const copies = [...(shown ? [shown] : []), ...findPostings(key)];
-      const questions = readQuestions(body["questions"]);
-      if (copies.length === 0 || !questions) {
-        sendJson(response, copies.length === 0 ? 404 : 400, {
-          error: copies.length === 0 ? "no such job in the stored postings" : "questions must be a list of {label, question, options}",
-        });
-        return;
-      }
-      try {
-        const answers = await draftAnswers(key, copies, questions, body["fresh"] === true);
-        sendJson(response, 200, { answers });
-      } catch (error) {
-        sendJson(response, 502, { error: error instanceof Error ? error.message : String(error) });
-      }
-      return;
-    }
-
-    const applyRunMatch = path.match(/^\/api\/apply\/([0-9a-f-]{36})$/);
-    if (request.method === "GET" && applyRunMatch) {
-      const run = getRun(applyRunMatch[1] as string);
-      if (!run) {
-        sendJson(response, 404, { error: "no such run" });
-        return;
-      }
-      sendJson(response, 200, run);
+      const job = withTextPay(copies[0] as Job, key, verdictViews());
+      const outreach = await draftOutreach(key, [job, ...copies.slice(1)], body["fresh"] === true);
+      const open = body["open"] !== false && fromThisComputer(request) && opensAtOnce(outreach.contact);
+      if (open) openInBrowser(outreach.contact.url);
+      sendJson(response, 200, { ...outreach, opened: open, lowPay: belowSalaryFloor(job) });
       return;
     }
 
