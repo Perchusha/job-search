@@ -515,6 +515,7 @@ async function main() {
   check("the first card is the best one in the stack", page.currentKey === "example.com/stack/a" && focus().includes("Senior React Engineer"));
   check("the card says the verdict, the facts, the stack and Claude's summary",
     focus().includes("Подходит · 86") && focus().includes("«Fully remote»") && focus().includes(">Из Польши<")
+      && focus().includes('>удалённо</span><span class="sub" title="«Fully remote»">')
       && focus().includes('<span class="tag">React</span>') && focus().includes("Сводка apply"));
   check("an earlier application at the company is in the right column, not on the card",
     /откликался сюда 1×/i.test(side()) && !focus().includes("откликался"));
@@ -683,6 +684,35 @@ async function main() {
   const promptFile = String(flag("--system-prompt-file"));
   check("the system prompt is written per run outside the sessions' folder, then removed",
     dirname(promptFile) === join(dirname(DB), "verdicts-tmp") && !existsSync(promptFile), promptFile);
+
+  /* ---- LinkedIn: the page's place kept with its text, and a city that is not an office ---- */
+  const liKey = "linkedin.com/jobs/view/999000111";
+  const liRow = {
+    source: "linkedin", externalId: "li-999000111", title: "Senior Frontend Engineer, Growth", company: "Placeco",
+    url: "https://www.linkedin.com/jobs/view/999000111", location: null, remote: false, salary: null, salaryMin: null,
+    salaryMax: null, tags: ["linkedin"], postedAt: today, locationRestrictions: [],
+    description: "Globally distributed, remote-first team. React and TypeScript." + filler,
+  };
+  const liStore = new Database(DB);
+  liStore.prepare("INSERT INTO postings (source, job_key, data, posted_at, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)")
+    .run("linkedin", liKey, JSON.stringify(liRow), today, today, today);
+  // An earlier read of its page found "Poland", which the board's row lacks.
+  liStore.prepare("INSERT INTO posting_texts (job_key, text, via, read_at, location) VALUES (?, ?, ?, ?, ?)")
+    .run(liKey, liRow.description, "fetched", today, "Poland");
+  liStore.close();
+  await post("/api/verdict", { key: liKey });
+  for (let waited = 0; waited < 20_000; waited += 250) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    if ((await (await fetch(`${BASE}/api/verdicts`)).json()).verdicts[liKey]) break;
+  }
+  const liCall = readFileSync(CLAUDE_LOG, "utf8").trim().split("\n").map((line) => JSON.parse(line))
+    .find((entry) => entry.prompt.includes("Placeco"));
+  check("a later read keeps the place an earlier page gave, so «Где» is not lost on a re-judge",
+    Boolean(liCall?.prompt.includes("Где: Poland")), liCall?.prompt.split("\n").find((line) => line.startsWith("Где")));
+  check("a LinkedIn posting's «Где» is said to be no office: the format is read from the text",
+    Boolean(liCall?.prompt.includes("LinkedIn пишет в «Где» город или страну")) && !call.prompt.includes("LinkedIn пишет"));
+  const keptPlace = new Database(DB).prepare("SELECT location FROM posting_texts WHERE job_key = ?").get(liKey);
+  check("and the saved text still holds it", keptPlace?.location === "Poland", JSON.stringify(keptPlace));
 
   page.setVar("searchLoaded", true);
   await page.pollVerdicts();

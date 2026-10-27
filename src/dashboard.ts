@@ -47,6 +47,7 @@ import {
   postingCounts,
   saveForget,
   updateStatus,
+  listPostingPlaces,
   type Status,
 } from "./db.ts";
 import { belowSalaryFloor } from "./boards-pl.ts";
@@ -910,12 +911,15 @@ const server = createServer(async (request, response) => {
       // Before the read, as in /api/verdicts: the page polls from here on.
       const verdictsAt = new Date().toISOString();
       const verdicts = verdictViews();
+      const places = listPostingPlaces();
 
       sendJson(response, 200, {
         // `key` is the job's identity (src/jobkey.ts): the page compares it with
         // the funnel's url_key. `dismissed` renders a restore button.
         jobs: view.page.map(({ job, bucket, reason, flags }) => ({
           ...presentJob(job),
+          // The place the posting's page gave where the board gave none (LinkedIn's "Poland").
+          location: job.location ?? places.get(job.key) ?? null,
           key: job.key,
           // Keys of the copies dedupe folded into it (src/sources.ts): the card lists their boards.
           aliases: job.aliasKeys ?? [],

@@ -222,14 +222,16 @@ function matches(expected: Expected, got: Verdict): boolean {
 /** The posting as the prompt describes it: the stored copy when there is one. */
 function jobFor(row: GoldenRow): Job {
   const stored = findPostings(row.key)[0];
-  if (stored) return stored;
+  // The page's place where the board gave none, as a verdict run passes it.
+  const place = getPostingText(row.key)?.location || null;
+  if (stored) return stored.location || !place ? stored : { ...stored, location: place };
   return {
     source: row.source as Job["source"],
     externalId: row.key,
     title: row.title,
     company: row.company,
     url: row.url,
-    location: null,
+    location: place,
     remote: false,
     salary: null,
     salaryMin: null,

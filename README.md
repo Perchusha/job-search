@@ -235,7 +235,13 @@ A Polish city, metro area or voivodeship counts as Poland ("Wroclaw Metropolitan
 place at all — `scripts/jobspy_fetch.py` keeps them now. Such a country-wide card is a remote
 role open to the whole country (14 of 22 judged ones remote by their text, none asking for an
 office); a card naming a city is where the office days were (17 of the 18 "не remote" skips).
-The verdict's «Где» takes the page's own place when the board gave none.
+The verdict's «Где» takes the page's own place when the board gave none, and keeps it: the place
+is saved with the page's text (`posting_texts.location`), so a re-judge from the saved text
+has it too — without it Kraken's remote role was doubted "open from Poland?" on 2026-10-25 —
+and the Search card shows it. For a LinkedIn posting the prompt adds that «Где» is where the
+employer filed it, remote ones included, so a city there is no office: the format comes from
+the text. (LinkedIn's own "Remote" chip shows only to a logged-in session; the public page
+has no work mode, and its search does not keep to the remote filter.)
 
 One exception to remote-only: the giants listed in **Настройки → Мои условия** (Google,
 Apple, Netflix, Meta, Microsoft, Amazon, Nvidia, subsidiaries named; `OFFICE_OK` in

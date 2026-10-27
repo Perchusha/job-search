@@ -320,10 +320,11 @@ function migrate(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_decisions_job_key ON decisions(job_key);
 
     CREATE TABLE IF NOT EXISTS posting_texts (
-      job_key TEXT PRIMARY KEY,
-      text    TEXT NOT NULL,
-      via     TEXT NOT NULL,
-      read_at TEXT NOT NULL
+      job_key  TEXT PRIMARY KEY,
+      text     TEXT NOT NULL,
+      via      TEXT NOT NULL,
+      read_at  TEXT NOT NULL,
+      location TEXT
     );
 
     /*
@@ -391,6 +392,14 @@ function migrate(database: Database.Database): void {
   const appColumns = database.prepare<[], { name: string }>("PRAGMA table_info(applications)").all();
   if (!appColumns.some((column) => column.name === "posted_at")) {
     database.exec("ALTER TABLE applications ADD COLUMN posted_at TEXT");
+  }
+
+  // The place the posting's page gives (LinkedIn's "Poland", which JobSpy drops
+  // from about 15% of its rows): a re-judge from the saved text used to lose it.
+  // "" means the page was read and named none.
+  const textColumns = database.prepare<[], { name: string }>("PRAGMA table_info(posting_texts)").all();
+  if (!textColumns.some((column) => column.name === "location")) {
+    database.exec("ALTER TABLE posting_texts ADD COLUMN location TEXT");
   }
 
   for (const table of ["applications", "dismissed"]) {
@@ -1146,17 +1155,30 @@ export function listCriteriaVersions(limit: number): CriteriaVersionRow[] {
     .all(limit);
 }
 
-export type PostingText = { job_key: string; text: string; via: string; read_at: string };
+export type PostingText = { job_key: string; text: string; via: string; read_at: string; location: string | null };
 
-/** Keeps the text a verdict read; a later read of the same job replaces it. `readAt` only for recovered texts. */
-export function savePostingText(key: string, text: string, via: string, readAt = nowIso()): void {
+/**
+ * Keeps the text a verdict read; a later read of the same job replaces it.
+ * `readAt` only for recovered texts. A later read without a place keeps the
+ * place an earlier one found.
+ */
+export function savePostingText(key: string, text: string, via: string, readAt = nowIso(), location: string | null = null): void {
   getDb()
     .prepare(
-      `INSERT INTO posting_texts (job_key, text, via, read_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(job_key) DO UPDATE SET text = excluded.text, via = excluded.via, read_at = excluded.read_at
+      `INSERT INTO posting_texts (job_key, text, via, read_at, location) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(job_key) DO UPDATE SET text = excluded.text, via = excluded.via, read_at = excluded.read_at,
+         location = COALESCE(excluded.location, posting_texts.location)
        WHERE excluded.read_at >= posting_texts.read_at`,
     )
-    .run(key, text, via, readAt);
+    .run(key, text, via, readAt, location);
+}
+
+/** The place each read page gave, by job: the feed shows it where the board gave none. */
+export function listPostingPlaces(): Map<string, string> {
+  const rows = getDb()
+    .prepare<[], { job_key: string; location: string }>("SELECT job_key, location FROM posting_texts WHERE location IS NOT NULL AND location <> ''")
+    .all();
+  return new Map(rows.map((row) => [row.job_key, row.location]));
 }
 
 export function getPostingText(key: string): PostingText | null {

@@ -304,6 +304,8 @@
   .fact .v { font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
   .fact .v.low { color: var(--bad); }
   .fact .v.midlow { color: var(--warn); }
+  .fact .sub { font-size: 13px; line-height: 1.35; color: var(--muted); overflow-wrap: anywhere;
+               display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .tags { display: flex; flex-wrap: wrap; gap: 8px; }
   .tag { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 999px; background: var(--soft);
          font-size: 13px; font-weight: 500; color: var(--ink-2); }
@@ -1436,15 +1438,16 @@ function facts(job) {
       .map((n) => (n / 1000).toFixed(1).replace(/\.0$/, "")).filter((n, i, all) => all.indexOf(n) === i).join("–")
     : "";
   const salary = (job.salary ? job.salary + (monthly ? " · ≈ " + monthly + "k PLN/мес B2B" : "") : v.salary) || "не указана";
-  const mode = v.workModeQuote ? "«" + v.workModeQuote + "»"
-    : WORKMODE_WORD[v.workMode] || WORKMODE_WORD[job.workMode]
-      || (signals.mode === "onsite" ? "офис" : signals.mode === "hybrid" ? "офис N дней" : "не ясно");
+  // The word first and Claude's quote under it: a quote alone ("remote-first environment") read as no answer.
+  const mode = WORKMODE_WORD[v.workMode] || WORKMODE_WORD[job.workMode]
+    || (signals.mode === "onsite" ? "офис" : signals.mode === "hybrid" ? "офис N дней" : "не ясно");
+  const quote = v.workModeQuote ? "«" + v.workModeQuote + "»" : "";
   const level = LEVEL_WORD[v.seniority] || job.seniorityLevel || "не указан";
   const poland = POLAND_WORD[v.canWorkFromPoland]
     || (job.eligibility && job.eligibility.level === "high" ? "да" : "проверить");
   return [
     ["Вилка", salary, job.belowSalaryFloor ? "low" : job.payState === "midlow" ? "midlow" : ""],
-    ["Формат", mode, ""],
+    ["Формат", mode, "", quote],
     ["Уровень", level, ""],
     ["Из Польши", poland, ""],
   ];
@@ -1531,8 +1534,9 @@ function cardHtml(job) {
     + '<a class="out" href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener">Открыть на площадке ' + ARROW_OUT + "</a></div>"
     + "<div><h1>" + esc(job.title) + '</h1><p class="co">' + esc(job.company) + " · " + esc(where) + "</p></div>"
     + notesHtml(job)
-    + '<div class="facts">' + facts(job).map(([k, value, cls]) => '<div class="fact"><span class="k">' + esc(k)
-      + '</span><span class="v ' + cls + '">' + esc(value) + "</span></div>").join("") + "</div>"
+    + '<div class="facts">' + facts(job).map(([k, value, cls, sub]) => '<div class="fact"><span class="k">' + esc(k)
+      + '</span><span class="v ' + cls + '">' + esc(value) + "</span>"
+      + (sub ? '<span class="sub" title="' + esc(sub) + '">' + esc(sub) + "</span>" : "") + "</div>").join("") + "</div>"
     + (tags.length ? '<div class="tags">' + tags.map((t) => '<span class="tag">' + esc(t) + "</span>").join("") + "</div>" : "")
     + '<div class="rule"></div>'
     + claudeHtml(job)

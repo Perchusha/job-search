@@ -604,8 +604,13 @@ async function postingText(copies: Job[], reuseKey?: string): Promise<Posting> {
   const stored = copies.map((copy) => copy.description ?? "").sort((a, b) => b.length - a.length)[0] ?? "";
   if (stored.length >= ENOUGH_TEXT && stored.length < STORED_CAP) return { text: stored, closed: false, via: "stored" };
   const saved = reuseKey ? getPostingText(reuseKey) : null;
-  if (saved && saved.text.length > stored.length && Date.now() - Date.parse(saved.read_at) < SAVED_FRESH_MS) {
-    return { text: saved.text, closed: false, via: "saved" };
+  const reusable = saved !== null && saved.text.length > stored.length && Date.now() - Date.parse(saved.read_at) < SAVED_FRESH_MS;
+  // LinkedIn's place lives on its page only: a saved read from before places
+  // were kept is read once more, so a re-judge does not doubt that the role is
+  // open from Poland (Kraken, 2026-10-25). Kept as "" when the page names none.
+  const placeMissing = copies[0]?.source === "linkedin" && !copies.some((copy) => copy.location) && saved?.location == null;
+  if (saved && reusable && !placeMissing) {
+    return { text: saved.text, closed: false, via: "saved", location: saved.location || null };
   }
   const url = copies[0]?.url;
   const fetched = url ? await fetchPosting(url) : { text: "", closed: false, error: "no url", location: null };
@@ -615,6 +620,8 @@ async function postingText(copies: Job[], reuseKey?: string): Promise<Posting> {
   if (!walled && fetched.text.length >= 300 && fetched.text.length > stored.length) {
     return { text: fetched.text, closed: fetched.closed, via: "fetched", location: fetched.location };
   }
+  // The page would not answer now: the earlier read still beats a short stored text.
+  if (saved && reusable) return { text: saved.text, closed: false, via: "saved", location: saved.location || fetched.location };
   if (stored.length >= 200) return { text: stored, closed: fetched.closed, via: "stored", location: fetched.location };
   const why = walled ? "страница закрыта проверкой на бота" : fetched.error ?? "текста нет";
   throw new Error(`не удалось прочитать вакансию: ${why}`);
@@ -680,6 +687,14 @@ function prompt(job: Job, posting: Posting): string {
     // Read as office cities otherwise: Himalayas' places are where one may work from.
     ...(job.source === "himalayas"
       ? ["Himalayas — площадка только удалённых вакансий; «Где» — страны, из которых можно работать."]
+      : []),
+    // LinkedIn puts a city or a country on every posting, remote ones too. Read
+    // as an office, it made "не ясно" and skips of remote roles (2026-10-27).
+    // Here, not in the criteria: this wording is not their version, so it
+    // re-judges nothing by itself.
+    ...(job.source === "linkedin"
+      ? ["LinkedIn пишет в «Где» город или страну, к которой работодатель привязал вакансию, — и у удалённых тоже. "
+        + "Это не офис и не гибрид: формат бери только из текста. Место в Польше значит, что работать из Польши можно."]
       : []),
     "",
     "<posting>",
@@ -1088,10 +1103,15 @@ async function evaluate(task: Task): Promise<boolean> {
     // in between may have brought the text (Himalayas carries it since then).
     // A card asked for by hand reads the page again: the text may be why it was asked.
     const posting = await postingText([...task.copies, ...findPostings(task.key)], task.requested === "auto" ? task.key : undefined);
-    if (posting.via !== "saved") savePostingText(task.key, posting.text, posting.via);
+    // The page's place outlives a later read that has none — a stored
+    // description, a saved text — so the prompt's «Где» keeps it.
+    const place = posting.location || getPostingText(task.key)?.location || null;
+    if (posting.via !== "saved") {
+      savePostingText(task.key, posting.text, posting.via, undefined, place ?? (posting.via === "fetched" ? "" : null));
+    }
     task.state = "thinking";
     if (task.requested === "auto") countAutoRun(task.lane);
-    const answer = await askClaude(job, posting);
+    const answer = await askClaude(job, { ...posting, location: place });
     saveVerdict({
       url: job.url,
       company: job.company,
