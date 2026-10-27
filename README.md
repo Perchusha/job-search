@@ -456,28 +456,29 @@ by the server at boot, which fills in `__STATUSES__` and `__SOURCES__`. It used 
 template literal inside `dashboard.ts`, where a stray backtick or an unescaped backslash
 blanked the whole page and `tsc` said nothing; restart the server after editing it.
 
-The look, "Солнце": dark by default (a white ground was too bright to sit in front of all
-day), one tangerine accent (`#FF7A45`) with dark text on it (white on that orange would be
-3.4:1), raised surfaces instead of borders, and two typefaces — **Unbounded** for the few
-display lines, **Onest** for everything else, both with Cyrillic, served from
+The look, «Глубина» (chosen 2026-10-27, after "Солнце"): dark only — the light theme and
+its switch went —, a near-black ground (`#07080D`) with one soft tangerine glow, layers of
+white at a few percent instead of solid panels, one tangerine accent (`#FF7A45`) with dark
+text on it (white on that orange would be 3.4:1), and two typefaces — **Unbounded** for the
+few display lines, **Onest** for everything else, both with Cyrillic, served from
 `node_modules` (`@fontsource-variable/*`) through `/fonts.css`. The colours are tokens at
-the top of the stylesheet, a dark set and a light one; **Настройки → Тема** picks dark,
-light or the system's, kept in `localStorage` and applied by a small script before the
-styles, so the page never flashes white.
+the top of the stylesheet. The desktop window opens at 1280×720, and the page fits it.
 
-It is laid out as an app window: the header across the top, a rail down the left with the
-two sections, the stacks over the queue and the card, which take exactly the rest — the
-queue scrolls inside itself. The rail, the queue's score tiles, Ctrl K (an icon in the
-header) and the right-click menu borrow Discord's patterns in this page's own look. No
-native select or checkbox is drawn: a select is a button whose options open in one shared
-listbox, placed by the script so neither the tracker's table nor the settings dialog clips
-it (arrows, Home/End, Enter, Esc); a checkbox keeps its real input under a drawn box. The card's stage is a CSS
-size container, so its type, padding and buttons scale with the room (`clamp()` over
-`cqh`/`cqw`): full size on a big window, smaller as it shrinks. The buttons never leave the
-screen — when the card still does not fit, its body scrolls above them, with a fade at the
-foot while there is more. On a short stage the key hints go, then the tags; under 900 px
-the page scrolls as a whole, the rail becomes a row under the header and the queue becomes a
-row.
+It is laid out as an app window: the header across the top — the brand with ↻ and the
+boards' age, the stacks in the middle (on Отклики, its statuses in the same place), my
+links, Найти and the avatar on the right —, a rail down the left with the two sections and
+Настройки at its foot, and the view taking exactly the rest; every column scrolls inside
+itself. No scrollbar is drawn anywhere: a list that goes on fades out at its foot instead (a
+mask moved by a scroll-driven animation, so the fade is gone at the end and when nothing
+scrolls). No native select or checkbox is drawn: a select is a button whose options open in
+one shared listbox, placed by the script so neither the tracker's table nor the settings
+dialog clips it (arrows, Home/End, Enter, Esc); a checkbox keeps its real input under a
+drawn box. Under 900 px the page scrolls as a whole and the columns stack.
+
+On **Отклики** a click on a row opens that application in a drawer on the right: its status
+(changeable there or in the row), when it went out and when the reply came, whom I wrote to,
+what went with it, the company's other applications and postings, the posting's link. The
+right column sums up: reply and silence rates, days to a reply, the last reply, this week.
 
 ### Job identity and stored postings
 
@@ -531,55 +532,65 @@ top of the stored feed, so none of them asks a board.
 ## Using the Search tab
 
 The page opens on **Поиск**, and it is not a grid: it is a stack you go through one posting
-at a time — a queue on the left, one large card on the right, five actions under it.
+at a time — a strip of Claude's scores on the left, the posting in the middle with a dock of
+four actions floating over its foot, and on the right what is known around the posting.
 
 1. **The stacks** are Claude's verdicts: **Подходят**, **Проверить**, **Все** (everything
    Claude did not take away, unjudged ones included), **Почти подошли** (Claude's skips scored
    20 or more — all six disputable skips of the 2026-10-24 audit were among them) and **Убрал
-   Claude** (every skip, those included). Each shows its count; beside them, where you are (`3 из 13`) and how much of the stack is decided.
+   Claude** (every skip, those included). They sit in the middle of the header, each with its count; the strip's foot says where you are (`3 / 13`).
 2. **The card** has the verdict and score, the title, company and place, the posting's age
-   and board, a link to the posting, and four facts — pay, work mode (quoted from the text),
-   level, whether it can be done from Poland — then the role's stack as tags, Claude's
-   summary, the stop factors, and *what matches* / *what is off*. Notes above the facts say
-   what else is known: an earlier application at the company, office days or Polish above B1
-   (B2, C1, "fluency", "biegle", "płynna", "swobodnie" — not when the sentence makes it a plus)
-   in the text, a re-post, a rule hit.
-3. **The actions**, each with its key (by physical position, so the Russian layout works):
-   **Скрыть** `H` opens the reasons — Claude's own first for a skip — and `1`–`6` picks one,
-   `0` hides without one; **Обсудить с Claude** `C` opens the verdict's session in Claude
-   Desktop; **В воронку** `F` records an application (`applied`, there is no bookmark stage);
-   **Потом** `→` puts the card at the end of the stack; **Подать** `Enter` opens the
-   posting in the browser and finds whom to write to (see *«Подать»* below) — the panel
-   keeps it while you go on. `↑` `↓` walk the queue without deciding; `Esc` closes a menu. Enter on a focused
-   button or link is that button's.
+   and board, a link to the posting on its board, and four facts — pay, work mode (quoted
+   from the text), level, whether it can be done from Poland — then the role's stack as tags
+   and, inside the card and kept quiet, Claude's read: the score's tile, one line with the
+   verdict, model and age, the summary, short lists of what fits (+) and what is off (–),
+   and the stop factors. Notes above the facts say what else is known about the posting:
+   office days or Polish above B1 (B2, C1, "fluency", "biegle", "płynna", "swobodnie" — not
+   when the sentence makes it a plus) in the text, a re-post, a rule hit, pay under the floor.
+   **The right column** has the rest: the history with the company (my applications there,
+   or the server's "откликался сюда" when it matched them through a copy; its other postings
+   in the feed — a click opens one, «Все N вакансий компании» lists them in Найти), the copies
+   dedupe folded into this card, by board, and what the rules did. The «Верно / Мимо» marks
+   went on 2026-10-27; the ones made stay labels for «Сверка с эталоном».
+3. **The dock**: **Скрыть** opens the reasons over it — Claude's own first for a skip —, one
+   click hides; **В воронку** records an application (`applied`, there is no bookmark
+   stage); **Обсудить** opens the verdict's session in Claude Desktop; **Подать** opens the
+   posting in the browser and turns the middle of the page into the letter to a person (see
+   *«Подать»* below). Keys, on purpose few (2026-10-27): `Enter` is **Подать**, `↑` `↓`
+   walk the queue without deciding, `Esc` closes what is open — nothing else, and no key
+   is drawn on the page. Enter on a focused button or link is that button's. «Потом» is
+   gone: `↓` does the same without marking anything.
 4. Every decision moves to the next undecided card, which slides in. A decided card keeps
-   its place in the queue for the rest of the page session, marked *подаю…*, *в воронке* or
-   *скрыто*, so the queue shows progress instead of shrinking; the next search leaves out
+   its tile in the strip for the rest of the page session, dimmed and named *подаю…*, *в
+   воронке* or *скрыто*, so the queue shows progress instead of shrinking; the next search leaves out
    what is hidden or applied to. When a stack is done the card says so, with what happened
    and a button to the next stack.
 5. Hidden means hidden from every search, here and in `find_jobs`; **Вернуть** on a hidden
    card (with *скрытые мной* on) brings it back.
-6. **Фильтры** holds the rest: a text filter over the loaded postings, the date window, the
+6. **Фильтры** (the icon at the top of the strip) holds the rest: a text filter over the loaded postings, the date window, the
    boards, *прятать отклики*, *скрытые мной*, *скрытые правилами*, and the queue's order
    (Claude's score — the default —, profile match, newest, company). A dot on the button says
    a filter is on.
-7. **↻** in the header asks the fast boards again; the header says how fresh they are, with
-   every board's age in the tooltip. A badge on **Поиск** in the rail counts what is new
+7. **↻** next to the brand asks the fast boards again; its own text says how fresh they are
+   (`5 ч назад`), with every board's age in the tooltip. A badge on **Поиск** in the rail counts what is new
    since the tab was last opened, and so does the browser tab's title.
 
-   **The rail** switches between **Поиск** and **Отклики**; the boards are narrowed under
-   **Фильтры** only. In the queue, each row's tile is Claude's score itself, in the verdict's
-   colour — green fits, amber check, grey skip — pulsing while Claude reads and a dash
-   before (the company's two letters with a small score badge in the corner were harder to
-   scan). The queue goes best to worst by that score unless **Фильтры → Порядок** says
-   otherwise. The avatar at the top right is `src/assets/avatar.jpg`, served at `/avatar.jpg`.
+   **The rail** switches between **Поиск** and **Отклики**, with **Настройки** at its foot;
+   the boards are narrowed under **Фильтры** only. The strip is always folded (2026-10-27:
+   less to read): each tile is Claude's score itself, in the verdict's colour — green fits,
+   amber check, grey skip — pulsing while Claude reads and a dash before; a short rule parts
+   «Подходит» from the rest; the title shows on hover and is the tile's name for a screen
+   reader. The queue goes best to worst by that score unless **Фильтры → Порядок** says
+   otherwise. My LinkedIn, GitHub and portfolio links sit in the header: a click copies one,
+   and its button turns into a tick with «… скопирован» under it. The avatar
+   (`src/assets/avatar.jpg`, served at `/avatar.jpg`) opens Настройки.
 
-   **Ctrl K** (or the magnifier icon in the header) jumps anywhere: type part of a title or a
-   company, `#` for a stack, `@` for a company's postings and applications;
-   `↑` `↓` and `Enter` pick, `Esc` closes. Opening a posting takes you to its own stack.
-   **Right-click** on a queue row (or the menu key) gives the card's actions for that row —
-   Подать, В воронку, Потом, Обсудить, Спросить Claude, Скрыть ▸ with the reasons, copy
-   the link; an action opens the row's card and runs on it, as its button would.
+   **Найти** (the magnifier in the header; Ctrl K is no longer a key) jumps anywhere: type
+   part of a title or a company, `#` for a stack, `@` for a company's postings and
+   applications; in the dialog `↑` `↓` and `Enter` pick, `Esc` closes. Opening a posting
+   takes you to its own stack. **Right-click** on a tile (or the menu key) gives the card's
+   actions for it — Подать, В воронку, Обсудить, Спросить Claude, Скрыть ▸ with the reasons,
+   copy the link; an action opens the tile's card and runs on it, as its button would.
 8. **The date window** (сутки / 3 дня / неделя / 2 недели / месяц) narrows by posting age.
    A month is both the default and the ceiling — it is `SEARCH_DEFAULTS.hoursOld`, and the
    server clamps anything wider back down to it, so a hand-edited URL cannot widen the
@@ -775,8 +786,8 @@ call, and each verdict is a real session on disk that Desktop can open.
   «вернуть этот текст» writes an older one back into the file.
   The facts in it mirror `.claude/skills/job-apply/profile.json`; change both.
 - **Checking criteria before they re-judge everything** ([src/verdict-eval.ts](src/verdict-eval.ts)).
-  Claude's verdict on each card carries **«Верно» / «Мимо»**; «Мимо» asks which verdict it
-  should have been (`verdict_feedback`). Every hide, restore and «В воронку» is also kept with
+  Claude's verdict on each card carried **«Верно» / «Мимо»** until 2026-10-27; «Мимо» asked
+  which verdict it should have been (`verdict_feedback`, still read, no longer written by the page). Every hide, restore and «В воронку» is also kept with
   the verdict it answered (`decisions`). From these — and the 28 postings decided by hand for
   the 2026-10-23 calibration — comes a set of postings whose right answer is known: a mark is
   the verdict itself; a hide with a reason the text carries (не remote, не тот стек, …) means
@@ -859,7 +870,7 @@ holds it, rather than testing the wrong server (`TEST_PORT` overrides).
 
 **`test:ui` earns its keep.** It evaluates the script of [src/dashboard.html](src/dashboard.html)
 as the server serves it — placeholders filled in — and drives the stacks, the card's
-actions and keys, and the tracker through it against a minimal DOM shim; `tsc` sees none
+actions, its two keys, the letter and the tracker with its drawer through it against a minimal DOM shim; `tsc` sees none
 of that page. It caught a syntax error twice when the page was still a template literal,
 a bug where optional arguments silently overwrote the search profile, and a placeholder
 left unfilled because the page's own comment named it first. Run it after touching the page.
@@ -1040,17 +1051,21 @@ and I apply there myself. Meanwhile the server (`POST /api/apply`,
   opened. LinkedIn is never read with the login: its guest pages carry no hiring team
   (probed 2026-10-26), and a scripted logged-in session puts the account at risk.
 - **What**: a note for a LinkedIn connection request (200 characters, a free account's
-  limit; the panel counts) and a 3–4 sentence letter whose signature code types, both by
+  limit; the letter counts) and a 3–4 sentence letter whose signature code types, both by
   the same headless `claude -p` as the verdicts — no tools, the posting marked as the
   employer's text, facts from the CV and profile.json only. If Claude cannot answer, a
-  template stands in and the panel says why. Both are editable; «Скопировать» copies one;
-  «Написать заново» asks Claude again. A job's texts are kept until the server restarts.
+  template stands in and the letter says why. Both are editable; «скопировать» copies one;
+  «Переписать» asks Claude again. A job's texts are kept until the server restarts.
 
-«Подал — в воронку» records the application; with «Человеку написано» ticked (copying a
-text ticks it) its notes say whom I wrote to (`outreach: <kind> <label>`), so replies can
-later be compared with and without a note. Published pay under the floor is a warning in
-the panel. The card stays in its stack, marked *подаю…*, until recorded; closing the panel
-clears the mark.
+All of it fills the middle of the page in place of the card: the posting in one line, then
+«Письмо человеку» — whom to write to, said plainly (a search is a search, not a person
+found), the note and the letter. The dock becomes the letter's — «Назад к вакансии», «Не
+подаю, скрыть» (back on the card with the reasons open), «Отправил, в отклики» — and the
+right column shows the three steps. «Отправил, в отклики» records the application; with
+«Человеку написано» ticked (copying a text ticks it) its notes say whom I wrote to
+(`outreach: <kind> <label>`), so replies can later be compared with and without a note.
+Published pay under the floor is a warning in the letter. The card's tile stays marked
+*подаю…* until recorded; going back to the card clears the mark.
 
 **A board's posting is not the employer's form**, and `apply.mjs` asks the board first.
 justjoin.it renders each offer's `applyUrl` into its page: the employer's form (traffit,

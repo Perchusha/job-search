@@ -291,26 +291,32 @@ async function main() {
   check("the header keeps all three copy-link actions",
     html.includes('id="copy-linkedin"') && html.includes('id="copy-github"') && html.includes('id="copy-portfolio"'));
   check("applied jobs are hidden by default", html.includes('id="hideApplied" checked'));
-  check("the theme is dark unless light is chosen, and chosen before the first paint",
-    html.includes(':root, :root[data-theme="dark"]') && html.includes(':root[data-theme="light"]')
-      && html.indexOf('<script id="theme-boot">') < html.indexOf("<style>"));
-  check("Настройки sit in the header menu, with a Claude section",
-    html.includes('id="opensettings"') && html.includes('id="cl-auto"') && html.includes('id="cl-model"') && html.includes('id="cl-daily"'));
-  check("the queue scrolls inside itself, the card inside a sized stage",
-    html.includes('id="queue" class="qlist"') && /\.stage \{[^}]*container-type: size/.test(html));
-  check("the card's body scrolls, its buttons stay put",
-    /\.cardbody \{[^}]*overflow-y: auto/.test(html) && /\.actions \{ flex: 0 0 auto/.test(html));
-  check("a rail holds the two sections and nothing else",
-    html.includes('id="rail"') && (html.match(/class="tab[^"]*" data-view=/g) || []).length === 2 && !html.includes('id="boards"'));
+  check("dark only: no light theme and nothing to switch it with",
+    html.includes("color-scheme: dark") && !html.includes('data-theme="light"') && !html.includes('id="themepick"') && !html.includes("theme-boot"));
+  check("Настройки open from the avatar and from the rail's foot, with a Claude section",
+    html.includes('class="avatar" id="opensettings"') && html.includes('id="railsettings"')
+      && html.includes('id="cl-auto"') && html.includes('id="cl-model"') && html.includes('id="cl-daily"'));
+  check("the stacks sit in the middle of the header, Отклики' statuses in the same place",
+    html.includes('class="segbar" id="stacks"') && html.includes('class="segbar" id="statuspills"'));
+  check("the queue is a strip that scrolls inside itself, the posting has its own scroller",
+    html.includes('id="queue" class="qlist fades"') && html.includes('class="scroller fades-lg" id="scroller"'));
+  check("no scrollbar anywhere; a list that goes on fades at its foot",
+    html.includes("* { scrollbar-width: none; }") && /\.fades, \.fades-lg \{ mask-image/.test(html) && html.includes("animation-timeline: scroll(self)"));
+  check("the dock floats over the posting, outside its scroller",
+    html.includes('class="dock" id="dock"') && /\.dock \{ position: absolute/.test(html));
+  check("a rail holds the two sections, and Настройки at its foot",
+    html.includes('id="rail"') && (html.match(/class="tab[^"]*" data-view=/g) || []).length === 2
+      && html.includes('class="railbtn" id="railsettings"') && !html.includes('id="boards"'));
   check("no native select is drawn: each is a button with its options in one shared listbox",
-    !/<select[\s>]/.test(html) && (html.match(/class="select[^"]*" id="[^"]+" data-select=/g) || []).length === 7 && html.includes('id="selpop" role="listbox"'));
+    !/<select[\s>]/.test(html) && (html.match(/class="select[^"]*" id="[^"]+" data-select=/g) || []).length === 6 && html.includes('id="selpop" role="listbox"'));
   check("Настройки → Claude has the re-judge choice and the criteria history",
     html.includes('id="cl-rejudge"') && html.includes('id="cl-history"'));
   check("every checkbox is drawn: the real input, then its box or switch",
     (html.match(/<input type="checkbox"/g) || []).length > 0 && (html.match(/<input type="checkbox"[^>]*>(?!<i[ >])/g) || []).length === 0);
-  check("Ctrl K is an icon in the header that names its key, with a dialog and a right-click menu beside it",
-    /<button class="iconbtn" id="findbtn"[^>]*data-tip="Поиск · Ctrl K"/.test(html) && !html.includes('class="find"')
-      && html.includes('id="jump"') && html.includes('id="ctx"'));
+  check("Найти is an icon in the header, with its dialog and a right-click menu beside it — and no key is drawn anywhere",
+    /<button class="iconbtn" id="findbtn"[^>]*data-tip="Найти"/.test(html) && html.includes('id="jump"') && html.includes('id="ctx"')
+      && !html.includes("<kbd>"));
+  check("a copied link says so under its own button", html.includes('data-copied="LinkedIn скопирован"') && /\.copy\.is-copied::after/.test(html));
   const avatar = await fetch(`${BASE}/avatar.jpg`);
   check("the header's avatar is the picture served from the project, not initials",
     html.includes('<img src="/avatar.jpg"') && !html.includes(">АП</button>") && avatar.ok
@@ -333,6 +339,7 @@ async function main() {
     "rules-list", "rules-freed", "rules-fit",
     "pref-memory", "mem-companies", "mem-roles-stat", "mem-roles", "mem-forgotten", "mem-boards-stat", "mem-boards",
     "search-setup", "search-funnel", "search-queries", "search-boards",
+    "dock", "side", "sidecol", "scroller", "drawer", "trackerside", "setnav", "setnav-app", "railsettings", "secs",
   ]) registry.set(id, makeEl(id));
   registry.get("settings").hidden = true;
   registry.get("hideApplied").checked = true;
@@ -359,11 +366,10 @@ async function main() {
        get currentKey(){ return currentKey },
        get stack(){ return stack },
        get decided(){ return decided },
-       get deferred(){ return deferred },
        get hideOpen(){ return hideOpen },
        get claudeStatus(){ return claudeStatus },
        setPayload(payload){ lastSearchPayload = payload; searchLoaded = true; currentKey = null; decided.clear();
-         deferred = []; hideOpen = false; stack = "good"; renderSearch(); },
+         hideOpen = false; stack = "good"; renderSearch(); },
        setVar(name, value){ eval(name + " = value"); },
        getVar(name){ return eval(name); },
        setSort(k, d){ sort = { key: k, dir: d } },
@@ -376,6 +382,8 @@ async function main() {
   check("contact links copy their exact URLs", copiedLinks.join("|") === [
     "https://www.linkedin.com/in/anton-perch-768578113/", "https://github.com/Perchusha", "https://perchusha.github.io/portfolio/",
   ].join("|"));
+  check("a copied link ticks its own button instead of a toast",
+    registry.get("copy-linkedin").classList.contains("is-copied") && registry.get("toast").textContent === "");
   check("the page opens on Search", registry.get("view-search").hidden === false && registry.get("view-tracker").hidden === true);
 
   /* ---- attempts that need me ---- */
@@ -435,6 +443,16 @@ async function main() {
     page.applications.find((a) => a.company === "Alpha").status === "interview"
       && registry.get("legend").innerHTML.includes("В процессе · 1"));
   await page.setStatus(alpha.id, "applied");
+  check("the tracker's right column sums it up: totals, this week",
+    registry.get("trackerside").innerHTML.includes("Итоги") && registry.get("trackerside").innerHTML.includes("Эта неделя"));
+  clickIn(registry, "rows", { app: String(alpha.id) });
+  const drawer = registry.get("drawer");
+  check("a row opens its application in the drawer: its status, when, whom I wrote to",
+    drawer.hidden === false && drawer.innerHTML.includes("<h2>Alpha</h2>") && drawer.innerHTML.includes('data-select="status"')
+      && drawer.innerHTML.includes("Отправлен") && drawer.innerHTML.includes("Кому писал"), drawer.innerHTML.slice(0, 160));
+  check("and its row is marked open", registry.get("rows").innerHTML.includes('is-open" data-app="' + alpha.id + '"'));
+  page.onKey(key("Escape"));
+  check("Escape closes the drawer", drawer.hidden === true);
   page.showView("search");
 
   /* ---- Search: a stack, one card at a time (synthetic jobs, no boards) ---- */
@@ -468,6 +486,8 @@ async function main() {
   const stacksHtml = () => registry.get("stacks").innerHTML;
   const focus = () => registry.get("focus").innerHTML;
   const queue = () => registry.get("queue").innerHTML;
+  const dock = () => registry.get("dock").innerHTML;
+  const side = () => registry.get("side").innerHTML;
   const reversed = synthetic();
   reversed.jobs.reverse();
   page.setPayload(reversed);
@@ -496,16 +516,21 @@ async function main() {
   check("the card says the verdict, the facts, the stack and Claude's summary",
     focus().includes("Подходит · 86") && focus().includes("«Fully remote»") && focus().includes(">Из Польши<")
       && focus().includes('<span class="tag">React</span>') && focus().includes("Сводка apply"));
-  check("an earlier application at the company is on the card", focus().includes("откликался сюда 1×"));
-  check("five actions under it, with their keys",
-    ["hide", "discuss", "funnel", "later", "apply"].every((a) => focus().includes(`data-act="${a}"`)) && focus().includes("<kbd>Enter</kbd>"));
-  check("the queue lists the stack, the current one marked",
+  check("an earlier application at the company is in the right column, not on the card",
+    /откликался сюда 1×/i.test(side()) && !focus().includes("откликался"));
+  check("the right column says what is known around it: the company, its copies, the rules",
+    side().includes("История с компанией") && side().includes("Копии на площадках") && side().includes("Только на Indeed")
+      && side().includes("Правила"));
+  check("four actions in the dock, and no key drawn",
+    ["hide", "funnel", "discuss", "apply"].every((a) => dock().includes(`data-act="${a}"`)) && !dock().includes('data-act="later"')
+      && !dock().includes("<kbd>") && !focus().includes("<kbd>"));
+  check("the strip lists the stack, the current one marked",
     (queue().match(/class="q/g) || []).length === 2 && queue().includes('class="q is-on" data-key="example.com/stack/a"'));
-  check("progress reads 1 of 2", registry.get("progresstext").textContent === "1 из 2");
-  check("each queue row's tile is Claude's score, in the verdict's colour — no company letters",
+  check("progress reads 1 / 2", registry.get("progresstext").textContent === "1 / 2");
+  check("each tile is Claude's score, in the verdict's colour — no company letters",
     queue().includes('<span class="pts apply" aria-hidden="true">86</span>') && !queue().includes(">Ac<") && !queue().includes('class="mono'));
-  check("the score is not said twice: the row's line under the title is the company",
-    queue().includes('<span class="sr">Подходит, 86, </span>Acme</span>') && !queue().includes("86 · Acme"));
+  check("the strip shows only scores; a tile names its posting for the ear and on hover",
+    queue().includes('aria-label="Senior React Engineer — Acme, Подходит, 86" data-tip="Senior React Engineer · Acme"') && !queue().includes(">Acme<"));
 
   /* ---- Ctrl K, the right-click menu ---- */  const jumpTo = (q) => page.jumpResults(q).map((item) => item.kind + ":" + item.label);
   check("Ctrl K with nothing typed offers what is next in the stack, then the stacks",
@@ -518,44 +543,47 @@ async function main() {
   check("the right-click menu hides with a reason, Claude's own first",
     deltaHide?.sub?.[0]?.label === "Claude: не remote" && deltaHide.sub.at(-1).label === "Просто скрыть");
   const acmeMenu = page.jobMenu(page.searchResults.find((j) => j.company === "Acme"));
-  check("and offers the card's actions with their keys", ["Подать", "В воронку", "Потом"].every((label) => acmeMenu.some((item) => item.label === label && !item.disabled))
-    && acmeMenu.find((item) => item.label === "Подать").key === "Enter" && acmeMenu.some((item) => item.label === "Копировать ссылку"));
-  check("«Подать» opens the posting, so neither the card nor the menu has «Открыть вакансию»",
-    !focus().includes("Открыть вакансию") && !acmeMenu.some((item) => item.label === "Открыть вакансию"));
+  check("and offers the card's actions — no keys, no «Потом»",
+    ["Подать", "В воронку", "Обсудить с Claude"].every((label) => acmeMenu.some((item) => item.label === label && !item.disabled))
+      && !acmeMenu.some((item) => item.label === "Потом") && acmeMenu.every((item) => !item.key)
+      && acmeMenu.some((item) => item.label === "Копировать ссылку"));
+  check("the card links to the posting on its board; the menu leaves that to «Подать»",
+    focus().includes("Открыть на площадке") && !acmeMenu.some((item) => item.label === "Открыть вакансию"));
 
-  clickIn(registry, "focus", { act: "later" });
-  check("«Потом» moves on and puts the card last", page.currentKey === "example.com/stack/b"
-    && page.deferred.includes("example.com/stack/a") && queue().indexOf("stack/b") < queue().indexOf("stack/a")
-    && queue().includes(">потом<"));
   page.onKey(key("ArrowDown"));
-  check("↓ walks the queue without deciding anything", page.currentKey === "example.com/stack/a" && page.decided.size === 0);
+  check("↓ walks the queue without deciding anything", page.currentKey === "example.com/stack/b" && page.decided.size === 0);
   page.onKey(key("Enter", "BUTTON"));
   check("Enter on a focused button is that button's, not «Подать»", page.decided.size === 0);
+  for (const code of ["KeyH", "KeyF", "KeyC", "ArrowRight", "Digit1"]) page.onKey(key(code));
+  page.onKey({ code: "KeyK", key: "k", ctrlKey: true, target: { tagName: "BODY" }, preventDefault() {} });
+  check("only Enter and the arrows are keys: H, F, C, →, digits and Ctrl K do nothing",
+    page.decided.size === 0 && !page.hideOpen && page.currentKey === "example.com/stack/b" && page.getVar("jumpOpen") === false);
+  clickIn(registry, "queue", { key: "example.com/stack/a" });
+  check("a tile opens its card", page.currentKey === "example.com/stack/a" && focus().includes("Senior React Engineer"));
   clickIn(registry, "queue", { key: "example.com/stack/b" });
-  check("a queue row opens its card", page.currentKey === "example.com/stack/b" && focus().includes("Senior Frontend Engineer"));
 
-  page.onKey(key("KeyH"));
-  check("H opens the reasons, the page's own one-click ones", page.hideOpen && focus().includes('data-reason="не тот стек"')
-    && !focus().includes("Claude предлагает"));
+  await page.act("hide");
+  check("«Скрыть» opens the reasons over the dock, the page's own one-click ones", page.hideOpen && dock().includes('data-reason="не тот стек"')
+    && !dock().includes("Claude предлагает"));
   page.onKey(key("Escape"));
   check("Escape closes them", !page.hideOpen);
 
   await page.act("funnel");
   check("«В воронку» records the application and moves on", page.trackedUrls.has("example.com/stack/b")
     && page.decided.get("example.com/stack/b") === "funnel" && page.currentKey === "example.com/stack/a");
-  check("the decided card keeps its place in the queue, marked", queue().includes(">в воронке<") && (queue().match(/class="q/g) || []).length === 2);
+  check("the decided tile keeps its place in the strip, marked", queue().includes(">в воронке<") && (queue().match(/class="q/g) || []).length === 2);
   check("and the tracker got the row", page.applications.some((a) => a.url === "https://example.com/stack/b"));
 
   clickIn(registry, "stacks", { stack: "skipped" });
   check("«Убрал Claude» holds Claude's skips", page.stack === "skipped" && page.currentKey === "example.com/stack/d"
     && focus().includes("✕ Гибрид: «3 days in office»"));
-  page.onKey(key("KeyH"));
-  check("a skip's reasons start with Claude's own", focus().indexOf("Claude предлагает: не remote") > -1
-    && focus().indexOf("Claude предлагает") < focus().indexOf('data-reason="не тот стек"'));
-  page.onKey(key("Digit1"));
+  await page.act("hide");
+  check("a skip's reasons start with Claude's own", dock().indexOf("Claude предлагает: не remote") > -1
+    && dock().indexOf("Claude предлагает") < dock().indexOf('data-reason="не тот стек"'));
+  clickIn(registry, "dock", { act: "reason", reason: "не remote" });
   await new Promise((resolve) => setTimeout(resolve, 300));
   const hidden = (await (await fetch(`${BASE}/api/dismissed`)).json()).dismissed.find((d) => d.url === "https://example.com/stack/d");
-  check("1 hides it with that reason", hidden?.reason === "не remote", JSON.stringify(hidden));
+  check("a reason hides it with that reason", hidden?.reason === "не remote", JSON.stringify(hidden));
   check("an emptied stack says so, with what happened", focus().includes("Эта стопка разобрана") && focus().includes("скрыто: 1"));
 
   page.pickStack("all");
@@ -576,7 +604,7 @@ async function main() {
   page.setVar("showDismissed", true);
   page.renderSearch();
   page.pickJob("example.com/stack/g");
-  check("a job I hid shows «Вернуть» instead of «Скрыть»", focus().includes('data-act="restore"') && !focus().includes('data-act="hide"'));
+  check("a job I hid shows «Вернуть» instead of «Скрыть»", dock().includes('data-act="restore"') && !dock().includes('data-act="hide"'));
   page.setVar("showDismissed", false);
   registry.get("hideApplied")._handlers.change({ target: { checked: false } });
   page.setPayload({ ...synthetic(), jobs: synthetic().jobs });
@@ -708,16 +736,19 @@ async function main() {
 
   page.pickJob(fits.key);
   await page.act("apply");
-  const panel = registry.get("applypanel");
-  check("«Подать» marks the card and fills the panel: whom to write to, the note, the letter",
-    page.decided.get(fits.key) === "applying" && panel.hidden === false && panel.innerHTML.includes("Записка к запросу в LinkedIn")
-      && panel.innerHTML.includes("Найти рекрутеров Claudeco 1 в LinkedIn") && panel.innerHTML.includes("Подал — в воронку"), panel.innerHTML.slice(0, 200));
+  check("«Подать» marks the card and turns the middle into the letter: whom to write to, the note, the letter",
+    page.decided.get(fits.key) === "applying" && focus().includes("Письмо человеку") && focus().includes("Записка к запросу в LinkedIn")
+      && focus().includes("Найти рекрутеров Claudeco 1 в LinkedIn") && focus().includes("это поиск, а не найденный человек"),
+    focus().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300));
+  check("the dock becomes the letter's: back to the posting, not applying, sent",
+    dock().includes('data-apply="close"') && dock().includes('data-apply="skip"') && dock().includes("Отправил, в отклики"));
+  check("and the right column the steps", side().includes("Как подаёмся") && side().includes("Из чего письмо"));
   await page.onApplyPanel("copy-note");
   check("copying the note ticks «Человеку написано»", page.applyState.wrote === true && copiedLinks.at(-1) === page.applyState.note);
   await page.onApplyPanel("funnel");
   const recorded = (await (await fetch(`${BASE}/api/applications`)).json()).applications.find((a) => a.company === "Claudeco 1");
-  check("«Подал — в воронку» records it, with whom I wrote to",
-    recorded?.notes?.includes("outreach: search рекрутеры Claudeco 1 в LinkedIn"), recorded?.notes ?? "not recorded");
+  check("«Отправил, в отклики» records it, with whom I wrote to, and the letter gives way",
+    recorded?.notes?.includes("outreach: search рекрутеры Claudeco 1 в LinkedIn") && page.applyState === null, recorded?.notes ?? "not recorded");
   if (recorded) new Database(DB).prepare("DELETE FROM applications WHERE id = ?").run(recorded.id);
   page.onApplyPanel("close");
   // The row is gone, so is this session's mark: the live search below starts clean.
@@ -739,7 +770,7 @@ async function main() {
   check("the settings start from the defaults (background off here, by JOBHUNT_CLAUDE_AUTO=0)",
     settings0.auto === false && settings0.model === "sonnet" && settings0.effort === "low" && settings0.daily === 80, JSON.stringify(settings0));
   await page.openSettings();
-  check("the menu's «Настройки» opens them, filled in", registry.get("settings").hidden === false
+  check("«Настройки» open, filled in", registry.get("settings").hidden === false
     && registry.get("cl-model").value === "sonnet" && registry.get("cl-daily").value === "80"
     && /Сегодня в фоне: 0 из 80/.test(registry.get("cl-stat").textContent), registry.get("cl-stat").textContent);
   check("Настройки draw the rules with their switches and the company boards",
@@ -926,7 +957,7 @@ async function main() {
     setup1.queries.map((q) => `${q.query}:${q.found}/${q.only}`).join(", "));
   check("no wrong-stack results, a giant's Warsaw office aside", page.searchResults.every((j) => j.fit >= 0 || giantInWarsaw(j)),
     `min fit ${Math.min(...page.searchResults.filter((j) => !giantInWarsaw(j)).map((j) => j.fit))}`);
-  check("the header says how fresh the boards are", /обновлено|обновляю/.test(registry.get("freshness").textContent),
+  check("the refresh button says how fresh the boards are", /назад|только что|обновляю/.test(registry.get("freshness").textContent),
     registry.get("freshness").textContent);
   check("the source filter lists the configured boards, all on, each with its drawn box",
     (registry.get("sourcefilter").innerHTML.match(/type="checkbox"/g) || []).length === 2
@@ -954,8 +985,8 @@ async function main() {
   /* ---- hide one from the card ---- */
   const toHide = page.stackJobs("all").find((j) => !page.decided.has(j.key) && !page.trackedUrls.has(j.key));
   page.pickJob(toHide.key);
-  clickIn(registry, "focus", { act: "hide" });
-  clickIn(registry, "focus", { act: "reason", reason: "не тот стек" });
+  clickIn(registry, "dock", { act: "hide" });
+  clickIn(registry, "dock", { act: "reason", reason: "не тот стек" });
   await new Promise((resolve) => setTimeout(resolve, 300));
   check("hiding from the card is persisted, with the reason",
     (await (await fetch(`${BASE}/api/dismissed`)).json()).dismissed.some((row) => row.url === toHide.applyUrl && row.reason === "не тот стек"));

@@ -917,6 +917,8 @@ const server = createServer(async (request, response) => {
         jobs: view.page.map(({ job, bucket, reason, flags }) => ({
           ...presentJob(job),
           key: job.key,
+          // Keys of the copies dedupe folded into it (src/sources.ts): the card lists their boards.
+          aliases: job.aliasKeys ?? [],
           dismissed: job.dismissed,
           screen: { bucket, reason, flags },
           // Claude's verdict (src/verdict.ts), null until there is one.

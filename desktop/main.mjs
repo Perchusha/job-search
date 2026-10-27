@@ -193,8 +193,8 @@ let newCount = 0;
 function showWindow(view) {
   if (!win) {
     win = new BrowserWindow({
-      width: 1320,
-      height: 900,
+      width: 1280,
+      height: 720,
       title: "Job Hunt",
       icon: ICON(),
       autoHideMenuBar: true,
