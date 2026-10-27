@@ -1047,8 +1047,9 @@ and I apply there myself. Meanwhile the server (`POST /api/apply`,
   and send; a person the posting names (a recruiter, "osoba kontaktowa"), word for word in
   its text → LinkedIn's people search for them at the company, opened at once; a LinkedIn
   posting → its own page, already open, where "Meet the hiring team" sits when the poster
-  filled it in; otherwise a link to LinkedIn's search for the company's recruiters, not
-  opened. LinkedIn is never read with the login: its guest pages carry no hiring team
+  filled it in; otherwise LinkedIn's search for the company's recruiters, opened at once
+  too (since 2026-10-27: before, nothing of LinkedIn opened for most postings, which name
+  no one) — the letter says it is a search, not someone found. LinkedIn is never read with the login: its guest pages carry no hiring team
   (probed 2026-10-26), and a scripted logged-in session puts the account at risk.
 - **What**: a note for a LinkedIn connection request (200 characters, a free account's
   limit; the letter counts) and a 3–4 sentence letter whose signature code types, both by

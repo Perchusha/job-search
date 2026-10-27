@@ -2030,9 +2030,11 @@ function contactHtml(d, job, wrote) {
   } else if (c.kind === "posting") {
     say = "На открытой странице LinkedIn — блок «Meet the hiring team», если автор вакансии его заполнил: напиши ему.";
   } else {
-    say = "В тексте вакансии никто не назван и почты нет. Остаётся поиск рекрутеров " + esc(job.company)
-      + " в LinkedIn — это поиск, а не найденный человек: выбери, кому писать.";
-    link = go("Найти рекрутеров " + job.company + " в LinkedIn");
+    say = "В тексте вакансии никто не назван и почты нет. " + (d.opened
+      ? "Поиск рекрутеров " + esc(job.company) + " открыт в LinkedIn"
+      : "Остаётся поиск рекрутеров " + esc(job.company) + " в LinkedIn")
+      + " — это поиск, а не найденный человек: выбери, кому писать.";
+    link = go(d.opened ? "Открыть поиск ещё раз" : "Найти рекрутеров " + job.company + " в LinkedIn");
   }
   return '<div class="who' + (c.kind === "search" ? " find" : "") + '"><span class="k">Кому</span><p>' + say + '</p><div class="row">'
     + link + tick + "</div></div>";

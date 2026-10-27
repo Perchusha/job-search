@@ -14,8 +14,8 @@
  *     people search for that name at the company;
  *   - a LinkedIn posting → its own page, already open: "Meet the hiring team"
  *     sits there when the poster filled it in;
- *   - otherwise LinkedIn's people search for the company's recruiters, offered
- *     but not opened — it is a search, not someone found.
+ *   - otherwise LinkedIn's people search for the company's recruiters — opened
+ *     too since 2026-10-27, and the letter says it is a search, not someone found.
  * LinkedIn is never read with my login: its guest pages carry no hiring team
  * (probed 2026-10-26), and a scripted logged-in session put the account at risk.
  *
@@ -112,9 +112,14 @@ export function chooseContact(job: Job, text: string, name: string, subject: str
   return { kind: "search", label: `рекрутеры ${job.company} в LinkedIn`, url: peopleSearch(`${job.company} recruiter`) };
 }
 
-/** The kinds worth opening at once: someone actually found. A search is a link to press. */
+/**
+ * The kinds opened at once, in the browser where Gmail and LinkedIn are signed
+ * in. A LinkedIn posting is not: the page opened it already. The recruiter
+ * search opens too since 2026-10-27, at my request — without it nothing of
+ * LinkedIn opened for most postings, which name no one.
+ */
 export function opensAtOnce(contact: Contact): boolean {
-  return contact.kind === "email" || contact.kind === "person";
+  return contact.kind !== "posting";
 }
 
 /** In the default browser on this machine, where my Gmail and LinkedIn are signed in. */

@@ -708,9 +708,9 @@ async function main() {
 
   const callsBefore = logLines().length;
   const nobody = await outreach(fits);
-  check("a posting that names nobody: the company's recruiters in LinkedIn, offered, not opened",
+  check("a posting that names nobody: the company's recruiters in LinkedIn, opened as well",
     nobody.contact?.kind === "search" && nobody.contact.url === "https://www.linkedin.com/search/results/people/?keywords=Claudeco%201%20recruiter"
-      && nobody.opened === false, JSON.stringify(nobody).slice(0, 400));
+      && nobody.opened === true, JSON.stringify(nobody).slice(0, 400));
   check("a note within LinkedIn's limit, and a letter whose signature code types",
     nobody.drafted === "claude" && nobody.note.length > 0 && nobody.note.length <= 200
       && nobody.message.startsWith("Hi Claudeco 1 team,") && nobody.message.includes("Best regards,\nAnton Perch\n+48"), nobody.message);
@@ -738,7 +738,8 @@ async function main() {
   await page.act("apply");
   check("«Подать» marks the card and turns the middle into the letter: whom to write to, the note, the letter",
     page.decided.get(fits.key) === "applying" && focus().includes("Письмо человеку") && focus().includes("Записка к запросу в LinkedIn")
-      && focus().includes("Найти рекрутеров Claudeco 1 в LinkedIn") && focus().includes("это поиск, а не найденный человек"),
+      && focus().includes("Поиск рекрутеров Claudeco 1 открыт в LinkedIn") && focus().includes("это поиск, а не найденный человек")
+      && focus().includes("Открыть поиск ещё раз"),
     focus().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300));
   check("the dock becomes the letter's: back to the posting, not applying, sent",
     dock().includes('data-apply="close"') && dock().includes('data-apply="skip"') && dock().includes("Отправил, в отклики"));
