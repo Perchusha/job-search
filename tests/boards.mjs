@@ -18,6 +18,7 @@ import {
   payB2bPlnMonth,
 } from "../src/boards-pl.ts";
 import { normalizeJobicy, normalizeWorkable, parseHackerNewsPost } from "../src/boards-intl.ts";
+import { recruitee, workable } from "../src/watchlist.ts";
 import { normalizeDjinni, normalizeDou, parseDjinniPage, parseDouFeed } from "../src/boards-ua.ts";
 import { scoreEligibility } from "../src/eligibility.ts";
 
@@ -216,6 +217,25 @@ check("jobicy: title decoded, the Jobicy page as the link", jobicy?.title === "S
 check("jobicy: the countries it is open to, Poland among them, score high", jobicy?.locationRestrictions.length === 4 && scoreEligibility(jobicy).level === "high");
 check("jobicy: a yearly GBP range", jobicy?.pay?.[0]?.unit === "year" && jobicy?.pay?.[0]?.currency === "GBP" && jobicy?.pay?.[0]?.max === 124750);
 check("jobicy: UK only is out of reach", scoreEligibility(normalizeJobicy({ id: 1, url: "https://jobicy.com/jobs/1", jobTitle: "Frontend Engineer", companyName: "X", jobGeo: "UK" })).level === "low");
+
+/* ---- the watchlist's Workable and Recruitee boards ---- */
+
+const modashBoard = { vendor: "workable", board: "modash", company: "Modash" };
+const wkJobs = workable(modashBoard, { jobs: [{
+  title: "Senior Product Engineer (remote, Europe)", shortcode: "AB12", url: "https://apply.workable.com/j/AB12", telecommuting: true,
+  country: "Poland", city: "Warsaw", locations: [{ country: "Poland", countryCode: "PL", city: "Warsaw" }],
+  description: "<p>React and Node</p>", department: "Engineering", employment_type: "Full-time",
+}] });
+check("watchlist/workable: the role, its place and text", wkJobs[0]?.company === "Modash" && wkJobs[0]?.location === "Warsaw, Poland" && wkJobs[0]?.remote === true && wkJobs[0]?.description === "React and Node");
+const rtg = { vendor: "recruitee", board: "resourcefultalentgroup", company: "Resourceful Talent Group" };
+const rcJobs = recruitee(rtg, { offers: [
+  { id: 1, title: "Senior Full-Stack Developer", careers_url: "https://resourcefultalentgroup.recruitee.com/o/senior-full-stack", status: "published",
+    remote: true, location: "Remote job", city: "Miami", country: "United States", description: "<p>React</p>", requirements: "<p>5 years</p>",
+    salary: { min: "100000", max: "150000", period: "year", currency: "USD" } },
+  { id: 2, title: "Closed", careers_url: "https://x.recruitee.com/o/closed", status: "closed" },
+] });
+check("watchlist/recruitee: published offers only, with pay", rcJobs.length === 1 && rcJobs[0]?.pay?.[0]?.max === 150000 && rcJobs[0]?.description?.includes("React") && rcJobs[0]?.description?.includes("5 years"));
+check("watchlist/recruitee: remote within the US is not open to Poland", scoreEligibility(rcJobs[0]).level === "low");
 
 /* ---- pay ---- */
 

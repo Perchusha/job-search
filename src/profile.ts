@@ -189,8 +189,12 @@ export const DOU_FEEDS = [
 ] as const;
 
 export type WatchedBoard = {
-  vendor: "ashby" | "greenhouse" | "lever";
-  /** The board's slug: jobs.ashbyhq.com/<board>, job-boards.greenhouse.io/<board>, jobs.lever.co/<board>. */
+  vendor: "ashby" | "greenhouse" | "lever" | "workable" | "smartrecruiters" | "recruitee";
+  /**
+   * The board's slug: jobs.ashbyhq.com/<board>, job-boards.greenhouse.io/<board>,
+   * jobs.lever.co/<board>, apply.workable.com/<board>, jobs.smartrecruiters.com/<board>,
+   * <board>.recruitee.com.
+   */
   board: string;
   company: string;
 };
@@ -203,6 +207,12 @@ export type WatchedBoard = {
  *
  * Checked live on 2026-10-23; toggl (Ashby), remotecom and clickhouse
  * (Greenhouse) answered 404, and deel and kraken returned empty boards.
+ *
+ * Added on 2026-10-30 from the ATS links behind my applications and Claude's
+ * apply/maybe verdicts (16 boards found among 279 postings, the rest link to
+ * job boards), and Ashby itself, found on Jobicy with EU product engineering
+ * roles. Hire Hangar and Resourceful Talent Group are staffing firms: most of
+ * their roles are elsewhere, and the filter below keeps the ones open to Poland.
  */
 export const WATCHLIST: WatchedBoard[] = [
   { vendor: "ashby", board: "linear", company: "Linear" },
@@ -221,6 +231,13 @@ export const WATCHLIST: WatchedBoard[] = [
   { vendor: "greenhouse", board: "storyblok", company: "Storyblok" },
   { vendor: "lever", board: "swingdev", company: "Swing Development" },
   { vendor: "lever", board: "airslate", company: "airSlate" },
+  { vendor: "ashby", board: "ashby", company: "Ashby" },
+  { vendor: "ashby", board: "checkly", company: "Checkly" },
+  { vendor: "ashby", board: "hirehangar", company: "Hire Hangar" },
+  { vendor: "greenhouse", board: "givedirectly", company: "GiveDirectly" },
+  { vendor: "workable", board: "modash", company: "Modash" },
+  { vendor: "smartrecruiters", board: "InPost", company: "InPost" },
+  { vendor: "recruitee", board: "resourcefultalentgroup", company: "Resourceful Talent Group" },
 ];
 
 /**
@@ -502,6 +519,9 @@ const FOREIGN_STACK: Array<[term: string, penalty: number]> = [
   ["support specialist", 8],
 ];
 
+/** The non-engineering roles above: in a company's own text they may be its product (stackFit). */
+const ROLE_WORDS = new Set(FOREIGN_STACK.slice(FOREIGN_STACK.findIndex(([term]) => term === "recruiter")).map(([term]) => term));
+
 /**
  * Whole-word term test. Terms ending in a symbol (".net", "c#", "c++") get no
  * trailing boundary, because a word boundary never fires after a symbol.
@@ -635,10 +655,16 @@ function computeStackFit(job: Job): number {
   // front" sat beside computer vision and scored -1, Modash -8. Only its title
   // counts against it; Claude reads the post.
   const bodyPenalties = job.source !== "hackernews";
+  // A company I chose writes about its own product: Ashby sells recruiting
+  // software, and "recruiter", "sales", "talent acquisition" in its EU product
+  // engineering roles scored -29. On its board a role word in the text is the
+  // product, not the job; a foreign stack still counts. Dropping every body
+  // penalty there instead kept 97 roles rather than 30, mostly Go and Java.
+  const roleWordsCount = job.source !== "watchlist";
   for (const [term, penalty] of FOREIGN_STACK) {
     // A foreign stack named in the title is close to disqualifying.
     if (hasTerm(title, term)) score -= penalty * 3;
-    else if (bodyPenalties && hasTerm(rest, term)) score -= penalty;
+    else if (bodyPenalties && (roleWordsCount || !ROLE_WORDS.has(term)) && hasTerm(rest, term)) score -= penalty;
   }
 
   // A junior/intern opening is as poor a fit for an 8-year senior as a foreign

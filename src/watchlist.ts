@@ -1,6 +1,7 @@
 /**
  * watchlist.ts — chosen companies' own job boards, read through their ATS's
- * public API (Greenhouse, Lever, Ashby). No scraping, no key: these endpoints
+ * public API (Greenhouse, Lever, Ashby; since 2026-10-30 Workable,
+ * SmartRecruiters and Recruitee too). No scraping, no key: these endpoints
  * exist so companies can embed their board anywhere.
  *
  * Why: a product company that hires remote in Poland posts a role on its own
@@ -67,7 +68,7 @@ function job(board: WatchedBoard, fields: Omit<Job, "source" | "company" | "post
   };
 }
 
-function ashby(board: WatchedBoard, payload: Raw): Job[] {
+export function ashby(board: WatchedBoard, payload: Raw): Job[] {
   return ((payload["jobs"] ?? []) as Raw[]).flatMap((raw) => {
     const title = str(raw["title"]);
     const url = str(raw["jobUrl"]);
@@ -183,21 +184,132 @@ function lever(board: WatchedBoard, payload: unknown): Job[] {
   });
 }
 
-const ENDPOINT: Record<WatchedBoard["vendor"], (board: string) => string> = {
+/** A Workable account's widget feed: every open job with its text (apply.workable.com/<board>). */
+export function workable(board: WatchedBoard, payload: Raw): Job[] {
+  return ((payload["jobs"] ?? []) as Raw[]).flatMap((raw) => {
+    const title = str(raw["title"]);
+    const url = str(raw["url"]) ?? str(raw["shortlink"]);
+    if (!title || !url) return [];
+    const locations = ((raw["locations"] ?? []) as Raw[])
+      .map((place) => [str(place["city"]), str(place["country"])].filter(Boolean).join(", "))
+      .filter(Boolean);
+    if (locations.length === 0) {
+      const place = [str(raw["city"]), str(raw["country"])].filter(Boolean).join(", ");
+      if (place) locations.push(place);
+    }
+    const remote = raw["telecommuting"] === true;
+    return [job(board, {
+      externalId: str(raw["shortcode"]) ?? url,
+      title,
+      url,
+      location: locations.join("; ") || null,
+      remote,
+      pay: [],
+      tags: [str(raw["department"]), str(raw["employment_type"])].filter((v): v is string => v !== null),
+      locationRestrictions: locations,
+      description: htmlToText(str(raw["description"]) ?? "").slice(0, 8000) || null,
+      workMode: remote ? "remote" : null,
+    })];
+  });
+}
+
+/** Recruitee's public offers (<board>.recruitee.com/api/offers/), text and pay included. */
+export function recruitee(board: WatchedBoard, payload: Raw): Job[] {
+  return ((payload["offers"] ?? []) as Raw[]).flatMap((raw) => {
+    const title = str(raw["title"]);
+    const url = str(raw["careers_url"]);
+    if (!title || !url || (str(raw["status"]) ?? "published") !== "published") return [];
+    const remote = raw["remote"] === true;
+    const place = [str(raw["city"]), str(raw["country"])].filter(Boolean).join(", ");
+    const salary = (raw["salary"] ?? {}) as Raw;
+    const min = Number(salary["min"]) || null;
+    const max = Number(salary["max"]) || null;
+    const period = String(salary["period"] ?? "");
+    const pay: PayRange[] =
+      (min || max) && str(salary["currency"])
+        ? [{ contract: "other", min, max, currency: str(salary["currency"]) as string, unit: period === "hour" ? "hour" : period === "month" ? "month" : "year", gross: false }]
+        : [];
+    return [job(board, {
+      externalId: String(raw["id"] ?? url),
+      title,
+      url,
+      location: (remote ? str(raw["location"]) : place) || place || null,
+      remote,
+      pay,
+      tags: [str(raw["department"]), str(raw["employment_type_code"])].filter((v): v is string => v !== null),
+      // "Remote job" in a city of the US is remote within the US: the place stays.
+      locationRestrictions: place ? [place] : [],
+      description: htmlToText([str(raw["description"]), str(raw["requirements"])].filter(Boolean).join("\n")).slice(0, 8000) || null,
+      workMode: remote ? "remote" : raw["hybrid"] === true ? "hybrid" : raw["on_site"] === true ? "office" : null,
+    })];
+  });
+}
+
+/**
+ * SmartRecruiters lists postings without their text, a page of 100 at a time;
+ * the text is one more request per posting. Only engineering titles are read:
+ * InPost's board holds 168 postings, couriers and lockers included.
+ */
+async function smartRecruiters(board: WatchedBoard): Promise<Job[]> {
+  const base = `https://api.smartrecruiters.com/v1/companies/${board.board}/postings`;
+  const listed: Raw[] = [];
+  for (let offset = 0; offset < 1000; offset += 100) {
+    const page = (await getJson(`${base}?limit=100&offset=${offset}`, board)) as Raw;
+    const content = (page["content"] ?? []) as Raw[];
+    listed.push(...content);
+    if (content.length < 100 || listed.length >= Number(page["totalFound"] ?? 0)) break;
+  }
+  const jobs: Job[] = [];
+  for (const raw of listed.filter((posting) => ENGINEERING_TITLE.test(str(posting["name"]) ?? ""))) {
+    const id = str(raw["id"]);
+    const title = str(raw["name"]);
+    if (!id || !title) continue;
+    const detail = (await getJson(`${base}/${id}`, board).catch(() => ({}))) as Raw;
+    const sections = ((detail["jobAd"] as Raw | undefined)?.["sections"] ?? {}) as Record<string, Raw>;
+    const text = ["jobDescription", "qualifications", "additionalInformation"].map((key) => str(sections[key]?.["text"]) ?? "").join("\n");
+    const place = (raw["location"] ?? {}) as Raw;
+    const where = str(place["fullLocation"]) ?? [str(place["city"]), str(place["country"])].filter(Boolean).join(", ");
+    const remote = place["remote"] === true;
+    jobs.push(job(board, {
+      externalId: id,
+      title,
+      url: str(detail["postingUrl"]) ?? `https://jobs.smartrecruiters.com/${board.board}/${id}`,
+      location: where || null,
+      remote,
+      pay: [],
+      tags: [str((raw["function"] as Raw | undefined)?.["label"]), str((raw["experienceLevel"] as Raw | undefined)?.["label"])].filter((v): v is string => v !== null),
+      locationRestrictions: where ? [where] : [],
+      description: htmlToText(text).slice(0, 8000) || null,
+      workMode: remote ? "remote" : place["hybrid"] === true ? "hybrid" : null,
+    }));
+  }
+  return jobs;
+}
+
+const ENDPOINT: Record<Exclude<WatchedBoard["vendor"], "smartrecruiters">, (board: string) => string> = {
   ashby: (board) => `https://api.ashbyhq.com/posting-api/job-board/${board}?includeCompensation=true`,
   greenhouse: (board) => `https://boards-api.greenhouse.io/v1/boards/${board}/jobs?content=true&pay_transparency=true`,
   lever: (board) => `https://api.lever.co/v0/postings/${board}?mode=json`,
+  workable: (board) => `https://apply.workable.com/api/v1/widget/accounts/${board}?details=true`,
+  recruitee: (board) => `https://${board}.recruitee.com/api/offers/`,
 };
 
-async function fetchBoard(board: WatchedBoard): Promise<Job[]> {
-  const response = await fetch(ENDPOINT[board.vendor](board.board), {
+async function getJson(url: string, board: WatchedBoard): Promise<unknown> {
+  const response = await fetch(url, {
     headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`${board.vendor}/${board.board}: HTTP ${response.status}`);
-  const payload = (await response.json()) as unknown;
+  return response.json() as Promise<unknown>;
+}
+
+async function fetchBoard(board: WatchedBoard): Promise<Job[]> {
+  if (board.vendor === "smartrecruiters") return smartRecruiters(board);
+  const payload = await getJson(ENDPOINT[board.vendor](board.board), board);
   if (board.vendor === "ashby") return ashby(board, payload as Raw);
   if (board.vendor === "greenhouse") return greenhouse(board, payload as Raw);
+  if (board.vendor === "workable") return workable(board, payload as Raw);
+  if (board.vendor === "recruitee") return recruitee(board, payload as Raw);
   return lever(board, payload);
 }
 

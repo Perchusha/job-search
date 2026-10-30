@@ -307,7 +307,10 @@ role goes first in dedupe, so the published pay survives. A page that parses to 
 reported as skipped. The URLs are `POLISH_BOARDS` in profile.ts.
 
 **Company watchlist** ([src/watchlist.ts](src/watchlist.ts)) — chosen companies' own boards,
-read through their ATS's public API (Greenhouse, Lever, Ashby), once a day. Product
+read through their ATS's public API (Greenhouse, Lever, Ashby, and since 2026-10-30 Workable,
+SmartRecruiters and Recruitee), once a day. A company's own text about its product does not
+count against a role ("recruiter" at Ashby, which sells recruiting software); a foreign stack in it
+still does. Product
 companies post there first and often nowhere else; on 2026-10-23 the 16 boards in
 `WATCHLIST` (profile.ts) gave 18 engineering roles open to Poland, Elastic's with published
 PLN ranges. A company board lists every role it has, so only engineering titles that pass
