@@ -529,7 +529,7 @@ export function decide(
     // "AI" in a frontend/fullstack title is a bonus, not the role. Tested on
     // the normalised title, as SCREEN_FRONTEND expects: on the raw one
     // "Full-Stack AI Engineer" had no "fullstack" and went as an AI role.
-    if (reason.startsWith("AI/ML") && SCREEN_FRONTEND.test(plain)) continue;
+    if (reason.startsWith("AI infrastructure") && SCREEN_FRONTEND.test(plain)) continue;
     if (reason.startsWith("QA") && SCREEN_FRONTEND.test(plain) && !/\bqa\b|tester|sdet/i.test(title)) continue;
     // A level range that reaches senior: "Middle/Senior", "Regular/Senior",
     // "Sr. Software Engineer II / Tech lead". 6 of 12 hits on 2026-10-24.

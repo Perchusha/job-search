@@ -285,8 +285,17 @@ console.log("PASS  screening: rules switch off by id; a freed card meets no hidi
 /* ---- AI and QA exceptions read the normalised title, like every other SCREEN_FRONTEND test ---- */
 assert.notEqual(titled("Senior Full-Stack AI Engineer").bucket, "dismiss", "Full-Stack is fullstack: AI in it is a bonus");
 assert.notEqual(titled("Front-end Automation Engineer").bucket, "dismiss", "Front-end is frontend");
-assert.equal(titled("Senior AI Engineer").reason, "AI/ML role, not frontend");
+assert.notEqual(titled("Senior Product Engineer, AI Platform").bucket, "dismiss", "a product engineer on an AI platform is product work");
 console.log("PASS  screening: «Full-Stack AI Engineer» and «Front-end Automation Engineer» are not AI or QA roles");
+
+/* ---- AI engineering in my stack goes to Claude; model infrastructure and research do not ---- */
+for (const ai of ["Senior AI Engineer", "LLM Engineer", "Senior GenAI Engineer (TypeScript)", "AI Lead Engineer"]) {
+  assert.notEqual(titled(ai).bucket, "dismiss", ai);
+}
+for (const infra of ["AI Infrastructure Engineer", "Senior AI Research Engineer", "Research Engineer, Pretraining", "AI Solutions Architect"]) {
+  assert.equal(titled(infra).bucket, "dismiss", infra);
+}
+console.log("PASS  screening: AI and LLM engineers pass to Claude; AI infrastructure and research are hidden");
 
 /* ---- a level range that reaches senior is not a mid role; "mobile" beside web and desktop is not a mobile role ---- */
 const MID = "mid-level role, CV is senior";

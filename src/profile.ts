@@ -67,6 +67,14 @@ export const TARGET_QUERIES: string[] = [
   // Kept because frontend-heavy roles do get titled "fullstack" and it is real
   // CV experience — it just carries half the weight of frontend when scoring.
   "fullstack typescript",
+  // Added on 2026-10-30. The day's best finds were "Product Engineer" roles
+  // (Revieve, Modash, Checkly, Ashby), a title no query above names; UI
+  // engineers are frontend under another name. The AI ones name TypeScript, so
+  // the boards return LLM work in my stack rather than Python model work.
+  "product engineer",
+  "ui engineer",
+  "ai engineer typescript",
+  "llm typescript",
 ];
 
 /**
@@ -821,7 +829,11 @@ export const SCREEN_TITLE_RULES: Array<[reason: string, pattern: RegExp]> = [
   // hands-on product work wanted, React in the title or not.
   ["architect role, not hands-on product work", T("architect|architekt\\w*")],
   ["data / ML role", T("data engineer|data scientist|ml engineer|machine learning|deep learning|mlops|data visuali[sz]ation|computer vision")],
-  ["AI/ML role, not frontend", T("ai engineer|ai architect|genai|llm engineer|ai infrastructure|ai platform|solutions? architect|agentic solution|ai lead|lead ai|ai engineering")],
+  // Since 2026-10-30 AI engineering is wanted where it is my experience — LLMs
+  // in a TypeScript / Node product — so "AI Engineer" and "LLM Engineer" go to
+  // Claude, which skips the Python and model-training ones. Infrastructure for
+  // models and research stay out by title.
+  ["AI infrastructure / research role", T("ai infrastructure|ai platform|ai research|research engineer|ai architect|solutions? architect")],
   ["mobile role", T("mobile|react native|android|ios|flutter|swift|kotlin|hybrid app")],
   ["wrong stack: .NET / Java", T("\\.net|c#|asp\\.net|java|jvm|spring|kotlin|scala")],
   ["wrong stack: other language", T("python|django|fastapi|ruby|rails|golang|go developer|go engineer|\\(go\\)|rust|elixir|erlang|c\\+\\+|embedded|unity|unreal")],
@@ -842,7 +854,7 @@ export const SCREEN_RULE_LABELS: Record<string, string> = {
   "DevOps / infra / security role": "DevOps, инфраструктура, безопасность",
   "architect role, not hands-on product work": "Архитектор",
   "data / ML role": "Data, ML",
-  "AI/ML role, not frontend": "AI-инженер без фронтенда",
+  "AI infrastructure / research role": "ИИ-инфраструктура и исследования",
   "mobile role": "Мобильная разработка",
   "wrong stack: .NET / Java": ".NET, Java",
   "wrong stack: other language": "Другой язык: Python, Go, Ruby…",

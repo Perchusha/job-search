@@ -862,7 +862,7 @@ Everything personal is in [src/profile.ts](src/profile.ts):
 
 | What | Why you would change it |
 | --- | --- |
-| `TARGET_QUERIES` | The searches the Refresh button runs. Nine, because no single keyword covers everything a frontend role gets titled — the same job is "Frontend Developer" at one company and "Web Engineer" at the next. Each line's measured marginal yield is in the comment above it; order is not a ranking signal |
+| `TARGET_QUERIES` | The searches the Refresh button runs. Fourteen since 2026-10-30: "product engineer", "ui engineer", and two AI ones that name TypeScript ("ai engineer typescript", "llm typescript") so the boards return LLM work in my stack. Many, because no single keyword covers everything a frontend role gets titled — the same job is "Frontend Developer" at one company and "Web Engineer" at the next. Each line's measured marginal yield is in the comment above it; order is not a ranking signal |
 | **The emphasis** | Currently **frontend**, with AI/LLM as a bonus rather than a target. Frontend terms carry the highest weights, fullstack counts less, and a backend-titled role is penalised. Shift it by editing the weights |
 | `SEARCH_DEFAULTS` | Location, remote-only, how far back to look, which boards, how many results, and `maxFitTier` |
 | «Мои условия» (Настройки) | The pay floor, the UoP↔B2B equivalence, hours a month, the giants whose office roles in the named city are fine, my Polish level — read by the rules and written into Claude's criteria |

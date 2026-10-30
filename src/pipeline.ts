@@ -177,6 +177,33 @@ function oversample(limit: number): number {
 /** What the boards returned for one search, before dedupe and scoring. */
 export type Fetched = { jobs: Job[]; reports: SourceReport[]; queries: string[] };
 
+/**
+ * Queries asked of a board at once. Ten at once was fine; fourteen (2026-10-30)
+ * drew HTTP 429 from Himalayas on pages 2–3, and in a burst on page 1 too,
+ * which failed the whole board.
+ */
+const QUERY_CONCURRENCY = 5;
+
+/** `run` over `items`, at most `size` at a time; one promise per item, in order. */
+function inBatches<T, R>(items: readonly T[], size: number, run: (item: T) => Promise<R>): Array<Promise<R>> {
+  let running = 0;
+  const waiting: Array<() => void> = [];
+  const slot = () => (running < size ? (running++, Promise.resolve()) : new Promise<void>((resolve) => waiting.push(resolve)));
+  const done = () => {
+    const next = waiting.shift();
+    if (next) next();
+    else running--;
+  };
+  return items.map(async (item) => {
+    await slot();
+    try {
+      return await run(item);
+    } finally {
+      done();
+    }
+  });
+}
+
 /** Asks the boards. Everything after this is local: see rankFetched. */
 export async function fetchJobs(params: SearchParams = {}): Promise<Fetched> {
   const limit = params.limit ?? DEFAULT_SEARCH_LIMIT;
@@ -203,15 +230,14 @@ export async function fetchJobs(params: SearchParams = {}): Promise<Fetched> {
   // Their outcome goes first so their copy of a role (with pay) wins dedupe.
   const perPass = sources.filter((source) => PER_PASS_SOURCES.includes(source));
   const perQuery = sources.filter((source) => !PER_PASS_SOURCES.includes(source));
+  const byQuery = async (query: string) => {
+    const outcome = await fetchAllSources({ ...common, sources: perQuery, query: query || undefined });
+    // Which query found what: Настройки → Поиск counts each query's yield from this.
+    return query ? { ...outcome, jobs: outcome.jobs.map((job) => ({ ...job, foundBy: query })) } : outcome;
+  };
   const outcomes = await Promise.all([
     ...(perPass.length > 0 ? [fetchAllSources({ ...common, sources: perPass })] : []),
-    ...(perQuery.length > 0
-      ? queries.map(async (query) => {
-          const outcome = await fetchAllSources({ ...common, sources: perQuery, query: query || undefined });
-          // Which query found what: Настройки → Поиск counts each query's yield from this.
-          return query ? { ...outcome, jobs: outcome.jobs.map((job) => ({ ...job, foundBy: query })) } : outcome;
-        })
-      : []),
+    ...(perQuery.length > 0 ? inBatches(queries, QUERY_CONCURRENCY, byQuery) : []),
   ]);
 
   // Sum the per-source counts across queries so the UI reports real totals.
