@@ -227,6 +227,11 @@ on **word boundaries**, so "Deutschland" does not match `eu` and "Naples" does n
 | **Himalayas** | no `locationRestrictions`, or a friendly token   | open worldwide, but only in American time zones (`timezoneRestrictions`) | lists only non-EU countries          |
 | **RemoteOK**  | `location` has a friendly token                 | empty or unrecognized location          | US/Canada/Americas only              |
 | **Arbeitnow** | `remote === true` (EU, same timezone as Poland)  | onsite inside Poland                     | onsite outside Poland                |
+| **Jobicy**    | the regions listed include Poland, Europe, EMEA or anywhere | no region listed | other countries only |
+| **Workable**  | remote, listed in Poland                         | listed in Poland, but hybrid/onsite or office days in the text | listed in another country |
+| **Hacker News** | remote, and the header says Europe, worldwide, CET/UTC± or Poland | remote, no region in the header | remote in the Americas or within one other country; onsite outside Poland |
+| **Djinni**    | remote, open to Europe or Poland                 | remote with no region; an office in Poland | remote within Ukraine or another single country; an office elsewhere |
+| **DOU**       | remote «за кордоном» (from abroad) or in a Polish city | remote with no country (often Ukraine only); an office in Poland | an office in Ukraine |
 | **Indeed / LinkedIn / other scraped** | remote **and** a Poland/EU location; LinkedIn: a card naming only the country or region, or no place | remote elsewhere (may require local tax residency), onsite in Poland, or no location stated | onsite outside Poland |
 
 A Polish city, metro area or voivodeship counts as Poland ("Wroclaw Metropolitan Area",
@@ -312,6 +317,14 @@ it is confirmed, a bare "Remote / Global" is a check, any other named place is o
 postings carry no board date — an open role on a company board is open — so their age is
 when this tool first saw them. Add a company by its ATS slug.
 
+**Two more boards** ([src/boards-intl.ts](src/boards-intl.ts)), added on 2026-10-30, once per pass:
+
+| Source | Notes |
+| --- | --- |
+| [Jobicy](https://jobicy.com) | Default. The public API with `geo=poland&industry=dev`: roles open to Poland, Europe, EMEA or anywhere (61 on 2026-10-30), with the whole text and sometimes pay. Its terms ask for credit and a link to the posting: the card links to the Jobicy page |
+| [Workable](https://jobs.workable.com) | Default. The public search API, `location=Poland&workplace=remote`, for each term in `WORKABLE_QUERIES` (profile.ts) one after another, up to 3 pages. Sends the whole text. `created` is the age (`updated` moves); postings older than the window are dropped at fetch, since a listing kept open for a year is still listed. robots.txt disallows only `/search` with a query |
+| [HN: Who is hiring](https://news.ycombinator.com/submitted?id=whoishiring) | Default, daily. The latest monthly thread via hn.algolia.com; each top-level post is one card, company and role from its header line ("Company \| Role \| REMOTE (EU) \| …"), the post itself the text Claude reads. Only posts not ruled out by region or title are stored (October 2026: 32 of 262). A post describes the company and all its roles, so stacks in its body do not count against the title's |
+
 **Scraped via [JobSpy](https://github.com/speedyapply/JobSpy)** (Python, optional) — this is
 where the volume is:
 
@@ -329,7 +342,15 @@ where the volume is:
 | [RemoteOK](https://remoteok.com) | Opt-in. First array element is legal metadata and is skipped. Content varies wildly |
 | [Arbeitnow](https://www.arbeitnow.com) | Opt-in. EU/Germany focused |
 
-`SEARCH_DEFAULTS.sources` is **nofluffjobs, justjoin, watchlist, indeed, linkedin, himalayas**.
+**Ukrainian boards** ([src/boards-ua.ts](src/boards-ua.ts)), added on 2026-10-30, once per pass. The Belarusian
+ones were checked and are empty (jobs.devby.io: 6 vacancies in all; rabota.by is hh.ru, whose API answers 403 without a registered app).
+
+| Source | Notes |
+| --- | --- |
+| [Djinni](https://djinni.co) | Default. Listing pages per `DJINNI_KEYWORDS` (React.js, JavaScript, Fullstack), 15 postings a page, one second apart; each posting is JSON-LD with the whole text, `applicantLocationRequirements` and sometimes pay. 168 in a month: 65 open to Europe, 7 to Poland, 57 Ukraine only. Postings out of reach are not stored |
+| [DOU](https://jobs.dou.ua) | Default. RSS feeds in `DOU_FEEDS` (remote Front End, Fullstack, JavaScript, "react"; Warsaw offices), 25 latest each, whole text. The title carries place and pay: "Role в Company, до $5000, за кордоном, віддалено" |
+
+`SEARCH_DEFAULTS.sources` is **nofluffjobs, justjoin, watchlist, workable, jobicy, djinni, dou, indeed, linkedin, himalayas, hackernews**.
 `DEFAULT_SOURCES` (`indeed` + `himalayas`) is only the fallback for a caller that names none.
 
 ### JobSpy caveats worth knowing
@@ -508,8 +529,9 @@ finishing and Indeed finishing used to keep missing Indeed until the next pass.
 
 | Board | Refresh |
 | --- | --- |
-| nofluffjobs, justjoin, indeed, himalayas | a full month-wide pass every 6 h (`JOBHUNT_REFRESH_HOURS`), ~2–5 s each. ↻ Обновить runs it now |
+| nofluffjobs, justjoin, workable, jobicy, djinni, dou, indeed, himalayas | a full month-wide pass every 6 h (`JOBHUNT_REFRESH_HOURS`), ~2–5 s each. ↻ Обновить runs it now |
 | watchlist | daily, ~10 s for 16 boards |
+| hackernews | daily, ~2 s: the latest "Who is hiring?" thread |
 | linkedin | at most once a day, only what is new since its last success (`hoursOld`), one query at a time; a day off after HTTP 429. ↻ Обновить does not force it |
 
 The dashboard runs it at start and checks what is due every 15 minutes; the very

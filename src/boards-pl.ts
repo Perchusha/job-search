@@ -139,7 +139,7 @@ export function formatPay(pay: PayRange[]): string | null {
 }
 
 /** The pay fields of a Job, from its ranges. salaryMin/Max: annual PLN, B2B-equivalent. */
-function payFields(pay: PayRange[]): Pick<Job, "pay" | "salary" | "salaryMin" | "salaryMax"> {
+export function payFields(pay: PayRange[]): Pick<Job, "pay" | "salary" | "salaryMin" | "salaryMax"> {
   const monthly = payB2bPlnMonth(pay);
   return {
     pay,

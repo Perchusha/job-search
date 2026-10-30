@@ -282,6 +282,125 @@ function scoreScraped(job: Job): Eligibility {
 }
 
 /**
+ * Workable's search (src/boards-intl.ts) is asked for remote roles listed in
+ * Poland, so the country is the listing's own. Remote there is confirmed,
+ * unless the text asks for office days; a role listed in another country is
+ * remote within it.
+ */
+function scoreWorkable(job: Job): Eligibility {
+  const country = job.locationRestrictions.join(", ");
+  if (!firstFriendly(country)) {
+    return { eligible: false, level: "low", reason: `Workable lists it in ${country || "no country"} — remote within it, not Poland` };
+  }
+  if (!job.remote) {
+    return { eligible: true, level: "medium", reason: `${job.workMode === "hybrid" ? "Hybrid" : "Onsite"} in "${job.location ?? country}" — not remote` };
+  }
+  const signals = workSignals(job);
+  if (signals.mode !== null) {
+    return { eligible: true, level: "medium", reason: `Listed as remote, but the posting says ${signals.mode === "onsite" ? "onsite" : "office days"}: «${signals.context}»` };
+  }
+  return { eligible: true, level: "high", reason: `Remote, listed in "${job.location ?? country}" on Workable` };
+}
+
+/** Europe, worldwide, a time zone near Poland's: a remote role open to someone in Poland. */
+export const REGION_OPEN =
+  /\b(?:europe|european|eu|emea|cet|cest|poland|polska|worldwide|anywhere|global(?:ly)?|international|any time ?zone)\b|\b(?:utc|gmt)\s?[+±]/i;
+/** The Americas, or their time zones. */
+export const REGION_AMERICAS =
+  /\b(?:us|usa|u\.s\.?|united states|north america|americas|amer|canada|latam|south america|est|pst|cst|mst)\b/i;
+
+/**
+ * Where a remote Hacker News post lets one work from, as its header says
+ * (kept in locationRestrictions): Europe or worldwide ("open"), the Americas
+ * only, one other country ("Remote (Germany)": "elsewhere"), or nothing said.
+ * The header first: a post's body names the US for its office or customers.
+ */
+export function hackerNewsRegion(
+  job: Pick<Job, "locationRestrictions" | "description">,
+): "open" | "americas" | "elsewhere" | "unstated" {
+  const header = job.locationRestrictions[0] ?? "";
+  if (REGION_OPEN.test(header)) return "open";
+  if (REGION_AMERICAS.test(header)) return "americas";
+  const within = /\bremote\s*[([]\s*([^)\]]+)[)\]]/i.exec(header)?.[1];
+  if (within && !/\b(?:preferred|first|friendly|ok)\b/i.test(within)) return "elsewhere";
+  const lead = (job.description ?? "").slice(header.length, header.length + 600);
+  if (REGION_OPEN.test(lead)) return "open";
+  return REGION_AMERICAS.test(lead) ? "americas" : "unstated";
+}
+
+/**
+ * A "Who is hiring?" post. Its header is all there is: "REMOTE (EU)",
+ * "Remote (US only)", "Berlin · ONSITE". Measured on the October 2026
+ * thread: 141 of 262 posts remote, 48 of them in the US only.
+ */
+function scoreHackerNews(job: Job): Eligibility {
+  const where = job.location ?? job.locationRestrictions[0]?.slice(0, 80) ?? "";
+  if (job.remote) {
+    switch (hackerNewsRegion(job)) {
+      case "open":
+        return { eligible: true, level: "high", reason: `Remote, open to Europe or worldwide ("${where}")` };
+      case "americas":
+        return { eligible: false, level: "low", reason: `Remote in the Americas only ("${where}")` };
+      case "elsewhere":
+        return { eligible: false, level: "low", reason: `Remote within another country ("${where}")` };
+      default:
+        return { eligible: true, level: "medium", reason: `Remote, region not stated ("${where || "—"}") — check the post` };
+    }
+  }
+  if (POLISH_PLACE.test(job.locationRestrictions[0] ?? "")) {
+    return { eligible: true, level: "medium", reason: `Office in Poland ("${where}") — not remote` };
+  }
+  return { eligible: false, level: "low", reason: `Onsite or hybrid ("${where || "—"}") — outside Poland` };
+}
+
+/**
+ * jobicy.com lists the countries or regions a remote role is open to:
+ * "Europe", "Poland", "Anywhere", "Canada, Poland, UK, USA". Asked with
+ * geo=poland it returns those; anything else that slips in is out of reach.
+ */
+function scoreJobicy(job: Job): Eligibility {
+  const geo = job.locationRestrictions.join(", ");
+  if (firstFriendly(geo) || /\bemea\b/i.test(geo)) return { eligible: true, level: "high", reason: `Remote, open to ${geo}` };
+  if (geo === "") return { eligible: true, level: "medium", reason: "Remote, region not stated on Jobicy — check the posting" };
+  return { eligible: false, level: "low", reason: `Remote within ${geo} only` };
+}
+
+/**
+ * djinni.co says where a remote role may be done from (applicantLocationRequirements):
+ * "Europe", "POL", "UA", or nothing. Ukraine alone is the board's default and
+ * the one most often named; it is out of reach, as is any other single country.
+ */
+function scoreDjinni(job: Job): Eligibility {
+  const regions = job.locationRestrictions.join(", ");
+  if (!job.remote) {
+    return POLISH_PLACE.test(regions) || /\b(?:POL|PL|Poland)\b/.test(regions)
+      ? { eligible: true, level: "medium", reason: `Office in Poland ("${regions}") — not remote` }
+      : { eligible: false, level: "low", reason: `Office in "${regions || "—"}" — outside Poland` };
+  }
+  if (regions === "") return { eligible: true, level: "medium", reason: "Remote, region not stated on Djinni — check the posting" };
+  if (/\b(?:europe|eu|emea|worldwide|anywhere|POL|PL|Poland)\b/i.test(regions)) {
+    return { eligible: true, level: "high", reason: `Remote, open to ${regions}` };
+  }
+  return { eligible: false, level: "low", reason: `Remote within ${regions} only` };
+}
+
+/**
+ * jobs.dou.ua's title names where: "віддалено" (remote), "за кордоном" (from
+ * abroad), cities. Remote from abroad or in Poland is confirmed; remote alone
+ * usually means from Ukraine, so it is a check; an office in Ukraine is out.
+ */
+function scoreDou(job: Job): Eligibility {
+  const places = job.locationRestrictions.join(", ");
+  const poland = /Польща|Варшава|Краків|Вроцлав|Гданськ|Познань|Лодзь|Катовіце/.test(places);
+  if (job.remote && (poland || places.includes("за кордоном"))) {
+    return { eligible: true, level: "high", reason: `Remote, from abroad or Poland (DOU: "${places}")` };
+  }
+  if (job.remote) return { eligible: true, level: "medium", reason: `Remote, but DOU names no country${places ? ` (${places})` : ""} — often Ukraine only` };
+  if (poland) return { eligible: true, level: "medium", reason: `Office in Poland (DOU: "${places}") — not remote` };
+  return { eligible: false, level: "low", reason: `Office in "${places || "—"}" — outside Poland` };
+}
+
+/**
  * The Polish boards are scoped to Poland by the listing itself, and carry an
  * explicit work-mode field, so the question is only whether it is remote.
  */
@@ -338,6 +457,16 @@ function scoreBySource(job: Job): Eligibility {
       return scorePolishBoard(job);
     case "watchlist":
       return scoreWatchlist(job);
+    case "workable":
+      return scoreWorkable(job);
+    case "hackernews":
+      return scoreHackerNews(job);
+    case "jobicy":
+      return scoreJobicy(job);
+    case "djinni":
+      return scoreDjinni(job);
+    case "dou":
+      return scoreDou(job);
     case "himalayas":
       return scoreHimalayas(job);
     case "remoteok":
@@ -499,6 +628,91 @@ function runSanityChecks(): void {
     {
       label: "watchlist, remote 'North America' -> low",
       job: stub({ source: "watchlist", remote: true, locationRestrictions: ["North America"] }),
+      expect: "low",
+    },
+    {
+      label: "workable, remote, listed in Poland -> high",
+      job: stub({ source: "workable", remote: true, workMode: "remote", location: "Warsaw, Poland", locationRestrictions: ["Poland"] }),
+      expect: "high",
+    },
+    {
+      label: "workable, remote, listed in Germany -> low",
+      job: stub({ source: "workable", remote: true, workMode: "remote", location: "Berlin, Germany", locationRestrictions: ["Germany"] }),
+      expect: "low",
+    },
+    {
+      label: "hackernews, 'REMOTE (CET)' -> high",
+      job: stub({ source: "hackernews", remote: true, locationRestrictions: ["eventfirst | Senior Full-Stack Engineer | Berlin, Germany | REMOTE (CET) | Full-time"] }),
+      expect: "high",
+    },
+    {
+      label: "hackernews, 'Remote (US only)' -> low",
+      job: stub({ source: "hackernews", remote: true, locationRestrictions: ["Octane | Senior Software Engineer | REMOTE (US only) or NYC/Dallas"] }),
+      expect: "low",
+    },
+    {
+      label: "hackernews, 'Remote (Germany)' -> low",
+      job: stub({ source: "hackernews", remote: true, locationRestrictions: ["Avision GmbH | Full Stack Developer | Remote (Germany)"] }),
+      expect: "low",
+    },
+    {
+      label: "hackernews, bare 'REMOTE' -> medium",
+      job: stub({ source: "hackernews", remote: true, locationRestrictions: ["Trackerbot | Full-Stack Developer (Node.js) | REMOTE"] }),
+      expect: "medium",
+    },
+    {
+      label: "hackernews, onsite in San Francisco -> low",
+      job: stub({ source: "hackernews", remote: false, locationRestrictions: ["VOYGR | Founding Product Engineer | San Francisco | ONSITE"] }),
+      expect: "low",
+    },
+    {
+      label: "jobicy, open to Europe -> high",
+      job: stub({ source: "jobicy", remote: true, locationRestrictions: ["Europe"] }),
+      expect: "high",
+    },
+    {
+      label: "jobicy, Canada, Poland, UK, USA -> high",
+      job: stub({ source: "jobicy", remote: true, locationRestrictions: ["Canada", "Poland", "UK", "USA"] }),
+      expect: "high",
+    },
+    {
+      label: "jobicy, UK only -> low",
+      job: stub({ source: "jobicy", remote: true, locationRestrictions: ["UK"] }),
+      expect: "low",
+    },
+    {
+      label: "djinni, remote, open to Europe -> high",
+      job: stub({ source: "djinni", remote: true, locationRestrictions: ["Europe"] }),
+      expect: "high",
+    },
+    {
+      label: "djinni, remote, Ukraine only -> low",
+      job: stub({ source: "djinni", remote: true, locationRestrictions: ["UA"] }),
+      expect: "low",
+    },
+    {
+      label: "djinni, remote, no region -> medium",
+      job: stub({ source: "djinni", remote: true, locationRestrictions: [] }),
+      expect: "medium",
+    },
+    {
+      label: "djinni, hybrid in Warsaw -> medium",
+      job: stub({ source: "djinni", remote: false, locationRestrictions: ["Warsaw, Poland"] }),
+      expect: "medium",
+    },
+    {
+      label: "dou, remote from abroad -> high",
+      job: stub({ source: "dou", remote: true, locationRestrictions: ["Київ", "за кордоном"] }),
+      expect: "high",
+    },
+    {
+      label: "dou, remote, no country -> medium",
+      job: stub({ source: "dou", remote: true, locationRestrictions: ["Київ"] }),
+      expect: "medium",
+    },
+    {
+      label: "dou, office in Lviv -> low",
+      job: stub({ source: "dou", remote: false, locationRestrictions: ["Львів"] }),
       expect: "low",
     },
     {

@@ -109,7 +109,7 @@ export const SEARCH_DEFAULTS = {
    *   zip_recruiter  returns zero rows, and zero for a US location too, so it
    *                  is not a geography problem — the scraper is simply dead.
    */
-  sources: resolveSources(["nofluffjobs", "justjoin", "watchlist", "indeed", "linkedin", "himalayas"]),
+  sources: resolveSources(["nofluffjobs", "justjoin", "watchlist", "workable", "jobicy", "djinni", "dou", "indeed", "linkedin", "himalayas", "hackernews"]),
   /**
    * Boards the MCP `find_jobs` tool leaves out of a bare profile search.
    *
@@ -157,6 +157,36 @@ export const POLISH_BOARDS = {
     "https://justjoin.it/job-offers/remote/javascript?experience-level=senior&page=2",
   ],
 } as const;
+
+/**
+ * Workable's search terms (src/boards-intl.ts), each asked for remote roles
+ * listed in Poland. Short terms, not TARGET_QUERIES: Workable matches them in
+ * the whole posting, and on 2026-10-30 "react" found 25 roles, "typescript" 32,
+ * "frontend developer" 19, "web developer" 12 of mostly PHP. Asked one after
+ * another once a pass, not ten at once per query.
+ */
+export const WORKABLE_QUERIES = ["react", "typescript", "javascript", "frontend", "next.js", "fullstack"] as const;
+
+/**
+ * djinni.co's listings to read (src/boards-ua.ts), by its own primary keyword:
+ * "React.js" 12 postings a month, "JavaScript" 18, "Fullstack" about 140.
+ * "Front End" and plain "React" are not keywords there and return everything.
+ */
+export const DJINNI_KEYWORDS = ["React.js", "JavaScript", "Fullstack"] as const;
+
+/**
+ * jobs.dou.ua's RSS feeds (src/boards-ua.ts), 25 latest postings each: remote
+ * by category, "react" in the text, and the Warsaw offices. Node.js is left
+ * out: its remote feed is backend roles.
+ */
+export const DOU_FEEDS = [
+  "category=Front End&remote",
+  "category=Fullstack&remote",
+  "category=JavaScript&remote",
+  "search=react&remote",
+  "category=Front End&city=Варшава",
+  "category=Fullstack&city=Варшава",
+] as const;
 
 export type WatchedBoard = {
   vendor: "ashby" | "greenhouse" | "lever";
@@ -600,10 +630,15 @@ function computeStackFit(job: Job): number {
     if (hasTerm(title, term)) score += weight * 2;
     else if (hasTerm(rest, term)) score += weight;
   }
+  // A Hacker News post describes the company and every role it hires for, so
+  // a stack in its body may be another role's: Revieve's "TypeScript/React up
+  // front" sat beside computer vision and scored -1, Modash -8. Only its title
+  // counts against it; Claude reads the post.
+  const bodyPenalties = job.source !== "hackernews";
   for (const [term, penalty] of FOREIGN_STACK) {
     // A foreign stack named in the title is close to disqualifying.
     if (hasTerm(title, term)) score -= penalty * 3;
-    else if (hasTerm(rest, term)) score -= penalty;
+    else if (bodyPenalties && hasTerm(rest, term)) score -= penalty;
   }
 
   // A junior/intern opening is as poor a fit for an 8-year senior as a foreign

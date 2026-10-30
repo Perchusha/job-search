@@ -42,8 +42,8 @@ function refreshHours(): number {
 /** Fetched one query at a time, incrementally, at most daily. */
 const SLOW_SOURCES: SourceName[] = ["linkedin"];
 const SLOW_INTERVAL_HOURS = 24;
-/** Fetched in full, but only daily: company boards change slowly. */
-const DAILY_SOURCES: SourceName[] = ["watchlist"];
+/** Fetched in full, but only daily: company boards and a monthly thread change slowly. */
+const DAILY_SOURCES: SourceName[] = ["watchlist", "hackernews"];
 const BACKOFF_HOURS = 24;
 
 export type SourceOutcome = {

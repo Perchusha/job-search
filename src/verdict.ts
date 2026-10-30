@@ -603,6 +603,9 @@ const SAVED_FRESH_MS = 3 * 86_400_000;
 async function postingText(copies: Job[], reuseKey?: string): Promise<Posting> {
   const stored = copies.map((copy) => copy.description ?? "").sort((a, b) => b.length - a.length)[0] ?? "";
   if (stored.length >= ENOUGH_TEXT && stored.length < STORED_CAP) return { text: stored, closed: false, via: "stored" };
+  // A Hacker News post is the whole posting, however short; its page adds the
+  // thread's navigation and the replies under it.
+  if (copies[0]?.source === "hackernews" && stored.length >= 200) return { text: stored, closed: false, via: "stored" };
   const saved = reuseKey ? getPostingText(reuseKey) : null;
   const reusable = saved !== null && saved.text.length > stored.length && Date.now() - Date.parse(saved.read_at) < SAVED_FRESH_MS;
   // LinkedIn's place lives on its page only: a saved read from before places

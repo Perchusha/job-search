@@ -91,6 +91,13 @@ const sourceEnum = z.enum([
   "justjoin",
   // chosen companies' own boards (profile.ts WATCHLIST), via their ATS APIs
   "watchlist",
+  // Workable's public job search and HN's "Who is hiring?" (src/boards-intl.ts)
+  "workable",
+  "jobicy",
+  "hackernews",
+  // the Ukrainian boards djinni.co and jobs.dou.ua (src/boards-ua.ts)
+  "djinni",
+  "dou",
   // scraped via JobSpy — volume + descriptions, no salary data
   "indeed",
   "linkedin",
