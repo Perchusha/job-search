@@ -354,6 +354,9 @@ ones were checked and are empty (jobs.devby.io: 6 vacancies in all; rabota.by is
 | [DOU](https://jobs.dou.ua) | Default. RSS feeds in `DOU_FEEDS` (remote Front End, Fullstack, JavaScript, "react"; Warsaw offices), 25 latest each, whole text. The title carries place and pay: "Role в Company, до $5000, за кордоном, віддалено" |
 
 `SEARCH_DEFAULTS.sources` is **nofluffjobs, justjoin, watchlist, workable, jobicy, djinni, dou, indeed, linkedin, himalayas, hackernews**.
+
+Настройки → Поиск shows, per board, the cards on screen, how many of them Claude took (apply or
+maybe), and how many are **only there**: every copy dedupe folded into the card came from that board.
 `DEFAULT_SOURCES` (`indeed` + `himalayas`) is only the fallback for a caller that names none.
 
 ### JobSpy caveats worth knowing

@@ -3012,7 +3012,8 @@ function fillSearchSetup(state) {
     + '<span class="now">' + esc("нашёл " + q.found + " · только он " + q.only + " · на экране " + q.shown + " · Claude за " + q.fits
       + " · откликов " + q.applied) + "</span></li>").join("");
   $("search-boards").innerHTML = state.boards.map((b) => "<li><b>" + esc(SOURCE_NAME[b.source] || b.source) + "</b>"
-    + '<span class="now">' + esc((b.perQuery ? "по запросам" : "читается целиком") + " · в базе " + b.stored + " · на экране " + b.shown + " · "
+    + '<span class="now">' + esc((b.perQuery ? "по запросам" : "читается целиком") + " · в базе " + b.stored + " · на экране " + b.shown
+      + " · Claude за " + b.fits + " · только здесь " + b.only + (b.only ? " (Claude за " + b.onlyFits + ")" : "") + " · "
       + hoursAgo(b.lastSuccessAt)) + "</span>"
     + (b.lastError ? '<span style="color: var(--bad)">' + esc("последняя попытка: " + b.lastError) + "</span>" : "") + "</li>").join("");
 }

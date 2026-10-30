@@ -799,6 +799,17 @@ export function postingCounts(): Record<string, number> {
   return Object.fromEntries(rows.map((row) => [row.source, row.n]));
 }
 
+/** Which boards store each job key: a key on two boards is the same posting seen twice. */
+export function postingSources(): Map<string, Set<string>> {
+  const bySource = new Map<string, Set<string>>();
+  for (const row of getDb().prepare<[], { job_key: string; source: string }>("SELECT job_key, source FROM postings").all()) {
+    const set = bySource.get(row.job_key) ?? new Set<string>();
+    set.add(row.source);
+    bySource.set(row.job_key, set);
+  }
+  return bySource;
+}
+
 export function loadPostings(sources: readonly string[]): StoredJob[] {
   if (sources.length === 0) return [];
   const rows = getDb()

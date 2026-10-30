@@ -48,6 +48,7 @@ import {
   saveForget,
   updateStatus,
   listPostingPlaces,
+  postingSources,
   type Status,
 } from "./db.ts";
 import { belowSalaryFloor } from "./boards-pl.ts";
@@ -1380,15 +1381,27 @@ function searchSetup() {
   });
 
   const stored = postingCounts();
+  // A card is a board's own when every copy dedupe folded into it came from
+  // that board: what the search would lose without it.
+  const boardsOf = postingSources();
+  const onlyOn = (job: Job) => {
+    const found = new Set(keysOf(job).flatMap((key) => [...(boardsOf.get(key) ?? [])]));
+    return found.size === 1 ? [...found][0] : null;
+  };
   const boards = sources.map((source) => {
     const state = lastFetch(source);
+    const mine = shown.filter((row) => row.job.source === source);
+    const own = shown.filter((row) => onlyOn(row.job) === source);
     return {
       source,
       perQuery: !PER_PASS_SOURCES.includes(source),
       stored: stored[source] ?? 0,
       lastSuccessAt: state.lastSuccessAt,
       lastError: state.lastError,
-      shown: shown.filter((row) => row.job.source === source).length,
+      shown: mine.length,
+      only: own.length,
+      fits: mine.filter((row) => ["apply", "maybe"].includes(views.get(row.job.key)?.verdict ?? "")).length,
+      onlyFits: own.filter((row) => ["apply", "maybe"].includes(views.get(row.job.key)?.verdict ?? "")).length,
     };
   });
 
