@@ -31,7 +31,7 @@
 
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,6 +60,10 @@ import type { Job, PayRange } from "./sources.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CRITERIA_FILE = join(HERE, "verdict-criteria.md");
+// The criteria describe a person, so the file stays out of git: a fresh checkout
+// starts from the template and edits its own copy.
+const CRITERIA_EXAMPLE = join(HERE, "verdict-criteria.example.md");
+if (!existsSync(CRITERIA_FILE) && existsSync(CRITERIA_EXAMPLE)) copyFileSync(CRITERIA_EXAMPLE, CRITERIA_FILE);
 // The facts application forms ask for — the same file scripts/apply.mjs fills them from.
 const PROFILE_FILE = join(HERE, "..", ".claude", "skills", "job-apply", "profile.json");
 const JOBS_FETCH = join(HERE, "..", "scripts", "jobs-fetch.mjs");
@@ -116,7 +120,7 @@ const SOFT_SHARE = 0.25;
 /*
  * Measured on this machine (2026-10-23) over 28 postings already decided by
  * hand: ~7 s a posting on either model at low effort, the same agreement with
- * my decisions (README, "Claude's verdict on a card"). Sonnet is the default
+ * my decisions (docs/GUIDE.md, "Claude's verdict on a card"). Sonnet is the default
  * because it used half as much of the plan. Low effort: the user settings ask
  * for xhigh, which is for coding sessions; a verdict is a read of one page.
  * JOBHUNT_CLAUDE_* set the defaults; what Настройки saves wins over them.

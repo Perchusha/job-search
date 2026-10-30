@@ -6,3 +6,11 @@ node_modules/
 __pycache__/
 desktop/node_modules/
 desktop/dist/
+
+# Personal data: stays on this machine. Each has a committed template beside it
+# (profile.example.json, profile.example.md, verdict-criteria.example.md); the
+# avatar falls back to src/assets/avatar.svg.
+.claude/skills/job-apply/profile.json
+.claude/skills/job-apply/profile.md
+src/verdict-criteria.md
+src/assets/avatar.jpg

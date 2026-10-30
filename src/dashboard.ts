@@ -8,7 +8,7 @@
  * /fonts.css. Nothing is fetched off this machine.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createRequire } from "node:module";
@@ -192,8 +192,14 @@ const FONT_CSS = [
  */
 const PAGE = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "dashboard.html"), "utf8");
 
-/** The header's avatar, src/assets/avatar.jpg: a copy of mine, 192 px, read once like the page. */
-const AVATAR = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "assets", "avatar.jpg"));
+/**
+ * The header's avatar, read once like the page: src/assets/avatar.jpg, your own
+ * picture (192 px, kept out of git), or the neutral avatar.svg without one.
+ */
+const ASSETS = join(dirname(fileURLToPath(import.meta.url)), "assets");
+const AVATAR = existsSync(join(ASSETS, "avatar.jpg"))
+  ? { body: readFileSync(join(ASSETS, "avatar.jpg")), type: "image/jpeg" }
+  : { body: readFileSync(join(ASSETS, "avatar.svg")), type: "image/svg+xml" };
 
 /* ------------------------------------------------------------------ */
 /* Server                                                             */
@@ -416,11 +422,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "GET" && path === "/avatar.jpg") {
       response.writeHead(200, {
-        "Content-Type": "image/jpeg",
-        "Content-Length": AVATAR.length,
+        "Content-Type": AVATAR.type,
+        "Content-Length": AVATAR.body.length,
         "Cache-Control": "public, max-age=86400",
       });
-      response.end(AVATAR);
+      response.end(AVATAR.body);
       return;
     }
 

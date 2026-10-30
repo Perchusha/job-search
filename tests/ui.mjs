@@ -318,9 +318,10 @@ async function main() {
       && !html.includes("<kbd>"));
   check("a copied link says so under its own button", html.includes('data-copied="LinkedIn скопирован"') && /\.copy\.is-copied::after/.test(html));
   const avatar = await fetch(`${BASE}/avatar.jpg`);
+  // Your own src/assets/avatar.jpg when there is one (it stays out of git), else the neutral avatar.svg.
   check("the header's avatar is the picture served from the project, not initials",
     html.includes('<img src="/avatar.jpg"') && !html.includes(">АП</button>") && avatar.ok
-      && avatar.headers.get("content-type") === "image/jpeg" && (await avatar.arrayBuffer()).byteLength > 1000);
+      && /^image\/(jpeg|svg\+xml)$/.test(avatar.headers.get("content-type") ?? "") && (await avatar.arrayBuffer()).byteLength > 100);
 
   /* ---- evaluate it against the shim ---- */
   const registry = new Map();

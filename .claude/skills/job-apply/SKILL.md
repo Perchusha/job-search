@@ -15,7 +15,9 @@ screenshots: you run a command and read one JSON line.
 phone, links, CV path, salary (number per currency and a sentence), notice
 period, work authorisation, languages, education, work history. Edit it,
 never the script, when a fact changes. [profile.md](profile.md) is the same
-in prose, with the reasoning behind each answer.
+in prose, with the reasoning behind each answer. Both are personal and stay
+out of git; a fresh checkout starts by copying profile.example.json and
+profile.example.md to those names.
 
 ## Run it
 

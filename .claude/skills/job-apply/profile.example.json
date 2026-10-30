@@ -1,0 +1,97 @@
+{
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "fullName": "Jane Doe",
+  "email": "jane.doe@example.com",
+  "phone": "+48 500 000 000",
+  "phoneDigits": "500000000",
+  "phoneCountry": "PL",
+  "city": "Warsaw",
+  "country": "Poland",
+  "location": "Warsaw, Poland",
+  "timezone": "Europe/Warsaw",
+  "headline": "Senior Software Engineer (React / Next.js / TypeScript / Node.js)",
+  "currentCompany": "Example Corp",
+  "currentTitle": "Senior Frontend Developer",
+  "yearsExperience": 8,
+  "yearsReact": 6,
+  "yearsTypescript": 6,
+  "yearsNode": 5,
+  "yearsNext": 4,
+  "linkedin": "https://www.linkedin.com/in/jane-doe/",
+  "github": "https://github.com/jane-doe",
+  "portfolio": "https://jane-doe.dev/",
+  "cvPath": "C:\\Users\\jane\\Documents\\Jane Doe CV.pdf",
+  "salary": {
+    "plnMonthlyB2B": 25000,
+    "plnMonthlyB2BRange": "23 000 – 27 000 PLN net/month (B2B)",
+    "usdYearly": 80000,
+    "eurYearly": 73000,
+    "usdMonthly": 6500,
+    "eurMonthly": 6000,
+    "uopGrossMonthly": {
+      "PLN": 31000,
+      "EUR": 7200,
+      "USD": 8000
+    },
+    "text": "23–27k PLN net/month on B2B, or 31,000 PLN gross/month on an employment contract (UoP); open to discussion depending on scope"
+  },
+  "noticePeriod": "1 month",
+  "availableFrom": "1 month after an offer",
+  "contractPreference": [
+    "B2B",
+    "employment contract (umowa o pracę)"
+  ],
+  "workMode": "remote",
+  "officeOk": "Remote only.",
+  "willingToRelocate": false,
+  "workAuthorisation": {
+    "poland": true,
+    "eu": false,
+    "us": false,
+    "uk": false,
+    "needsSponsorshipOutsidePoland": true
+  },
+  "nationality": "Ukrainian",
+  "languages": [
+    {
+      "name": "English",
+      "level": "C1"
+    },
+    {
+      "name": "Polish",
+      "level": "B1"
+    }
+  ],
+  "education": {
+    "degree": "BSc in Computer Science",
+    "school": "Example University",
+    "from": "2012",
+    "to": "2016"
+  },
+  "workHistory": [
+    {
+      "company": "Example Corp",
+      "title": "Senior Frontend Developer",
+      "from": "2022-01",
+      "to": null,
+      "summary": "One or two sentences: the product, the stack, the result you are proud of."
+    },
+    {
+      "company": "Previous Ltd",
+      "title": "Software Engineer",
+      "from": "2017-03",
+      "to": "2021-12",
+      "summary": "Same here. The cover letters and form answers quote these, so keep them factual.",
+      "projects": [
+        {
+          "name": "Some project",
+          "summary": "Optional: a longer story for 'tell us about a project' questions — what it was, your part, the hard bit, the tradeoff."
+        }
+      ]
+    }
+  ],
+  "eeo": "Decline to self-identify",
+  "heardFrom": "Job board",
+  "answers": {}
+}

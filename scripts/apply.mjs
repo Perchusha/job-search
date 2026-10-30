@@ -38,7 +38,12 @@ import { basename, join, resolve as resolvePath } from "node:path";
 import { chromium } from "playwright";
 
 const ROOT = resolvePath(new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
-const PROFILE = JSON.parse(readFileSync(join(ROOT, ".claude/skills/job-apply/profile.json"), "utf8"));
+const PROFILE_FILE = join(ROOT, ".claude/skills/job-apply/profile.json");
+if (!existsSync(PROFILE_FILE)) {
+  console.error(`No ${PROFILE_FILE}: copy profile.example.json beside it and fill in your own facts.`);
+  process.exit(1);
+}
+const PROFILE = JSON.parse(readFileSync(PROFILE_FILE, "utf8"));
 // LinkedIn keeps its login in `chrome-profile` (see --login); every other board runs in a
 // second profile so an open LinkedIn window never blocks an application elsewhere.
 const USER_DATA = join(homedir(), ".job-hunt", "chrome-profile");
@@ -302,7 +307,8 @@ function answerFor(label, control, extra) {
     return isChoice ? { kind: "select", prefer: [/b1/i, /intermediate|komunikatywn/i, /basic|communicative|podstawow/i, /conversational/i] } : { kind: "text", value: "B1 (communicative)" };
   }
   if (/which languages|languages (you )?speak|language skills|znajomość języków/.test(l)) return isChoice ? { kind: "select", prefer: [/english/i] } : { kind: "text", value: "English (C1), Polish (B1), Russian (native)" };
-  if (/nationality|citizenship|obywatelstwo/.test(l)) return isChoice ? { kind: "select", prefer: [/belarus/i] } : { kind: "text", value: PROFILE.nationality };
+  // "Polish" → /Pol/, "Ukrainian" → /Ukrain/: the stem finds both the adjective and the country.
+  if (/nationality|citizenship|obywatelstwo/.test(l)) return isChoice ? { kind: "select", prefer: [new RegExp(PROFILE.nationality.replace(/(ian|ish|ese|an|i)$/i, ""), "i")] } : { kind: "text", value: PROFILE.nationality };
 
   if (/sponsor|visa/.test(l)) {
     if (/poland|polsk|\beu\b|europe/.test(l) && !NON_PL_COUNTRIES.test(l)) return { kind: "select", prefer: [/^no\b/i, /not required|don't|do not/i] };
@@ -1117,7 +1123,7 @@ async function emit(result, pretty = false) {
  * per run.
  */
 function remember(label, value) {
-  const path = join(ROOT, ".claude/skills/job-apply/profile.json");
+  const path = PROFILE_FILE;
   const profile = JSON.parse(readFileSync(path, "utf8"));
   profile.answers = { ...(profile.answers ?? {}), [label]: value };
   writeFileSync(path, JSON.stringify(profile, null, 2) + "\n", "utf8");

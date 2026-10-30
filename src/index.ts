@@ -186,7 +186,7 @@ server.tool(
     try {
       /*
        * Everything goes through the profile search, with the arguments as
-       * overrides. Passing `sources` (which the README suggests for LinkedIn)
+       * overrides. Passing `sources` (which docs/GUIDE.md suggests for LinkedIn)
        * used to switch to a bare one-off search: no profile queries, no
        * remote-only, no fit filter and no dismissed list — "dismiss_job hides it
        * from every future search" did not hold there.

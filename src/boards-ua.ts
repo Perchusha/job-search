@@ -9,8 +9,7 @@
  * where: "віддалено" (remote), "за кордоном" (from abroad), "Варшава (Польща)".
  *
  * djinni.co was read here too and was removed the same day: Djinni blocked my
- * account, signed up with a Google account registered in Belarus, so its
- * postings could not be applied to.
+ * account, so its postings could not be applied to.
  *
  * Read once per pass (PER_PASS_SOURCES). Postings closed to Poland (Ukraine
  * only, an office in Kyiv) are not stored. A pass that finds nothing throws,
