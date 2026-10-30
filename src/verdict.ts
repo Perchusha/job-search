@@ -1351,12 +1351,27 @@ function desktopInstalled(): Promise<boolean> {
   });
 }
 
+/**
+ * Inter's case alternates, U+E081 to U+E0A4 in order, as Inter 4.0's GSUB
+ * maps them. Inter raises ( ) - + : ~ beside capitals and digits, and the
+ * Google Docs PDF of the CV gives those glyphs the font's private code
+ * points: pdf.js read the 2026-10-27 CV's "+48" and "10-15s to ~3s" with
+ * U+E09D, U+E088 and U+E0A3 in place of + - ~ (46 characters in all), and
+ * Claude drafted the letters from that text.
+ */
+const INTER_CASE = "()[]{}@-–‒—•◦⁃‣⁌⁍:,.:;<>≤≥=≠+−x÷±≈~*";
+
 /** The CV's text, page after page; "" when the PDF is missing or unreadable. */
 async function cvText(file: string): Promise<string> {
   try {
     const pdf = await getDocumentProxy(new Uint8Array(readFileSync(file)));
     const { text } = await extractText(pdf);
-    return text.join("\n").replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
+    return text
+      .join("\n")
+      .replace(/[-]/g, (c) => INTER_CASE.charAt(c.charCodeAt(0) - 0xe081))
+      .replace(/[ \t]+$/gm, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
   } catch {
     return "";
   }

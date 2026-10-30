@@ -52,14 +52,23 @@ assert.ok(brief.includes("максимум 3–4 предложения") && bri
 console.log("PASS  and how a form's open answers are written: 3–4 sentences, plain words");
 
 /* ---- and the CV, as text from the PDF; a one-page stand-in, not the real one, which keeps changing ---- */
-function onePagePdf(line) {
+// `unicode` maps a character to the code point the PDF's ToUnicode gives it, as
+// a Google Docs export in Inter does with its raised + - ~ (see cvText).
+function onePagePdf(line, unicode = {}) {
   const content = `BT /F1 12 Tf 72 720 Td (${line}) Tj ET`;
+  const hex = (n, width) => n.toString(16).toUpperCase().padStart(width, "0");
+  const pairs = Object.entries(unicode).map(([ch, cp]) => `<${hex(ch.charCodeAt(0), 2)}> <${hex(cp, 4)}>`);
+  const cmap = `/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /Test def /CMapType 2 def
+1 begincodespacerange <00> <FF> endcodespacerange
+${pairs.length} beginbfchar ${pairs.join(" ")} endbfchar
+endcmap CMapName currentdict /CMap defineresource pop end end`;
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
     "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
     `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica${pairs.length ? " /ToUnicode 6 0 R" : ""} >>`,
+    ...(pairs.length ? [`<< /Length ${cmap.length} >>\nstream\n${cmap}\nendstream`] : []),
   ];
   let pdf = "%PDF-1.4\n";
   const offsets = objects.map((body, i) => {
@@ -82,10 +91,12 @@ try {
   assert.ok(withCv.includes(`текстом из ${cv}`), "and where it came from");
   const missing = await discussionBrief(join(dir, "gone.pdf"));
   assert.ok(missing.includes("Резюме не прочиталось") && !missing.includes("```text"), "a missing CV is said, not left out");
+  writeFileSync(cv, onePagePdf("+48 571, times from 10-15s to ~3s", { "+": 0xe09d, "-": 0xe088, "~": 0xe0a3 }));
+  assert.ok((await discussionBrief(cv)).includes("```text\n+48 571, times from 10-15s to ~3s\n```"), "Inter's raised + - ~ read as + - ~");
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }
-console.log("PASS  and the CV: its text from the PDF, or a word that it could not be read");
+console.log("PASS  and the CV: its text from the PDF, Inter's raised punctuation as itself, or a word that it could not be read");
 
 /* ---- Настройки → «Не убирать, если единственная причина»: a policy over the stored verdict, no new run ---- */
 const stored = (verdict, factors) => ({
