@@ -276,11 +276,17 @@ function feedView(
   // The budget counts only the cards the tab shows by default (apply, check,
   // needs-you). Rule hits and jobs already applied to or hidden ride along
   // outside it, for the toggles: inside it they took 87 of the 200 places, and
-  // the cards below the cut were neither shown nor judged by Claude.
+  // the cards below the cut were neither shown nor judged by Claude. Claude's
+  // skips ride along too: the page folds them into «Убрал Claude», and on
+  // 2026-10-30 they held 163 of the 200 places, the 5 maybes below the cut
+  // shown nowhere.
   let shownCount = 0;
   const soft: typeof screened = [];
   const page = screened.filter((row) => {
-    if (fitTier(row.job) <= SEARCH_DEFAULTS.maxFitTier) return !isShown(row) || shownCount++ < SEARCH_DEFAULTS.limit;
+    if (fitTier(row.job) <= SEARCH_DEFAULTS.maxFitTier) {
+      if (!isShown(row) || views.get(row.job.key)?.verdict === "skip") return true;
+      return shownCount++ < SEARCH_DEFAULTS.limit;
+    }
     // The soft lane: never on the page as a rule hit or without a verdict.
     if (!isShown(row) || !softWorthy(row.job)) return false;
     soft.push(row);
