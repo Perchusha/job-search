@@ -752,7 +752,10 @@ export const SCREEN_TITLE_RULES: Array<[reason: string, pattern: RegExp]> = [
   ["AI-training gig, not engineering", T("ai training|ai trainer|ai tutor|data annotation|rlhf")],
   ["not an engineering role", T("recruiter|talent|designer|ui/ux design|product manager|project manager|scrum master|business analyst|analyst|account manager|customer success|support|advocate|consultant|informatyk|administrator|technical writer|documentation")],
   ["QA / test role", T("qa|test engineer|tester|sdet|quality|automation test|automation engineer")],
-  ["DevOps / infra / security role", T("devops|sre|site reliability|security|cloud architect|platform lead|network|infrastructure|k8s|kubernetes")],
+  // Infrastructure as code in the title is the role's point. The cloud alone
+  // ("React / TypeScript / AWS") is not: on 2026-10-30 cloud became something
+  // to learn on the job, DevOps work in earnest stayed out.
+  ["DevOps / infra / security role", T("devops|sre|site reliability|security|cloud architect|platform lead|network|infrastructure|k8s|kubernetes|terraform|pulumi|cloudformation")],
   // Asked for on 2026-10-24: a role whose point is architecture is not the
   // hands-on product work wanted, React in the title or not.
   ["architect role, not hands-on product work", T("architect|architekt\\w*")],

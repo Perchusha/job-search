@@ -248,6 +248,17 @@ assert.equal(titled("Architekt systemów IT").reason, "architect role, not hands
 assert.equal(titled("Architektka rozwiązań").bucket, "dismiss");
 console.log("PASS  screening: architekt, architekta, architektka");
 
+/* ---- the cloud in a title is something to learn; infrastructure as code there is a DevOps role ---- */
+for (const cloud of ["Senior Fullstack Developer (Node.js, React, AWS)", "Front-End Engineer (React / TypeScript / AWS)",
+  "Fullstack TypeScript Developer – React & AWS Lambda", "Senior Software Engineer, Frontend, Google Cloud Console"]) {
+  assert.notEqual(titled(cloud).bucket, "dismiss", cloud);
+}
+for (const iac of ["Senior Frontend Engineer (Terraform)", "Fullstack Developer – React, Pulumi"]) {
+  assert.equal(titled(iac).reason, "DevOps / infra / security role", iac);
+}
+assert.equal(titled("Senior Backend Developer (.NET / AWS)").reason, "wrong stack: .NET / Java", "a foreign language still hides it");
+console.log("PASS  screening: AWS, Azure, GCP in the title pass; Terraform or Pulumi there is a DevOps role");
+
 /* ---- Настройки → Правила: a rule switched off, a card freed from the rules ---- */
 const php = { title: "Senior PHP Developer", company: "Example", url: "https://example.com/php", source: "linkedin", postedAt: null,
   eligibility: { level: "high", reason: "Poland" } };
