@@ -10,7 +10,7 @@
 
 import { fetchHackerNews, fetchJobicy, fetchWorkable } from "./boards-intl.ts";
 import { fetchJustJoin, fetchNoFluffJobs } from "./boards-pl.ts";
-import { fetchDjinni, fetchDou } from "./boards-ua.ts";
+import { fetchDou } from "./boards-ua.ts";
 import { jobKey } from "./jobkey.ts";
 import { companyKey, roleKey } from "./screening.ts";
 import { fetchWatchlist, htmlToText } from "./watchlist.ts";
@@ -39,7 +39,6 @@ export type SourceName =
   | "watchlist"
   | "workable"
   | "jobicy"
-  | "djinni"
   | "dou"
   | "hackernews"
   | "nofluffjobs"
@@ -73,17 +72,17 @@ export const POLISH_SOURCES: SourceName[] = ["nofluffjobs", "justjoin"];
  * one per TARGET_QUERY (searchJobs splits them out). Their URLs already encode
  * remote + senior + stack, and repeating them per query would download the
  * same page ten times. Workable asks its own few terms in one pass
- * (profile.ts WORKABLE_QUERIES), Djinni its keywords' pages, DOU its feeds;
- * Hacker News is one thread a month.
+ * (profile.ts WORKABLE_QUERIES), DOU its feeds; Hacker News is one thread a
+ * month.
  */
-export const PER_PASS_SOURCES: SourceName[] = [...POLISH_SOURCES, "watchlist", "workable", "jobicy", "djinni", "dou", "hackernews"];
+export const PER_PASS_SOURCES: SourceName[] = [...POLISH_SOURCES, "watchlist", "workable", "jobicy", "dou", "hackernews"];
 
 /**
  * Order decides which copy survives dedupe. The Polish boards go first: their
  * copy of a role carries pay per contract type, the Indeed copy carries none.
  * Workable's copy carries the whole text; a Hacker News post loses to any board.
  */
-export const ALL_SOURCES: SourceName[] = [...POLISH_SOURCES, "watchlist", "workable", "jobicy", "djinni", "dou", ...JOBSPY_SOURCES, ...FEED_SOURCES, "hackernews"];
+export const ALL_SOURCES: SourceName[] = [...POLISH_SOURCES, "watchlist", "workable", "jobicy", "dou", ...JOBSPY_SOURCES, ...FEED_SOURCES, "hackernews"];
 
 /**
  * Default search set — Indeed for volume, Himalayas for salary + worldwide.
@@ -716,7 +715,6 @@ export async function fetchAllSources(options: FetchOptions = {}): Promise<Fetch
     justjoin: () => fetchJustJoin(),
     workable: (opts) => fetchWorkable(opts),
     jobicy: () => fetchJobicy(),
-    djinni: () => fetchDjinni(),
     dou: () => fetchDou(),
     hackernews: () => fetchHackerNews(),
     indeed: scrape("indeed"),

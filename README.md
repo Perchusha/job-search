@@ -230,7 +230,6 @@ on **word boundaries**, so "Deutschland" does not match `eu` and "Naples" does n
 | **Jobicy**    | the regions listed include Poland, Europe, EMEA or anywhere | no region listed | other countries only |
 | **Workable**  | remote, listed in Poland                         | listed in Poland, but hybrid/onsite or office days in the text | listed in another country |
 | **Hacker News** | remote, and the header says Europe, worldwide, CET/UTC± or Poland | remote, no region in the header | remote in the Americas or within one other country; onsite outside Poland |
-| **Djinni**    | remote, open to Europe or Poland                 | remote with no region; an office in Poland | remote within Ukraine or another single country; an office elsewhere |
 | **DOU**       | remote «за кордоном» (from abroad) or in a Polish city | remote with no country (often Ukraine only); an office in Poland | an office in Ukraine |
 | **Indeed / LinkedIn / other scraped** | remote **and** a Poland/EU location; LinkedIn: a card naming only the country or region, or no place | remote elsewhere (may require local tax residency), onsite in Poland, or no location stated | onsite outside Poland |
 
@@ -345,15 +344,14 @@ where the volume is:
 | [RemoteOK](https://remoteok.com) | Opt-in. First array element is legal metadata and is skipped. Content varies wildly |
 | [Arbeitnow](https://www.arbeitnow.com) | Opt-in. EU/Germany focused |
 
-**Ukrainian boards** ([src/boards-ua.ts](src/boards-ua.ts)), added on 2026-10-30, once per pass. The Belarusian
-ones were checked and are empty (jobs.devby.io: 6 vacancies in all; rabota.by is hh.ru, whose API answers 403 without a registered app).
+**Ukrainian board** ([src/boards-ua.ts](src/boards-ua.ts)), added on 2026-10-30, once per pass. The Belarusian
+ones were checked and are empty (jobs.devby.io: 6 vacancies in all; rabota.by is hh.ru, whose API answers 403 without a registered app). Djinni was read too and removed the same day: it blocked the account, signed up with a Google account registered in Belarus.
 
 | Source | Notes |
 | --- | --- |
-| [Djinni](https://djinni.co) | Default. Listing pages per `DJINNI_KEYWORDS` (React.js, JavaScript, Fullstack), 15 postings a page, one second apart; each posting is JSON-LD with the whole text, `applicantLocationRequirements` and sometimes pay. 168 in a month: 65 open to Europe, 7 to Poland, 57 Ukraine only. Postings out of reach are not stored |
 | [DOU](https://jobs.dou.ua) | Default. RSS feeds in `DOU_FEEDS` (remote Front End, Fullstack, JavaScript, "react"; Warsaw offices), 25 latest each, whole text. The title carries place and pay: "Role в Company, до $5000, за кордоном, віддалено" |
 
-`SEARCH_DEFAULTS.sources` is **nofluffjobs, justjoin, watchlist, workable, jobicy, djinni, dou, indeed, linkedin, himalayas, hackernews**.
+`SEARCH_DEFAULTS.sources` is **nofluffjobs, justjoin, watchlist, workable, jobicy, dou, indeed, linkedin, himalayas, hackernews**.
 
 Настройки → Поиск shows, per board, the cards on screen, how many of them Claude took (apply or
 maybe), and how many are **only there**: every copy dedupe folded into the card came from that board.
@@ -535,7 +533,7 @@ finishing and Indeed finishing used to keep missing Indeed until the next pass.
 
 | Board | Refresh |
 | --- | --- |
-| nofluffjobs, justjoin, workable, jobicy, djinni, dou, indeed, himalayas | a full month-wide pass every 6 h (`JOBHUNT_REFRESH_HOURS`), ~2–5 s each. ↻ Обновить runs it now |
+| nofluffjobs, justjoin, workable, jobicy, dou, indeed, himalayas | a full month-wide pass every 6 h (`JOBHUNT_REFRESH_HOURS`), ~2–5 s each. ↻ Обновить runs it now |
 | watchlist | daily, ~10 s for 16 boards |
 | hackernews | daily, ~2 s: the latest "Who is hiring?" thread |
 | linkedin | at most once a day, only what is new since its last success (`hoursOld`), one query at a time; a day off after HTTP 429. ↻ Обновить does not force it |

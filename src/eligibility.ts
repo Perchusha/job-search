@@ -366,25 +366,6 @@ function scoreJobicy(job: Job): Eligibility {
 }
 
 /**
- * djinni.co says where a remote role may be done from (applicantLocationRequirements):
- * "Europe", "POL", "UA", or nothing. Ukraine alone is the board's default and
- * the one most often named; it is out of reach, as is any other single country.
- */
-function scoreDjinni(job: Job): Eligibility {
-  const regions = job.locationRestrictions.join(", ");
-  if (!job.remote) {
-    return POLISH_PLACE.test(regions) || /\b(?:POL|PL|Poland)\b/.test(regions)
-      ? { eligible: true, level: "medium", reason: `Office in Poland ("${regions}") — not remote` }
-      : { eligible: false, level: "low", reason: `Office in "${regions || "—"}" — outside Poland` };
-  }
-  if (regions === "") return { eligible: true, level: "medium", reason: "Remote, region not stated on Djinni — check the posting" };
-  if (/\b(?:europe|eu|emea|worldwide|anywhere|POL|PL|Poland)\b/i.test(regions)) {
-    return { eligible: true, level: "high", reason: `Remote, open to ${regions}` };
-  }
-  return { eligible: false, level: "low", reason: `Remote within ${regions} only` };
-}
-
-/**
  * jobs.dou.ua's title names where: "віддалено" (remote), "за кордоном" (from
  * abroad), cities. Remote from abroad or in Poland is confirmed; remote alone
  * usually means from Ukraine, so it is a check; an office in Ukraine is out.
@@ -463,8 +444,6 @@ function scoreBySource(job: Job): Eligibility {
       return scoreHackerNews(job);
     case "jobicy":
       return scoreJobicy(job);
-    case "djinni":
-      return scoreDjinni(job);
     case "dou":
       return scoreDou(job);
     case "himalayas":
@@ -679,26 +658,6 @@ function runSanityChecks(): void {
       label: "jobicy, UK only -> low",
       job: stub({ source: "jobicy", remote: true, locationRestrictions: ["UK"] }),
       expect: "low",
-    },
-    {
-      label: "djinni, remote, open to Europe -> high",
-      job: stub({ source: "djinni", remote: true, locationRestrictions: ["Europe"] }),
-      expect: "high",
-    },
-    {
-      label: "djinni, remote, Ukraine only -> low",
-      job: stub({ source: "djinni", remote: true, locationRestrictions: ["UA"] }),
-      expect: "low",
-    },
-    {
-      label: "djinni, remote, no region -> medium",
-      job: stub({ source: "djinni", remote: true, locationRestrictions: [] }),
-      expect: "medium",
-    },
-    {
-      label: "djinni, hybrid in Warsaw -> medium",
-      job: stub({ source: "djinni", remote: false, locationRestrictions: ["Warsaw, Poland"] }),
-      expect: "medium",
     },
     {
       label: "dou, remote from abroad -> high",

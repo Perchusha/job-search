@@ -3,7 +3,7 @@
  * below are cut down to the parts the parsers read, in the shapes measured on
  * the live sites in October 2026: nofluffjobs' Angular serverApp-state, and
  * justjoin.it's Next.js flight chunks; Workable's search API and Hacker News
- * posts as hn.algolia.com returns them; djinni.co's JSON-LD and DOU's RSS. No network.
+ * posts as hn.algolia.com returns them; DOU's RSS. No network.
  *
  *   node --import tsx tests/boards.mjs
  */
@@ -19,7 +19,7 @@ import {
 } from "../src/boards-pl.ts";
 import { normalizeJobicy, normalizeWorkable, parseHackerNewsPost } from "../src/boards-intl.ts";
 import { recruitee, workable } from "../src/watchlist.ts";
-import { normalizeDjinni, normalizeDou, parseDjinniPage, parseDouFeed } from "../src/boards-ua.ts";
+import { normalizeDou, parseDouFeed } from "../src/boards-ua.ts";
 import { scoreEligibility } from "../src/eligibility.ts";
 
 let failed = 0;
@@ -153,36 +153,6 @@ check("hn: US-only remote scores low", scoreEligibility(hn(4, "Octane | Senior S
 check("hn: a closed post is skipped", hn(5, "OpenSanctions | Product Engineer | Berlin / REMOTE (CET) | CLOSED NOW") === null);
 check("hn: a header that names no company is skipped", hn(6, "Software Engineer — Remote — US Only<p>Kaveronix is looking for…") === null);
 check("hn: a reply without text is skipped", parseHackerNewsPost({ id: 7, text: null }) === null);
-
-/* ---- Djinni ---- */
-
-const djinniPosting = (fields) => ({
-  "@context": "https://schema.org/",
-  "@type": "JobPosting",
-  title: "Senior Full-Stack Developer (Node.js / React)",
-  description: "<p>React and Node.js, B2B in USD.</p>",
-  datePosted: "2026-10-28T19:03:04",
-  hiringOrganization: { "@type": "Organization", name: "Orgmeter" },
-  identifier: { "@type": "PropertyValue", value: 855689 },
-  url: "https://djinni.co/jobs/855689-senior-full-stack-developer-node-js-react/",
-  jobLocationType: "TELECOMMUTE",
-  applicantLocationRequirements: { "@type": "AdministrativeArea", address: { "@type": "PostalAddress", addressCountry: null, addressRegion: "Europe" } },
-  ...fields,
-});
-const djinniPage = `<html><script type="application/ld+json">${JSON.stringify([
-  djinniPosting({}),
-  djinniPosting({ title: "Senior Java Developer", applicantLocationRequirements: { "@type": "AdministrativeArea", address: { addressCountry: "UA" } } }),
-  djinniPosting({ title: "Senior Full-Stack Engineer (TypeScript)", baseSalary: { "@type": "MonetaryAmount", currency: "USD", value: { "@type": "QuantitativeValue", minValue: 4000, maxValue: 5000, unitText: "MONTH" } } }),
-  { "@type": "Organization", name: "not a posting" },
-])}</script></html>`;
-const djinniRows = parseDjinniPage(djinniPage);
-check("djinni: JobPostings from the page's JSON-LD", djinniRows.length === 3);
-const dj = normalizeDjinni(djinniRows[0]);
-check("djinni: title, company, URL, remote", dj?.company === "Orgmeter" && dj?.url.endsWith("855689-senior-full-stack-developer-node-js-react/") && dj?.remote === true);
-check("djinni: open to Europe scores high", dj?.location === "Europe" && scoreEligibility(dj).level === "high");
-check("djinni: Ukraine only scores low", scoreEligibility(normalizeDjinni(djinniRows[1])).level === "low");
-const djPaid = normalizeDjinni(djinniRows[2]);
-check("djinni: published pay as a monthly USD range", djPaid?.pay?.[0]?.min === 4000 && djPaid?.pay?.[0]?.max === 5000 && djPaid?.pay?.[0]?.unit === "month", djPaid?.salary);
 
 /* ---- DOU ---- */
 

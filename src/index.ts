@@ -95,8 +95,7 @@ const sourceEnum = z.enum([
   "workable",
   "jobicy",
   "hackernews",
-  // the Ukrainian boards djinni.co and jobs.dou.ua (src/boards-ua.ts)
-  "djinni",
+  // the Ukrainian board jobs.dou.ua (src/boards-ua.ts)
   "dou",
   // scraped via JobSpy — volume + descriptions, no salary data
   "indeed",

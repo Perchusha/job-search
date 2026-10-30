@@ -117,7 +117,7 @@ export const SEARCH_DEFAULTS = {
    *   zip_recruiter  returns zero rows, and zero for a US location too, so it
    *                  is not a geography problem — the scraper is simply dead.
    */
-  sources: resolveSources(["nofluffjobs", "justjoin", "watchlist", "workable", "jobicy", "djinni", "dou", "indeed", "linkedin", "himalayas", "hackernews"]),
+  sources: resolveSources(["nofluffjobs", "justjoin", "watchlist", "workable", "jobicy", "dou", "indeed", "linkedin", "himalayas", "hackernews"]),
   /**
    * Boards the MCP `find_jobs` tool leaves out of a bare profile search.
    *
@@ -174,13 +174,6 @@ export const POLISH_BOARDS = {
  * another once a pass, not ten at once per query.
  */
 export const WORKABLE_QUERIES = ["react", "typescript", "javascript", "frontend", "next.js", "fullstack"] as const;
-
-/**
- * djinni.co's listings to read (src/boards-ua.ts), by its own primary keyword:
- * "React.js" 12 postings a month, "JavaScript" 18, "Fullstack" about 140.
- * "Front End" and plain "React" are not keywords there and return everything.
- */
-export const DJINNI_KEYWORDS = ["React.js", "JavaScript", "Fullstack"] as const;
 
 /**
  * jobs.dou.ua's RSS feeds (src/boards-ua.ts), 25 latest postings each: remote

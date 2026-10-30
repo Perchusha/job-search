@@ -1,27 +1,25 @@
 /**
- * boards-ua.ts — the two Ukrainian IT boards: djinni.co and jobs.dou.ua.
+ * boards-ua.ts — the Ukrainian IT board jobs.dou.ua.
  *
  * Added on 2026-10-30, when I asked for Belarusian and Ukrainian boards rather
  * than Russian ones. The Belarusian ones turned out empty: jobs.devby.io
  * listed 6 vacancies for the whole country, and rabota.by is hh.ru, whose API
- * answers 403 without a registered app. The Ukrainian ones are alive:
- *   - djinni.co: its listing pages (robots.txt allows /jobs/) carry each
- *     posting as JSON-LD with the whole text, the region it is open to and
- *     sometimes pay. React.js, JavaScript and Fullstack gave 168 postings in
- *     a month: 65 open to Europe, 7 to Poland, 31 with no region, 57 in
- *     Ukraine only.
- *   - jobs.dou.ua: RSS feeds per category and city, 25 latest each, with the
- *     whole text. The title says where: "віддалено" (remote), "за кордоном"
- *     (from abroad), "Варшава (Польща)".
+ * answers 403 without a registered app. jobs.dou.ua has RSS feeds per
+ * category and city, 25 latest each, with the whole text. The title says
+ * where: "віддалено" (remote), "за кордоном" (from abroad), "Варшава (Польща)".
  *
- * Both are read once per pass (PER_PASS_SOURCES). Postings closed to Poland
- * (Ukraine only, an office in Kyiv) are not stored. A pass that finds nothing
- * throws, so a changed page shows up as a failed board rather than as silence.
+ * djinni.co was read here too and was removed the same day: Djinni blocked my
+ * account, signed up with a Google account registered in Belarus, so its
+ * postings could not be applied to.
+ *
+ * Read once per pass (PER_PASS_SOURCES). Postings closed to Poland (Ukraine
+ * only, an office in Kyiv) are not stored. A pass that finds nothing throws,
+ * so a changed feed shows up as a failed board rather than as silence.
  */
 
 import { payFields } from "./boards-pl.ts";
 import { scoreEligibility } from "./eligibility.ts";
-import { DJINNI_KEYWORDS, DOU_FEEDS, fitTier } from "./profile.ts";
+import { DOU_FEEDS, fitTier } from "./profile.ts";
 import type { Job, PayRange } from "./sources.ts";
 import { htmlToText } from "./watchlist.ts";
 
@@ -29,14 +27,6 @@ const USER_AGENT = "job-hunt-mcp";
 const REQUEST_TIMEOUT_MS = 20_000;
 const TEXT_CAP = 8000;
 
-type Raw = Record<string, unknown>;
-
-const str = (value: unknown): string | null =>
-  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-const num = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
-const record = (value: unknown): Raw | null =>
-  typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Raw) : null;
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function fetchText(url: string, accept: string): Promise<string> {
@@ -58,119 +48,6 @@ async function fetchText(url: string, accept: string): Promise<string> {
 function worthStoring(job: Job): boolean {
   return fitTier(job) <= 2 && scoreEligibility(job).level !== "low";
 }
-
-/* ------------------------------------------------------------------ */
-/* Djinni                                                              */
-/* ------------------------------------------------------------------ */
-
-const DJINNI_PAGES = 12;
-const DJINNI_PAGE_SIZE = 15;
-const UNIT: Record<string, PayRange["unit"]> = { HOUR: "hour", DAY: "day", MONTH: "month", YEAR: "year" };
-
-/** Every JobPosting in a page's JSON-LD blocks. */
-export function parseDjinniPage(html: string): Raw[] {
-  const postings: Raw[] = [];
-  for (const match of html.matchAll(/<script type="application\/ld\+json">([^]*?)<\/script>/g)) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(match[1] ?? "");
-    } catch {
-      continue;
-    }
-    for (const item of [parsed].flat()) {
-      const posting = record(item);
-      if (posting?.["@type"] === "JobPosting") postings.push(posting);
-    }
-  }
-  return postings;
-}
-
-/** "Europe", "UA", "POL": the regions a posting is open to, from applicantLocationRequirements. */
-function djinniRegions(posting: Raw): string[] {
-  const areas = [posting["applicantLocationRequirements"]].flat().map(record).filter((area): area is Raw => area !== null);
-  return areas
-    .map((area) => {
-      const address = record(area["address"]);
-      return str(address?.["addressRegion"]) ?? str(address?.["addressCountry"]) ?? str(area["name"]);
-    })
-    .filter((region): region is string => region !== null);
-}
-
-export function normalizeDjinni(posting: Raw): Job | null {
-  const title = str(posting["title"]);
-  const company = str(record(posting["hiringOrganization"])?.["name"]);
-  const url = str(posting["url"]);
-  if (!title || !company || !url) return null;
-  const remote = posting["jobLocationType"] === "TELECOMMUTE";
-  const regions = djinniRegions(posting);
-  const office = [posting["jobLocation"]]
-    .flat()
-    .map((place) => record(record(place)?.["address"]))
-    .map((address) => [str(address?.["addressLocality"]), str(address?.["addressCountry"])].filter(Boolean).join(", "))
-    .filter(Boolean);
-  const salary = record(posting["baseSalary"]);
-  const value = record(salary?.["value"]);
-  const currency = str(salary?.["currency"]);
-  const pay: PayRange[] =
-    currency && (num(value?.["minValue"]) || num(value?.["maxValue"]))
-      ? [{
-          contract: "other",
-          min: num(value?.["minValue"]),
-          max: num(value?.["maxValue"]),
-          currency,
-          unit: UNIT[str(value?.["unitText"]) ?? "MONTH"] ?? "month",
-          gross: false,
-        }]
-      : [];
-  return {
-    source: "djinni",
-    externalId: str(record(posting["identifier"])?.["value"]) ?? url,
-    title,
-    company,
-    url,
-    location: (remote ? regions.join(", ") : office.join("; ")) || null,
-    remote,
-    workMode: remote ? "remote" : null,
-    ...payFields(pay),
-    tags: [str(posting["category"]), str(posting["industry"])].filter((tag): tag is string => tag !== null),
-    postedAt: str(posting["datePosted"]),
-    // Where a remote role may be done from; for an office role, where the office is.
-    locationRestrictions: remote ? regions : office,
-    description: htmlToText(str(posting["description"]) ?? "").slice(0, TEXT_CAP) || null,
-  };
-}
-
-/** Each keyword's listing, page after page, until a short page. One second between pages. */
-export async function fetchDjinni(): Promise<Job[]> {
-  const jobs = new Map<string, Job>();
-  const failures: string[] = [];
-  for (const keyword of DJINNI_KEYWORDS) {
-    for (let page = 1; page <= DJINNI_PAGES; page++) {
-      const params = new URLSearchParams({ primary_keyword: keyword });
-      if (page > 1) params.set("page", String(page));
-      let postings: Raw[];
-      try {
-        postings = parseDjinniPage(await fetchText(`https://djinni.co/jobs/?${params.toString()}`, "text/html"));
-      } catch (error) {
-        failures.push(`${keyword} p${page}: ${error instanceof Error ? error.message : String(error)}`);
-        break;
-      }
-      for (const posting of postings) {
-        const job = normalizeDjinni(posting);
-        if (job && worthStoring(job)) jobs.set(job.url, job);
-      }
-      if (postings.length < DJINNI_PAGE_SIZE) break;
-      await pause(1000);
-    }
-  }
-  if (jobs.size === 0 && failures.length > 0) throw new Error(failures.join("; "));
-  if (failures.length > 0) console.error(`djinni: ${failures.join("; ")}`);
-  return [...jobs.values()];
-}
-
-/* ------------------------------------------------------------------ */
-/* DOU                                                                 */
-/* ------------------------------------------------------------------ */
 
 const unescapeXml = (text: string) =>
   text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
