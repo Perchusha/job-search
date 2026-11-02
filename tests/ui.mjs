@@ -561,7 +561,7 @@ async function main() {
 
   await page.act("hide");
   check("«Скрыть» opens the reasons over the dock, the page's own one-click ones", page.hideOpen && dock().includes('data-reason="не тот стек"')
-    && !dock().includes("Claude предлагает"));
+    && dock().includes('data-reason="вакансия неактуальна"') && !dock().includes("Claude предлагает"));
   page.onKey(key("Escape"));
   check("Escape closes them", !page.hideOpen);
 
@@ -725,6 +725,9 @@ async function main() {
   check("«Подать» opens the posting in a new tab: the card stays, nothing is decided, Claude is not asked",
     opened.at(-1)?.url === fits.row.url && opened.at(-1)?.target === "_blank" && page.currentKey === fits.key
       && !page.decided.has(fits.key) && focus() === cardBefore && claudeRuns() === runsBefore, JSON.stringify(opened.at(-1)));
+  check("the dock has three tiers: Скрыть quiet, В воронку and Обсудить tinted, Подать solid",
+    dock().includes('class="btn quiet" data-act="hide"') && dock().includes('class="btn tint" data-act="funnel"')
+      && dock().includes('class="btn tint" data-act="discuss"') && dock().includes('class="btn main" data-act="apply"'));
   check("the dock stays the card's", dock().includes('data-act="funnel"') && dock().includes('data-act="apply"') && !dock().includes("data-apply"));
   const openedBefore = opened.length;
   page.onKey(key("Enter"));

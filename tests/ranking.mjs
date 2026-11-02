@@ -276,6 +276,10 @@ const twin = { ...php, title: "Senior React Developer", url: "https://example.co
 assert.match(decide({ ...twin, title: "Senior React Developer" }, buildContext([], [{ ...hiddenTwin, title: "Senior React Developer" }])).reason, /^same role hidden earlier/);
 assert.equal(decide(twin, buildContext([], [{ ...hiddenTwin, title: "Senior React Developer" }], { overrides: ["example.com/php"] })).bucket, "apply",
   "and from the memory of earlier hides");
+for (const reason of ["вакансия неактуальна", "вакансия закрыта"]) {
+  const repost = decide({ ...twin, title: "Senior React Developer", url: "https://example.com/repost" }, buildContext([], [{ ...hiddenTwin, title: "Senior React Developer", reason }]));
+  assert.notEqual(repost.bucket, "dismiss", `«${reason}» says the posting is gone, not the role: a repost is shown`);
+}
 assert.equal(ruleOf("posting is 75 days old"), "stale");
 assert.equal(ruleOf("PHP-first role"), "PHP-first role");
 assert.equal(ruleOf("same role hidden earlier (01.10, без причины): X"), null, "memory rules are not switchable here");

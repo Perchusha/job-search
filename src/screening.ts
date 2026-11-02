@@ -215,6 +215,12 @@ function machineReason(reason: string | null): boolean {
 /** The explicit "не интересна компания" choice from the page's hide menu. */
 export const COMPANY_REASON = "не интересна компания";
 
+/**
+ * Hides that say this posting is gone, not that the role is wrong: a repost of
+ * it is a live vacancy, so they teach nothing. The posting itself stays hidden.
+ */
+const DEAD_POSTING_REASONS = new Set(["вакансия неактуальна", "вакансия закрыта"]);
+
 /* ------------------------------------------------------------------ */
 /* The rules Настройки → Правила can switch off                        */
 /* ------------------------------------------------------------------ */
@@ -348,7 +354,9 @@ export function buildContext(
   const since = days > 0 ? Date.now() - days * 86_400_000 : null;
   const recent = (row: ScreenDismissal) =>
     since === null || row.reason === COMPANY_REASON || !row.dismissed_at || Date.parse(row.dismissed_at) >= since;
-  const own = dismissed.filter((row) => !machineReason(row.reason) && !forgotten.has(hideKey(row)) && recent(row)).map(keyed);
+  const own = dismissed
+    .filter((row) => !machineReason(row.reason) && !DEAD_POSTING_REASONS.has(row.reason ?? "") && !forgotten.has(hideKey(row)) && recent(row))
+    .map(keyed);
   const givenBack = new Set(options.forgetCompanies ?? []);
 
   // A company counts as "not interested" when I said so, or when I hid two or

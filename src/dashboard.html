@@ -341,13 +341,17 @@
          border-radius: 999px; background: transparent; color: var(--ink-2); font-size: 14px; font-weight: 600; white-space: nowrap; }
   .btn:hover:not([disabled]) { background: var(--soft); color: var(--ink); }
   .btn[disabled] { opacity: .45; cursor: default; }
+  .btn.quiet { color: var(--muted); font-weight: 500; }
   .btn[aria-expanded="true"] { background: var(--soft-2); color: var(--ink); }
   .btn.main { padding: 0 24px; background: var(--accent); color: var(--on-accent); font-weight: 700; }
   .btn.main:hover:not([disabled]) { background: var(--accent-2); color: var(--on-accent); }
   .btn.soft { background: var(--soft); color: var(--ink); }
   .btn.soft:hover:not([disabled]) { background: var(--soft-2); }
+  .btn.tint { background: var(--accent-tint); color: var(--accent-ink); }
+  .btn.tint:hover:not([disabled]) { background: rgba(255, 122, 69, .26); color: var(--accent-ink); }
   .dock { position: absolute; z-index: 8; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px;
           padding: 6px; border-radius: 999px; background: var(--raised); box-shadow: var(--pop); }
+  .dock .btn.main:not([disabled]) { box-shadow: 0 6px 20px rgba(255, 122, 69, .4); }
   /* Why to hide it: one click, Claude's own reason first when it said skip. */
   .reasons { position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%); width: min(560px, calc(100vw - 360px));
              padding: 8px; border-radius: 20px; background: var(--raised); box-shadow: var(--pop);
@@ -970,9 +974,10 @@ const POLAND_WORD = { yes: "да", no: "нет", unclear: "не ясно" };
  * One-click reasons for "скрыть". A reason teaches the screening rules: role
  * reasons hide reposts of that role, and "не интересна компания" — the same
  * string as COMPANY_REASON in src/screening.ts — hides the whole company.
+ * "вакансия неактуальна" teaches nothing (DEAD_POSTING_REASONS there).
  */
 const HIDE_REASONS = ["не remote", "не тот стек", "уровень (mid/junior)", "не интересна компания",
-  "зарплата ниже", "уже откликался в другом месте"];
+  "зарплата ниже", "уже откликался в другом месте", "вакансия неактуальна"];
 // The stacks: what Claude said, then everything it did not take away.
 const STACKS = [
   { id: "good", label: "Подходят", test: (job) => job.verdict && job.verdict.verdict === "apply" },
@@ -1499,7 +1504,8 @@ function cardHtml(job) {
 }
 
 /*
- * The dock floats over the card's foot: Скрыть · В воронку · Обсудить · Подать.
+ * The dock floats over the card's foot: Скрыть · В воронку · Обсудить · Подать,
+ * in three tiers: Скрыть is the quietest, the middle two tinted, Подать solid.
  * «Потом» went on 2026-10-27 — unused; ↓ does the same without marking anything.
  */
 function dockHtml(job) {
@@ -1508,9 +1514,9 @@ function dockHtml(job) {
   return (hideOpen && !job.dismissed ? hideMenuHtml(job) : "")
     + (job.dismissed
       ? '<button type="button" class="btn" data-act="restore">Вернуть</button>'
-      : '<button type="button" class="btn" data-act="hide" aria-expanded="' + hideOpen + '">Скрыть</button>')
-    + '<button type="button" class="btn" data-act="funnel"' + (tracked ? " disabled" : "") + ">" + (tracked ? "✓ В воронке" : "В воронку") + "</button>"
-    + '<button type="button" class="btn" data-act="discuss"' + (v && v.session ? "" : ' disabled title="у вакансии ещё нет разговора с Claude"')
+      : '<button type="button" class="btn quiet" data-act="hide" aria-expanded="' + hideOpen + '">Скрыть</button>')
+    + '<button type="button" class="btn tint" data-act="funnel"' + (tracked ? " disabled" : "") + ">" + (tracked ? "✓ В воронке" : "В воронку") + "</button>"
+    + '<button type="button" class="btn tint" data-act="discuss"' + (v && v.session ? "" : ' disabled title="у вакансии ещё нет разговора с Claude"')
     + ">Обсудить</button>"
     + '<button type="button" class="btn main" data-act="apply"' + (tracked ? " disabled" : "") + ">Подать</button>";
 }

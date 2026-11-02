@@ -586,7 +586,8 @@ four actions floating over its foot, and on the right what is known around the p
    in the feed — a click opens one, «Все N вакансий компании» lists them in Найти), the copies
    dedupe folded into this card, by board, and what the rules did. The «Верно / Мимо» marks
    went on 2026-10-27; the ones made stay labels for «Сверка с эталоном».
-3. **The dock**: **Скрыть** opens the reasons over it — Claude's own first for a skip —, one
+3. **The dock**, in three tiers of emphasis — **Скрыть** the quietest, **В воронку** and
+   **Обсудить** tinted, **Подать** solid: **Скрыть** opens the reasons over it — Claude's own first for a skip —, one
    click hides; **В воронку** records an application (`applied`, there is no bookmark
    stage); **Обсудить** opens the verdict's session in Claude Desktop; **Подать** opens the
    posting in the browser, where I apply myself, and the card stays (see *«Подать»* below). Keys, on purpose few (2026-10-27): `Enter` is **Подать**, `↑` `↓`
@@ -1031,7 +1032,8 @@ once and both surfaces follow.
   company back, **забыть** stops a hide from teaching — the posting itself stays hidden;
   both go to `memory_forget` and are listed under «Забытое» with **вспомнить**. **Помнить мои
   скрытия** (`memoryDays` in «Мои условия»: always, 30 days … a year) lets old hides lapse;
-  «не интересна компания» is a choice, not evidence, and stays. Below, the company boards I
+  «не интересна компания» is a choice, not evidence, and stays. «вакансия неактуальна» and
+  Claude's «вакансия закрыта» teach nothing: the posting is gone, a repost of it is live. Below, the company boards I
   read (WATCHLIST): for each, how many roles are stored, still open on the board, shown in the
   stacks, judged apply or maybe by Claude, and how many applications went there — a board
   that never brings anything is easy to spot. The dashboard and find_jobs build this context
