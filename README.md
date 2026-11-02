@@ -41,6 +41,7 @@ with the system and notifies you about new postings.
 
 You need **Node.js 20+**. Optional: **Python 3.10+** for the Indeed / LinkedIn scraper,
 and **[Claude Code](https://claude.com/claude-code)** logged in for the verdicts.
+After switching Node versions the SQLite module rebuilds itself on the first start.
 
 ```bash
 git clone https://github.com/Perchusha/job-search.git

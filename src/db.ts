@@ -10,9 +10,11 @@
  */
 
 import Database from "better-sqlite3";
+import { execSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { jobKey } from "./jobkey.ts";
 import type { Job } from "./sources.ts";
@@ -121,6 +123,55 @@ export function resolveDbPath(): string {
   return join(homedir(), ".job-hunt", "jobs.db");
 }
 
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+/*
+ * better-sqlite3's native half is built for one Node ABI, and the app runs
+ * whichever node is on PATH: after an `nvm use` every query fails with
+ * NODE_MODULE_VERSION. So rebuild it for this node and open again. Not on every
+ * open while that keeps failing (offline, a process on the old node holding the
+ * file): a rebuild blocks, and the verdict queue alone opens every two minutes.
+ */
+const REBUILD_EVERY_MS = 10 * 60_000;
+let lastRebuild = -Infinity;
+
+/** A native binary that is missing or not for this node, not a bad database file. */
+function isNativeLoadError(error: unknown): boolean {
+  const { code, message } = error as { code?: string; message?: string };
+  return code === "ERR_DLOPEN_FAILED" || /Could not locate the bindings file/.test(message ?? "");
+}
+
+export function openRebuilding<T>(open: () => T, rebuild: () => void, now = Date.now()): T {
+  try {
+    return open();
+  } catch (error) {
+    if (!isNativeLoadError(error) || now - lastRebuild < REBUILD_EVERY_MS) throw error;
+    lastRebuild = now;
+    console.error(`better-sqlite3 does not load on Node ${process.version}: rebuilding it`);
+    try {
+      rebuild();
+    } catch (failure) {
+      console.error(`Rebuild failed: ${failure instanceof Error ? failure.message : failure}`);
+      throw error;
+    }
+    const opened = open();
+    console.error(`better-sqlite3 rebuilt for Node ${process.version}`);
+    return opened;
+  }
+}
+
+function rebuildNative(): void {
+  execSync("npm rebuild better-sqlite3", {
+    cwd: PROJECT_ROOT,
+    // This node's folder first: the build must target it, not the one on PATH.
+    env: { ...process.env, PATH: `${dirname(process.execPath)}${delimiter}${process.env["PATH"]}` },
+    // Nothing on stdout: for the MCP server that is the protocol.
+    stdio: ["ignore", "ignore", "pipe"],
+    timeout: 5 * 60_000,
+    windowsHide: true,
+  });
+}
+
 let db: Database.Database | null = null;
 
 /** Opens (and on first call creates) the database. Safe to call repeatedly. */
@@ -131,7 +182,7 @@ export function getDb(): Database.Database {
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
-  db = new Database(path);
+  db = openRebuilding(() => new Database(path), rebuildNative);
   // WAL lets the dashboard read while the MCP server writes.
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
