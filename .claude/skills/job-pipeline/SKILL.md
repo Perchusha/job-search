@@ -73,7 +73,7 @@ answers) and send only what they approve:
 their word. Applications go out in their name; nothing is sent unseen.
 Boards that e-mail a verification code (Greenhouse) run headed and need the
 user at the keyboard, so run those last and say so. The dashboard's «Подать»
-fills no forms: it opens the posting and drafts a note to a person there.
+fills no forms: it only opens the posting.
 
 Then clear the `missing-answers` rows: write `$S/answers/<idx>.json`, re-run
 with `--only`. A label that will recur goes into the answer bank once:

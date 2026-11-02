@@ -634,15 +634,6 @@ async function postingText(copies: Job[], reuseKey?: string): Promise<Posting> {
   throw new Error(`не удалось прочитать вакансию: ${why}`);
 }
 
-/** The posting's text as a verdict reads it, or "" when it cannot be read: for prompts that use it only as context. */
-export async function postingContext(copies: Job[]): Promise<string> {
-  try {
-    return (await postingText(copies)).text;
-  } catch {
-    return "";
-  }
-}
-
 /**
  * The user message. Everything from the board — title and company included —
  * sits inside <posting>: it is the employer's text, not mine, and the system
@@ -880,7 +871,7 @@ export type ClaudeReply = { output: unknown; sessionId: string; model: string; c
  * Настройки. Throws QueueStop for what stops every run (the plan's limit, a
  * lost login) and Error for the rest; both carry a message for the page.
  */
-export async function runClaude(run: { system: string; prompt: string; schema: object; name: string }): Promise<ClaudeReply> {
+async function runClaude(run: { system: string; prompt: string; schema: object; name: string }): Promise<ClaudeReply> {
   const { command, prefix } = await findClaude();
   const settings = claudeSettings();
   const sessionId = randomUUID();
@@ -1364,7 +1355,7 @@ function desktopInstalled(): Promise<boolean> {
  * Google Docs PDF of the CV gives those glyphs the font's private code
  * points: pdf.js read the 2026-10-27 CV's "+48" and "10-15s to ~3s" with
  * U+E09D, U+E088 and U+E0A3 in place of + - ~ (46 characters in all), and
- * Claude drafted the letters from that text.
+ * that is the text Claude would read.
  */
 const INTER_CASE = "()[]{}@-–‒—•◦⁃‣⁌⁍:,.:;<>≤≥=≠+−x÷±≈~*";
 
@@ -1397,7 +1388,7 @@ export const OPEN_ANSWER_STYLE =
  * was read from), and the CV's text from the PDF the forms upload (cvPath) —
  * `cv` overrides that path, for the tests. Empty strings for what is missing.
  */
-export async function candidateFacts(cv?: string): Promise<{ profileFile: string; profile: string; cvFile: string; resume: string }> {
+async function candidateFacts(cv?: string): Promise<{ profileFile: string; profile: string; cvFile: string; resume: string }> {
   let profile = "";
   try {
     profile = readFileSync(PROFILE_FILE, "utf8").trim();
@@ -1448,7 +1439,7 @@ export async function discussionBrief(cv?: string): Promise<string> {
     "",
     OPEN_ANSWER_STYLE,
     "",
-    "Заполнить и отправить анкету умеет сам Job Hunt: кнопка «Подать» на карточке — сначала пробный прогон с показом заполненных полей, отправка после проверки.",
+    "Анкету кандидат заполняет сам: кнопка «Подать» на карточке только открывает вакансию в браузере.",
     ...(profile ? ["", "## Профиль", "", "```json", profile, "```"] : []),
     // Fenced, so nothing in it reads as Markdown or as a CLAUDE.md @import.
     ...(resume ? ["", "## Резюме", "", "```text", resume, "```"] : []),

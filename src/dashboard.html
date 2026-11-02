@@ -23,7 +23,7 @@
   hover), the posting with Claude's read inside it in the middle, a floating
   dock with Скрыть · В воронку · Обсудить · Подать, and on the right what is
   known around the posting — the company, its copies on other boards, the
-  rules. «Подать» turns the middle into the letter to a person.
+  rules. «Подать» opens the posting in the browser; I apply there myself.
 
   Keys, on purpose few: Enter is «Подать», ↑ ↓ walk the queue. Nothing else,
   and no key is drawn on the page. Scrollbars are hidden everywhere; a list
@@ -357,41 +357,6 @@
   .reason:hover { background: var(--soft); color: var(--ink); }
   .reason.claude-pick { grid-column: 1 / -1; background: var(--accent-tint); color: var(--accent-ink); font-weight: 600; }
 
-  /* «Подать»: the posting in one line, then the letter to a person. */
-  .applyhead { display: flex; align-items: center; gap: 14px; padding: 14px 20px; margin-bottom: 14px; border-radius: 22px;
-               background: var(--panel); box-shadow: inset 0 0 0 1px var(--edge); }
-  .applyhead .pts { width: 34px; height: 34px; border-radius: 11px; font-size: 12.5px; }
-  .applyhead > div { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; line-height: 1.3; }
-  .applyhead b { font: 600 15px/1.3 var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .applyhead span { font-size: 13px; color: var(--muted); }
-  .applyhead a { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 999px;
-                 background: var(--soft); color: var(--ink); font-size: 13.5px; font-weight: 600; text-decoration: none; white-space: nowrap; }
-  .applyhead a:hover { background: var(--soft-2); color: var(--ink); }
-  .letter { gap: 18px; padding: 26px 30px 24px; }
-  .letter .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
-  .letter h1 { font-size: 20px; }
-  .letter .top span { font-size: 12.5px; color: var(--muted); }
-  .letter .top .linkbtn { margin-left: auto; text-decoration: none; }
-  .who { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 18px; background: var(--soft); }
-  .who.find { background: var(--warn-tint); box-shadow: inset 0 0 0 1px rgba(255, 203, 107, .16); }
-  .who p { margin: 0; font-size: 14px; line-height: 1.5; }
-  .who .k { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-  .who.find .k { color: var(--warn); }
-  .who .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-  .who a.go { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 999px; background: var(--soft-2);
-              color: var(--ink); font-size: 13.5px; font-weight: 600; text-decoration: none; }
-  .text { display: flex; flex-direction: column; gap: 8px; }
-  .text .row { display: flex; align-items: baseline; gap: 10px; }
-  .text label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-  .text .n { font-size: 12px; color: var(--muted); }
-  .text .n.over { color: var(--bad); }
-  .text .row .linkbtn { margin-left: auto; }
-  .text textarea { width: 100%; min-height: 72px; field-sizing: content; padding: 12px 14px; border: 0; border-radius: 16px; background: var(--soft);
-                   box-shadow: inset 0 0 0 1px var(--edge-2); color: var(--ink); font: 14px/1.55 var(--font); resize: vertical; }
-  .text textarea:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--accent-ring); }
-  .warnline { margin: 0; color: var(--bad); font-size: 14px; }
-  .muted { color: var(--muted); }
-
   /* ---------- the right column: what is known around the posting ---------- */
   .side { flex: 0 0 272px; min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 0 20px 24px 0; }
   #side { display: flex; flex-direction: column; gap: 12px; }
@@ -410,14 +375,6 @@
   .box .pick:hover { background: var(--soft); color: var(--ink); }
   .box .pick .pts { width: 28px; height: 28px; border-radius: 9px; font-size: 11.5px; }
   .box .pick span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; line-height: 1.45; }
-  .steps li { display: flex; gap: 10px; color: var(--ink-2); }
-  .steps li i { flex: 0 0 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--soft); color: var(--muted);
-                font-size: 12px; font-style: normal; font-weight: 700; }
-  .steps li.done { color: var(--muted); }
-  .steps li.done i { background: var(--good-bg); color: var(--good); }
-  .steps li.now { color: var(--ink); }
-  .steps li.now i { background: var(--accent-tint); color: var(--accent-ink); }
   .needsyou { padding: 14px 18px; border-radius: 22px; background: var(--note-bg); color: var(--note); }
   .needsyou summary { cursor: pointer; font-weight: 600; font-size: 14px; }
   .needsyou ul { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
@@ -1092,7 +1049,6 @@ let selFor = null;
 let claudeStatus = { running: [], queued: [], failures: {}, pausedUntil: null };
 let verdictsSince = null;
 let verdictPoll = null;
-let applyState = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) =>
@@ -1317,26 +1273,23 @@ function renderSearch() {
   /*
    * The middle is redrawn only when it changed, and slides in only when it is
    * another posting: a verdict landing for the same one must not replay the
-   * animation, move the scroll or close what is open on it. While I type in
-   * the letter, it is not redrawn at all.
+   * animation, move the scroll or close what is open on it.
    */
-  const applying = Boolean(job && applyState && applyState.job.key === job.key);
-  const html = !job ? emptyHtml(jobs, counts) : applying ? applyHtml(applyState) : cardHtml(job);
-  const key = job ? (applying ? "apply:" : "") + job.key : null;
-  const typing = applying && document.activeElement && document.activeElement.tagName === "TEXTAREA";
-  if (!typing && (html !== lastFocusHtml || key !== lastFocusKey)) {
+  const html = job ? cardHtml(job) : emptyHtml(jobs, counts);
+  const key = job ? job.key : null;
+  if (html !== lastFocusHtml || key !== lastFocusKey) {
     $("focus").innerHTML = key !== lastFocusKey ? html.replace('<article class="card', '<article class="card in') : html;
     if (key !== lastFocusKey && $("scroller").scrollTop) $("scroller").scrollTop = 0;
     lastFocusHtml = html;
     lastFocusKey = key;
   }
-  const dock = job ? (applying ? applyDockHtml(applyState) : dockHtml(job)) : "";
+  const dock = job ? dockHtml(job) : "";
   if (dock !== lastDockHtml) {
     $("dock").innerHTML = dock;
     $("dock").hidden = !dock;
     lastDockHtml = dock;
   }
-  const side = job ? (applying ? applySideHtml(job) : sideHtml(job)) : "";
+  const side = job ? sideHtml(job) : "";
   if (side !== lastSideHtml) {
     $("side").innerHTML = side;
     lastSideHtml = side;
@@ -1367,7 +1320,7 @@ function queueHtml(jobs, current) {
   return html;
 }
 
-const DECIDED_WORD = { applying: "подаю…", funnel: "в воронке", hidden: "скрыто", restored: "возвращено" };
+const DECIDED_WORD = { funnel: "в воронке", hidden: "скрыто", restored: "возвращено" };
 
 /*
  * A tile in the strip: Claude's score, in the verdict's colour. The title is
@@ -1516,7 +1469,6 @@ function claudeHtml(job) {
 
 const ARROW_OUT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"></path></svg>';
 const CROSS = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>';
-const TICK_SMALL = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>';
 
 function cardHtml(job) {
   const v = job.verdict;
@@ -1664,8 +1616,7 @@ function emptyHtml(jobs, counts) {
     const tally = (kind) => jobs.filter((j) => decided.get(j.key) === kind).length;
     return '<section class="card empty"><span class="big" aria-hidden="true">'
       + '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></span>'
-      + "<h1>Эта стопка разобрана</h1><p>В воронке: " + tally("funnel") + " · подаю: " + tally("applying")
-      + " · скрыто: " + tally("hidden") + "</p>"
+      + "<h1>Эта стопка разобрана</h1><p>В воронке: " + tally("funnel") + " · скрыто: " + tally("hidden") + "</p>"
       + '<div class="row">' + nextBtn + "</div></section>";
   }
   const why = claudeBusy() && (stack === "good" || stack === "maybe")
@@ -1704,7 +1655,8 @@ async function act(name, arg) {
   } else if (name === "funnel") {
     await addToFunnel(job);
   } else if (name === "apply") {
-    await openApply(job);
+    // In the click, so no popup blocker stands in the way. I apply on the page; «В воронку» records it.
+    window.open(job.applyUrl, "_blank", "noopener");
   } else if (name === "discuss") {
     await discussInClaude(job);
   } else if (name === "ask") {
@@ -1784,19 +1736,17 @@ async function restore(job) {
   }
 }
 
-async function addToFunnel(job, notes) {
+async function addToFunnel(job) {
   try {
     const { response, payload } = await postJson("/api/applications", {
       url: job.applyUrl, title: job.title, company: job.company, source: job.source,
-      location: job.location, salary: job.salary, postedAt: job.postedAt, notes: notes || null,
+      location: job.location, salary: job.salary, postedAt: job.postedAt,
     });
     if (!response.ok) throw new Error(payload.error || response.statusText);
     trackedUrls.add(job.key);
     decided.set(job.key, "funnel");
     toast(payload.result === "already_tracked" ? job.company + " уже в воронке" : job.company + ": записал в воронку");
-    // From the «Подать» panel I may be on another card by now: that one stays.
-    if (job.key === currentKey) advance();
-    else renderSearch();
+    advance();
     await load();
   } catch (error) {
     toast("Не записалось: " + error.message, true);
@@ -1977,196 +1927,6 @@ function renderAttempts(attempts) {
   box.open = open;
 }
 
-/* ---------------- "Подать": the posting, and whom to write to ---------------- */
-
-/*
- * «Подать» opens the posting in the browser at once — in the click, so no
- * popup blocker stands in the way — and I apply there myself. Meanwhile the
- * server (POST /api/apply, src/outreach.ts) finds whom to write to and drafts
- * a LinkedIn note and a short letter; someone found opens in the browser too.
- * The middle of the page turns into that letter, until «Отправил, в отклики»
- * records the application or «Назад к вакансии» puts the card back.
- */
-async function openApply(job) {
-  if (typeof window === "object" && typeof window.open === "function") window.open(job.applyUrl, "_blank", "noopener");
-  // A letter left open on another card is dropped, and so is its «подаю».
-  if (applyState && applyState.job.key !== job.key && decided.get(applyState.job.key) === "applying") decided.delete(applyState.job.key);
-  applyState = { job, loading: true, data: null, error: "", note: "", message: "", wrote: false };
-  decided.set(job.key, "applying");
-  hideOpen = false;
-  renderSearch();
-  await fetchOutreach(applyState, false);
-}
-
-async function fetchOutreach(current, fresh) {
-  current.loading = true;
-  current.error = "";
-  if (fresh) renderApplyPanel();
-  try {
-    // Asked again, nothing opens a second time: the first answer already did.
-    const { response, payload } = await postJson("/api/apply", { key: current.job.key, fresh, open: !fresh });
-    if (!response.ok) throw new Error(payload.error || response.statusText);
-    current.data = payload;
-    current.note = payload.note || "";
-    current.message = payload.message || "";
-  } catch (error) {
-    current.error = error.message;
-  }
-  current.loading = false;
-  if (applyState === current) renderApplyPanel();
-}
-
-/** As src/outreach.ts NOTE_LIMIT: a free LinkedIn account's limit for a connection note. */
-const NOTE_LIMIT = 200;
-
-/** Whom to write to, said plainly: a search is a search, not a person found. */
-function contactHtml(d, job, wrote) {
-  const c = d.contact;
-  const go = (label) => '<a class="go" href="' + esc(c.url) + '" target="_blank" rel="noreferrer noopener">' + esc(label) + " " + ARROW_OUT + "</a>";
-  const tick = '<label class="check"><input type="checkbox" data-apply-wrote' + (wrote ? " checked" : "") + '><i aria-hidden="true"></i>Человеку написано</label>';
-  let say;
-  let link = "";
-  if (c.kind === "email") {
-    say = "В вакансии есть адрес: <b>" + esc(c.label) + "</b>. "
-      + (d.opened ? "Письмо открыто в Gmail — приложи резюме и отправь." : "Письмо можно открыть в Gmail и приложить резюме.");
-    if (!d.opened) link = go("Открыть письмо в Gmail");
-  } else if (c.kind === "person") {
-    say = "В вакансии назван человек: <b>" + esc(c.label) + "</b>." + (d.opened ? " Поиск по нему открыт в LinkedIn." : "");
-    if (!d.opened) link = go("Найти в LinkedIn");
-  } else if (c.kind === "posting") {
-    say = "На открытой странице LinkedIn — блок «Meet the hiring team», если автор вакансии его заполнил: напиши ему.";
-  } else {
-    say = "В тексте вакансии никто не назван и почты нет. " + (d.opened
-      ? "Поиск рекрутеров " + esc(job.company) + " открыт в LinkedIn"
-      : "Остаётся поиск рекрутеров " + esc(job.company) + " в LinkedIn")
-      + " — это поиск, а не найденный человек: выбери, кому писать.";
-    link = go(d.opened ? "Открыть поиск ещё раз" : "Найти рекрутеров " + job.company + " в LinkedIn");
-  }
-  return '<div class="who' + (c.kind === "search" ? " find" : "") + '"><span class="k">Кому</span><p>' + say + '</p><div class="row">'
-    + link + tick + "</div></div>";
-}
-
-function textBlock(id, title, text, extra) {
-  return '<div class="text"><div class="row"><label for="ap-' + id + '">' + esc(title) + "</label>" + (extra || "")
-    + '<button type="button" class="linkbtn quiet" data-apply="copy-' + id + '">скопировать</button></div>'
-    + '<textarea id="ap-' + id + '" data-text="' + id + '" rows="' + (id === "note" ? 3 : 8) + '">' + esc(text) + "</textarea></div>";
-}
-
-function noteCount(note) {
-  const over = note.length > NOTE_LIMIT;
-  return '<span class="n' + (over ? " over" : "") + '" id="ap-note-n">' + note.length + " / " + NOTE_LIMIT + (over ? " — длинновато" : "") + "</span>";
-}
-
-/** The middle of the page while I apply: the posting in one line, then the letter. */
-function applyHtml(st) {
-  const job = st.job;
-  const d = st.data;
-  const head = '<div class="applyhead">' + scoreTile(job) + "<div><b>" + esc(job.title) + "</b><span>"
-    + esc([job.company, job.location, SOURCE_NAME[job.source] || job.source].filter(Boolean).join(" · ")) + "</span></div>"
-    + '<a href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener">Вакансия открыта в браузере ' + ARROW_OUT + "</a></div>";
-  let body;
-  if (st.loading && !d) {
-    body = '<p class="muted">Ищу, кому написать, и пишу текст…</p><div class="sweep" aria-hidden="true"><span></span></div>';
-  } else if (!d) {
-    body = '<p class="warnline">Не получилось: ' + esc(st.error) + "</p>"
-      + '<div><button type="button" class="btn soft" data-apply="redraft">Попробовать ещё раз</button></div>';
-  } else {
-    body = contactHtml(d, job, st.wrote)
-      + (d.lowPay ? '<p class="note">Зарплата ниже твоего порога: ' + esc(job.salary || "?") + "</p>" : "")
-      + textBlock("note", "Записка к запросу в LinkedIn", st.note, noteCount(st.note))
-      + textBlock("message", d.contact.kind === "email" ? "Письмо (уже в Gmail)" : "Письмо или сообщение", st.message,
-        d.subject ? '<span class="n">тема: ' + esc(d.subject) + "</span>" : "")
-      + (st.loading ? '<p class="muted">Пишу заново…</p>' : "")
-      + (st.error ? '<p class="warnline">' + esc(st.error) + "</p>" : "");
-  }
-  const by = !d ? "" : d.drafted === "template"
-    ? "по шаблону: Claude не ответил" + (d.error ? " (" + esc(d.error) + ")" : "")
-    : "черновик Claude";
-  return head + '<article class="card letter"><div class="top"><h1>Письмо человеку</h1>' + (by ? "<span>" + by + "</span>" : "")
-    + (d && !st.loading ? '<button type="button" class="linkbtn" data-apply="redraft">Переписать</button>' : "") + "</div>"
-    + body + "</article>";
-}
-
-function applyDockHtml(st) {
-  const tracked = isTracked(st.job);
-  return '<button type="button" class="btn" data-apply="close">Назад к вакансии</button>'
-    + '<button type="button" class="btn" data-apply="skip">Не подаю, скрыть</button>'
-    + '<button type="button" class="btn main" data-apply="funnel"' + (tracked ? " disabled" : "") + ">"
-    + (tracked ? "✓ В воронке" : "Отправил, в отклики") + "</button>";
-}
-
-/** The right column while I apply: the three steps, what the letter is made of, the company. */
-function applySideHtml(job) {
-  const st = applyState;
-  const found = Boolean(st.data && st.data.contact && st.data.contact.kind !== "search");
-  return '<section class="box"><span class="k">Как подаёмся</span><ol class="steps">'
-    + '<li class="done"><i>' + TICK_SMALL + "</i><span>Вакансия открыта: " + esc(SOURCE_NAME[job.source] || job.source)
-    + " — откликнись на странице сам.</span></li>"
-    + '<li class="' + (st.wrote ? "done" : "now") + '"><i>' + (st.wrote ? TICK_SMALL : "2") + "</i><span>"
-    + (found ? "Напиши человеку: записка или письмо." : "Найди человека и напиши ему: записка или письмо.") + "</span></li>"
-    + '<li class="' + (st.wrote ? "now" : "") + '"><i>3</i><span>«Отправил, в отклики» — отклик уйдёт в воронку'
-    + (st.wrote ? ", с пометкой, кому писал" : "") + ".</span></li></ol></section>"
-    + '<section class="box"><span class="k">Из чего письмо</span><p>Текст вакансии, твоё CV и profile.json. Факты — только оттуда; '
-    + "чего там нет, Claude не придумывает.</p></section>"
-    + companyBox(job);
-}
-
-/** The letter lives in the page now: drawing it is drawing the search. */
-function renderApplyPanel() {
-  renderSearch();
-}
-
-function onPanelInput(event) {
-  const field = event.target;
-  if (!applyState || !field || !field.dataset) return;
-  if (field.dataset.text === "note") {
-    applyState.note = field.value;
-    const count = $("ap-note-n");
-    const over = field.value.length > NOTE_LIMIT;
-    if (count) {
-      count.textContent = field.value.length + " / " + NOTE_LIMIT + (over ? " — длинновато" : "");
-      count.className = "n" + (over ? " over" : "");
-    }
-  } else if (field.dataset.text === "message") {
-    applyState.message = field.value;
-  } else if (field.dataset.applyWrote !== undefined) {
-    applyState.wrote = Boolean(field.checked);
-    renderSearch();
-  }
-}
-
-async function onApplyPanel(what) {
-  const st = applyState;
-  if (!st) return;
-  if (what === "close" || what === "skip") {
-    applyState = null;
-    // Closed without recording: the card is not «подаю» any more.
-    if (decided.get(st.job.key) === "applying") decided.delete(st.job.key);
-    // «Не подаю, скрыть»: back on the card, with the reasons to hide it open.
-    hideOpen = what === "skip" && st.job.key === currentKey;
-    renderSearch();
-  } else if (what === "copy-note" || what === "copy-message") {
-    try {
-      await writeClipboard(what === "copy-note" ? st.note : st.message);
-      // Copied is as close to "sent" as the page can see; the box can be unticked.
-      st.wrote = true;
-      toast(what === "copy-note" ? "Записка скопирована" : "Текст скопирован");
-    } catch {
-      toast("Не удалось скопировать", true);
-    }
-    renderApplyPanel();
-  } else if (what === "redraft") {
-    await fetchOutreach(st, true);
-  } else if (what === "funnel") {
-    const d = st.data;
-    // What went with the application, so reply rates can later be compared with and without a note.
-    const notes = d && st.wrote ? "outreach: " + d.contact.kind + " " + d.contact.label : null;
-    await addToFunnel(st.job, notes);
-    if (isTracked(st.job) && applyState === st) applyState = null;
-    renderSearch();
-  }
-}
-
 /* ---------------- tracker ---------------- */
 
 function renderStats(s) {
@@ -2314,14 +2074,6 @@ function closeDrawer() {
   renderRows();
 }
 
-/** «outreach: search рекрутеры X в LinkedIn» — what «Подать» noted about whom I wrote to. */
-function outreachOf(notes) {
-  const match = /outreach: (email|person|posting|search) (.+)/.exec(notes || "");
-  return match ? { kind: match[1], label: match[2].trim() } : null;
-}
-
-const OUTREACH_WORD = { email: "письмо на адрес", person: "человеку из вакансии", posting: "автору вакансии в LinkedIn", search: "через поиск в LinkedIn" };
-
 function shortDateTime(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -2348,8 +2100,7 @@ function renderDrawer() {
   } else if (a.ghosted) {
     steps.push(["Тишина", "", "ответа нет " + a.daysSinceApplied + " дн."]);
   }
-  const wrote = outreachOf(a.notes);
-  const rest = String(a.notes || "").replace(/outreach: .*/, "").trim();
+  const notes = String(a.notes || "").trim();
   const others = applications.filter((row) => row.id !== a.id && sameCompany(row.company, a.company));
   const inFeed = (lastSearchPayload.jobs || []).filter((job) => !job.dismissed && sameCompany(job.company, a.company));
   const html = '<div class="dhead"><div><h2>' + esc(a.company) + "</h2><p>" + esc(a.title) + "</p>" + (sub ? "<small>" + esc(sub) + "</small>" : "")
@@ -2359,9 +2110,7 @@ function renderDrawer() {
     + "<span>" + (a.daysSinceApplied === 0 ? "отправлен сегодня" : "прошло " + a.daysSinceApplied + " дн.") + "</span></div>"
     + '<ol class="timeline">' + steps.map(([what, when, note]) => "<li><i></i><span>" + esc(what)
       + (when || note ? "<small>" + esc([when, note].filter(Boolean).join(" · ")) + "</small>" : "") + "</span></li>").join("") + "</ol>"
-    + '<section><span class="k">Кому писал</span><p>'
-    + (wrote ? esc((OUTREACH_WORD[wrote.kind] || wrote.kind) + ": " + wrote.label) : "Записки человеку не отмечено.") + "</p></section>"
-    + (rest ? '<section><span class="k">Что ушло с откликом</span><p>' + esc(rest) + "</p></section>" : "")
+    + (notes ? '<section><span class="k">Что ушло с откликом</span><p>' + esc(notes) + "</p></section>" : "")
     + '<section><span class="k">С этой компанией</span><p>'
     + (others.length
       ? "Ещё " + others.length + " " + plural(others.length, "отклик", "отклика", "откликов") + ": "
@@ -3430,20 +3179,13 @@ function bindChrome() {
     if (!target) return;
     const go = target.closest("[data-stack-go]");
     if (go) return pickStack(go.dataset.stackGo);
-    const apply = target.closest("[data-apply]");
-    if (apply && !apply.disabled) return onApplyPanel(apply.dataset.apply);
     const button = target.closest("[data-act]");
     if (button && !button.disabled) act(button.dataset.act, button.dataset.reason);
   });
-  // The letter's fields and its «Человеку написано».
-  $("focus").addEventListener("input", onPanelInput);
-  $("focus").addEventListener("change", onPanelInput);
-  // The dock: the card's actions, or the letter's while I apply.
+  // The dock: the card's actions.
   $("dock").addEventListener("click", (event) => {
     const target = event.target.closest ? event.target : null;
     if (!target) return;
-    const apply = target.closest("[data-apply]");
-    if (apply && !apply.disabled) return onApplyPanel(apply.dataset.apply);
     const button = target.closest("[data-act]");
     if (button && !button.disabled) act(button.dataset.act, button.dataset.reason);
   });
@@ -3597,9 +3339,7 @@ function onKey(event) {
   if (/^(INPUT|TEXTAREA)$/.test(tag)) return;
   if (event.code === "Enter" && /^(BUTTON|A|SUMMARY|LABEL)$/.test(tag)) return;
   if (event.code === "Enter") {
-    // On the letter, Enter is not «Подать» once more.
-    const job = currentJob();
-    if (!job || (applyState && applyState.job.key === job.key)) return;
+    if (!currentJob()) return;
     event.preventDefault();
     act("apply");
   } else if (event.code === "ArrowDown" || event.code === "ArrowUp") {

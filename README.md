@@ -24,8 +24,7 @@ no API keys.
   check, or skip — with the stop factors quoted from the posting. It runs on the Claude
   subscription already logged in on the machine, so nothing is billed per call.
 - **Shows one posting at a time** in a local dashboard, sorted into stacks by that verdict,
-  with keyboard shortcuts, hide reasons that teach the filters, and a drafted note to the
-  hiring team when you apply.
+  with keyboard shortcuts and hide reasons that teach the filters.
 - **Tracks applications** through a funnel (applied → responded → interview → offer, or
   rejected / dropped / ghosted) with notes and stats.
 - **Talks to AI assistants** as an MCP server with 8 tools (`find_jobs`, `log_found_jobs`,

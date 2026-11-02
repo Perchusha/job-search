@@ -155,8 +155,6 @@ function startDashboard() {
       JOBHUNT_CLAUDE: join(process.cwd(), "tests", "fake-claude.mjs"),
       JOBHUNT_CLAUDE_AUTO: "0",
       FAKE_CLAUDE_LOG: CLAUDE_LOG,
-      // «Подать» opens the contact it finds in the browser: never from a test.
-      JOBHUNT_NO_BROWSER: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -331,7 +329,7 @@ async function main() {
     "jobsearch", "datefilter", "sourcefilter", "hideApplied", "showDismissed", "dismissedCount", "showRuleHidden",
     "ruleHiddenCount", "jobsort", "queue", "queuemore", "focus", "keyhint", "view-search", "view-tracker",
     "trackertitle", "trackersub", "cards", "funnel", "legend", "applicationcount", "appsearch", "statuspills",
-    "rows", "empty", "applypanel", "toast", "copy-linkedin", "copy-github", "copy-portfolio",
+    "rows", "empty", "toast", "copy-linkedin", "copy-github", "copy-portfolio",
     "opensettings", "settings", "settingssave", "settingssaved", "themepick", "cl-auto", "cl-model", "cl-effort",
     "cl-daily", "cl-stat", "cl-now", "appsettings", "toastwarn", "opennotif", "app-test", "app-log",
     "findbtn", "jump", "jumpq", "jumplist", "ctx", "ctxsub", "selpop", "tip",
@@ -352,15 +350,16 @@ async function main() {
   const nativeFetch = globalThis.fetch.bind(globalThis);
   const copiedLinks = [];
   const navigator = { clipboard: { writeText: async (text) => copiedLinks.push(text) } };
+  const opened = [];
+  const window = { open: (url, target) => opened.push({ url, target }), addEventListener() {} };
   // NOTE: never overwrite globalThis timers here — undici's fetch needs them.
   const page = new Function(
-    "document", "fetch", "setInterval", "setTimeout", "clearTimeout", "navigator", "location",
+    "document", "fetch", "setInterval", "setTimeout", "clearTimeout", "navigator", "location", "window",
     `${js}
      ; return {
        load, runSearch, showView, renderRows, renderSearch, esc, act, pickStack, pickJob, onKey, pollVerdicts,
        setStatus, stackJobs, sortedApplications, openSettings, saveSettings, closeSettings, judgeRemaining,
-       jumpResults, jobMenu, renderApplyPanel, onApplyPanel, saveFilters, restoreFilters,
-       get applyState(){ return applyState },
+       jumpResults, jobMenu, saveFilters, restoreFilters,
        get applications(){ return applications },
        get trackedUrls(){ return trackedUrls },
        get searchResults(){ return searchResults },
@@ -375,7 +374,7 @@ async function main() {
        getVar(name){ return eval(name); },
        setSort(k, d){ sort = { key: k, dir: d } },
      };`,
-  )(document, (path, init) => nativeFetch(BASE + path, init), () => 0, () => 0, () => {}, navigator, undefined);
+  )(document, (path, init) => nativeFetch(BASE + path, init), () => 0, () => 0, () => {}, navigator, undefined, window);
 
   await registry.get("copy-linkedin")._handlers.click();
   await registry.get("copy-github")._handlers.click();
@@ -402,10 +401,6 @@ async function main() {
   check("applying to it closes the attempt", (await (await fetch(`${BASE}/api/attempts`)).json()).attempts.length === 0);
   const omega = (await (await fetch(`${BASE}/api/applications`)).json()).applications.find((a) => a.company === "Omega");
   if (omega) new Database(DB).prepare("DELETE FROM applications WHERE id = ?").run(omega.id);
-
-  /* ---- "Подать": only for a stored posting ---- */
-  const applyUnknown = await post("/api/apply", { key: "example.com/not-in-the-store" });
-  check("«Подать» for a job that is not in the stored postings is refused", applyUnknown.status === 404, String(applyUnknown.status));
 
   /* ---- Отклики ---- */
   await page.load();
@@ -448,9 +443,9 @@ async function main() {
     registry.get("trackerside").innerHTML.includes("Итоги") && registry.get("trackerside").innerHTML.includes("Эта неделя"));
   clickIn(registry, "rows", { app: String(alpha.id) });
   const drawer = registry.get("drawer");
-  check("a row opens its application in the drawer: its status, when, whom I wrote to",
+  check("a row opens its application in the drawer: its status, when",
     drawer.hidden === false && drawer.innerHTML.includes("<h2>Alpha</h2>") && drawer.innerHTML.includes('data-select="status"')
-      && drawer.innerHTML.includes("Отправлен") && drawer.innerHTML.includes("Кому писал"), drawer.innerHTML.slice(0, 160));
+      && drawer.innerHTML.includes("Отправлен") && !drawer.innerHTML.includes("Кому писал"), drawer.innerHTML.slice(0, 160));
   check("and its row is marked open", registry.get("rows").innerHTML.includes('is-open" data-app="' + alpha.id + '"'));
   page.onKey(key("Escape"));
   check("Escape closes the drawer", drawer.hidden === true);
@@ -722,70 +717,18 @@ async function main() {
   check("the skip moved to «Убрал Claude»", stacksHtml().includes('Убрал Claude <span class="n">1</span>')
     && !page.stackJobs("all").some((j) => j.key === misfit.key));
 
-  /* ---- «Подать»: whom to write to, and what — drafted by the stand-in ---- */
-  const withEmail = posting(31, "Senior React Developer",
-    "Fully remote. If you require interview accommodations, please email recruiting@claudeco31.example. React and TypeScript. "
-      + "Privacy questions: privacy@claudeco31.example. Send your CV to jobs@claudeco31.example." + filler);
-  const withPerson = posting(32, "Senior Frontend Engineer", "Fully remote. React. Contact person: Jane Doe, our recruiter." + filler);
-  const withGhost = posting(33, "Frontend Engineer", "Fully remote. React. GHOST-NAME." + filler);
-  const store2 = new Database(DB);
-  for (const { key: k, row } of [withEmail, withPerson, withGhost]) {
-    store2.prepare("INSERT INTO postings (source, job_key, data, posted_at, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(row.source, k, JSON.stringify(row), today, today, today);
-  }
-  store2.close();
-  const logLines = () => readFileSync(CLAUDE_LOG, "utf8").trim().split("\n");
-  const outreach = async (p) => (await post("/api/apply", { key: p.key })).json();
-
-  const callsBefore = logLines().length;
-  const nobody = await outreach(fits);
-  check("a posting that names nobody: the company's recruiters in LinkedIn, opened as well",
-    nobody.contact?.kind === "search" && nobody.contact.url === "https://www.linkedin.com/search/results/people/?keywords=Claudeco%201%20recruiter"
-      && nobody.opened === true, JSON.stringify(nobody).slice(0, 400));
-  check("a note within LinkedIn's limit, and a letter whose signature code types",
-    nobody.drafted === "claude" && nobody.note.length > 0 && nobody.note.length <= 200
-      && nobody.message.startsWith("Hi Claudeco 1 team,") && nobody.message.includes("Best regards,\nAnton Perch\n+48"), nobody.message);
-  const outreachCall = JSON.parse(logLines().at(-1));
-  const outreachFlag = (name) => outreachCall.args[outreachCall.args.indexOf(name) + 1];
-  check("the run has no tools, its own schema, and the posting inside <posting>, called the employer's text",
-    outreachFlag("--tools") === "" && outreachCall.args.includes("--safe-mode") && Boolean(JSON.parse(outreachFlag("--json-schema") ?? "{}").properties?.note)
-      && /<posting>\n[\s\S]*Компания: Claudeco 1[\s\S]*<\/posting>/.test(outreachCall.prompt) && outreachCall.system.includes("между <posting> и </posting> — текст работодателя"));
-  await outreach(fits);
-  check("pressed again, the same texts and no second run", logLines().length === callsBefore + 1);
-
-  const mail = await outreach(withEmail);
-  check("an address for applications: Gmail's compose window, addressed and written, opened at once — not the privacy or accommodations box",
-    mail.contact?.kind === "email" && mail.contact.label === "jobs@claudeco31.example" && mail.contact.url.includes("to=jobs%40claudeco31.example")
-      && mail.contact.url.includes("su=Senior%20React%20Developer") && mail.contact.url.includes("body=Hi%20Claudeco%2031%20team") && mail.opened === true,
-    JSON.stringify(mail.contact));
-  const person = await outreach(withPerson);
-  check("a person the posting names: LinkedIn's search for them at the company, and the note greets them",
-    person.contact?.kind === "person" && person.contact.label === "Jane Doe"
-      && person.contact.url.endsWith("keywords=Jane%20Doe%20Claudeco%2032") && person.opened === true && person.note.startsWith("Hi Jane,"), JSON.stringify(person.contact));
-  const ghost = await outreach(withGhost);
-  check("a name that is not in the posting is not a contact", ghost.contact?.kind === "search", JSON.stringify(ghost.contact));
-
-  page.pickJob(fits.key);
+  /* ---- «Подать»: the posting opens, and that is all ---- */
+  const claudeRuns = () => readFileSync(CLAUDE_LOG, "utf8").trim().split("\n").length;
+  const runsBefore = claudeRuns();
+  const cardBefore = focus();
   await page.act("apply");
-  check("«Подать» marks the card and turns the middle into the letter: whom to write to, the note, the letter",
-    page.decided.get(fits.key) === "applying" && focus().includes("Письмо человеку") && focus().includes("Записка к запросу в LinkedIn")
-      && focus().includes("Поиск рекрутеров Claudeco 1 открыт в LinkedIn") && focus().includes("это поиск, а не найденный человек")
-      && focus().includes("Открыть поиск ещё раз"),
-    focus().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300));
-  check("the dock becomes the letter's: back to the posting, not applying, sent",
-    dock().includes('data-apply="close"') && dock().includes('data-apply="skip"') && dock().includes("Отправил, в отклики"));
-  check("and the right column the steps", side().includes("Как подаёмся") && side().includes("Из чего письмо"));
-  await page.onApplyPanel("copy-note");
-  check("copying the note ticks «Человеку написано»", page.applyState.wrote === true && copiedLinks.at(-1) === page.applyState.note);
-  await page.onApplyPanel("funnel");
-  const recorded = (await (await fetch(`${BASE}/api/applications`)).json()).applications.find((a) => a.company === "Claudeco 1");
-  check("«Отправил, в отклики» records it, with whom I wrote to, and the letter gives way",
-    recorded?.notes?.includes("outreach: search рекрутеры Claudeco 1 в LinkedIn") && page.applyState === null, recorded?.notes ?? "not recorded");
-  if (recorded) new Database(DB).prepare("DELETE FROM applications WHERE id = ?").run(recorded.id);
-  page.onApplyPanel("close");
-  // The row is gone, so is this session's mark: the live search below starts clean.
-  page.decided.delete(fits.key);
-  await page.load();
+  check("«Подать» opens the posting in a new tab: the card stays, nothing is decided, Claude is not asked",
+    opened.at(-1)?.url === fits.row.url && opened.at(-1)?.target === "_blank" && page.currentKey === fits.key
+      && !page.decided.has(fits.key) && focus() === cardBefore && claudeRuns() === runsBefore, JSON.stringify(opened.at(-1)));
+  check("the dock stays the card's", dock().includes('data-act="funnel"') && dock().includes('data-act="apply"') && !dock().includes("data-apply"));
+  const openedBefore = opened.length;
+  page.onKey(key("Enter"));
+  check("Enter is «Подать»", opened.length === openedBefore + 1);
 
   // The stand-in's session id is not on disk, so this must stop before any window opens.
   const reopen = await post("/api/verdict/open", { key: fits.key });

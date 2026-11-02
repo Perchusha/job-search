@@ -51,8 +51,6 @@ import {
   postingSources,
   type Status,
 } from "./db.ts";
-import { belowSalaryFloor } from "./boards-pl.ts";
-import { draftOutreach, openInBrowser, opensAtOnce } from "./outreach.ts";
 import { jobKey } from "./jobkey.ts";
 import { inDateWindow, presentJob, searchStored } from "./pipeline.ts";
 import { evalStatus, startEval } from "./verdict-eval.ts";
@@ -816,30 +814,6 @@ const server = createServer(async (request, response) => {
         screenshot: text(body["screenshot"]),
       });
       sendJson(response, 201, { ok: true });
-      return;
-    }
-
-    /*
-     * "Подать" on a card (src/outreach.ts): the page has opened the posting
-     * itself; this finds whom to write to and drafts the texts, ~10–20 s with
-     * Claude. Someone found is opened here too — only for a request from this
-     * machine, where the browser is; a phone gets the links. `fresh` drafts again.
-     */
-    if (request.method === "POST" && path === "/api/apply") {
-      const body = JSON.parse((await readBody(request)) || "{}") as Record<string, unknown>;
-      const key = typeof body["key"] === "string" ? body["key"] : "";
-      // The card's copy first; a posting the feed no longer shows is still in the store.
-      const shown = storedFeed(SEARCH_DEFAULTS.sources).jobs.find((candidate) => jobKey(candidate.url) === key);
-      const copies = [...(shown ? [shown] : []), ...findPostings(key)];
-      if (copies.length === 0) {
-        sendJson(response, 404, { error: "no such job in the stored postings" });
-        return;
-      }
-      const job = withTextPay(copies[0] as Job, key, verdictViews());
-      const outreach = await draftOutreach(key, [job, ...copies.slice(1)], body["fresh"] === true);
-      const open = body["open"] !== false && fromThisComputer(request) && opensAtOnce(outreach.contact);
-      if (open) openInBrowser(outreach.contact.url);
-      sendJson(response, 200, { ...outreach, opened: open, lowPay: belowSalaryFloor(job) });
       return;
     }
 

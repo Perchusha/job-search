@@ -454,7 +454,6 @@ is what feeds the response-rate and days-to-response stats. `dropped` is the exc
 | `POST /api/applications/:id/status`  | `{ status, responseAt? }`                                   |
 | `POST /api/verdict`                  | `{ key }` → queue Claude's verdict on a stored job (202)    |
 | `GET /api/verdicts`                  | `?since=<iso>` optional — verdicts made after it, and what the queue is doing |
-| `POST /api/apply`                    | `{ key, fresh?, open? }` → «Подать»: whom to write to and the drafted note and letter; someone found opens in the browser, this computer only |
 | `POST /api/verdict/open`             | `{ key }` → open that verdict's session in Claude Desktop; this computer only |
 | `POST /api/verdicts/queue`           | Queue every shown card without a current verdict, as manual requests (202, `{ queued, status }`) |
 | `POST /api/verdict/feedback`         | `{ key, expected }` → «Верно» / «Мимо» on a verdict |
@@ -510,7 +509,7 @@ dialog clips it (arrows, Home/End, Enter, Esc); a checkbox keeps its real input 
 drawn box. Under 900 px the page scrolls as a whole and the columns stack.
 
 On **Отклики** a click on a row opens that application in a drawer on the right: its status
-(changeable there or in the row), when it went out and when the reply came, whom I wrote to,
+(changeable there or in the row), when it went out and when the reply came,
 what went with it, the company's other applications and postings, the posting's link. The
 right column sums up: reply and silence rates, days to a reply, the last reply, this week.
 
@@ -590,13 +589,12 @@ four actions floating over its foot, and on the right what is known around the p
 3. **The dock**: **Скрыть** opens the reasons over it — Claude's own first for a skip —, one
    click hides; **В воронку** records an application (`applied`, there is no bookmark
    stage); **Обсудить** opens the verdict's session in Claude Desktop; **Подать** opens the
-   posting in the browser and turns the middle of the page into the letter to a person (see
-   *«Подать»* below). Keys, on purpose few (2026-10-27): `Enter` is **Подать**, `↑` `↓`
+   posting in the browser, where I apply myself, and the card stays (see *«Подать»* below). Keys, on purpose few (2026-10-27): `Enter` is **Подать**, `↑` `↓`
    walk the queue without deciding, `Esc` closes what is open — nothing else, and no key
    is drawn on the page. Enter on a focused button or link is that button's. «Потом» is
    gone: `↓` does the same without marking anything.
 4. Every decision moves to the next undecided card, which slides in. A decided card keeps
-   its tile in the strip for the rest of the page session, dimmed and named *подаю…*, *в
+   its tile in the strip for the rest of the page session, dimmed and named *в
    воронке* or *скрыто*, so the queue shows progress instead of shrinking; the next search leaves out
    what is hidden or applied to. When a stack is done the card says so, with what happened
    and a button to the next stack.
@@ -905,7 +903,7 @@ holds it, rather than testing the wrong server (`TEST_PORT` overrides).
 
 **`test:ui` earns its keep.** It evaluates the script of [src/dashboard.html](../src/dashboard.html)
 as the server serves it — placeholders filled in — and drives the stacks, the card's
-actions, its two keys, the letter and the tracker with its drawer through it against a minimal DOM shim; `tsc` sees none
+actions, its two keys and the tracker with its drawer through it against a minimal DOM shim; `tsc` sees none
 of that page. It caught a syntax error twice when the page was still a template literal,
 a bug where optional arguments silently overwrote the search profile, and a placeholder
 left unfilled because the page's own comment named it first. Run it after touching the page.
@@ -1071,37 +1069,12 @@ not seen in a dry run. They are thin wrappers over four scripts:
 | `scripts/apply-batch.mjs` | Runs `apply.mjs` over a list, one result line per job. Dry runs unless `--submit`; no current Claude `apply`, pay under the floor or a role like one applied to is skipped with the reason (`--force` / `--accept-low-pay` per index); it passes `--pay`, `--contract` and `--office-ok` |
 
 **«Подать» in the dashboard fills no forms** (since 2026-10-26, at my request: the
-filled forms did not work out, and 112 cold applications had brought 0 interviews). It
-opens the posting in the browser at once — in the click, so no popup blocker stops it —
-and I apply there myself. Meanwhile the server (`POST /api/apply`,
-[src/outreach.ts](../src/outreach.ts)) finds whom to write to and drafts two texts, ~10–20 s:
-
-- **Whom**, best first: an e-mail the posting gives for applications or questions
-  (`jobs@`, `careers@`, or an address next to "send your CV"; privacy and no-reply boxes
-  never) → Gmail's compose window, addressed and written, opened at once — attach the CV
-  and send; a person the posting names (a recruiter, "osoba kontaktowa"), word for word in
-  its text → LinkedIn's people search for them at the company, opened at once; a LinkedIn
-  posting → its own page, already open, where "Meet the hiring team" sits when the poster
-  filled it in; otherwise LinkedIn's search for the company's recruiters, opened at once
-  too (since 2026-10-27: before, nothing of LinkedIn opened for most postings, which name
-  no one) — the letter says it is a search, not someone found. LinkedIn is never read with the login: its guest pages carry no hiring team
-  (probed 2026-10-26), and a scripted logged-in session puts the account at risk.
-- **What**: a note for a LinkedIn connection request (200 characters, a free account's
-  limit; the letter counts) and a 3–4 sentence letter whose signature code types, both by
-  the same headless `claude -p` as the verdicts — no tools, the posting marked as the
-  employer's text, facts from the CV and profile.json only. If Claude cannot answer, a
-  template stands in and the letter says why. Both are editable; «скопировать» copies one;
-  «Переписать» asks Claude again. A job's texts are kept until the server restarts.
-
-All of it fills the middle of the page in place of the card: the posting in one line, then
-«Письмо человеку» — whom to write to, said plainly (a search is a search, not a person
-found), the note and the letter. The dock becomes the letter's — «Назад к вакансии», «Не
-подаю, скрыть» (back on the card with the reasons open), «Отправил, в отклики» — and the
-right column shows the three steps. «Отправил, в отклики» records the application; with
-«Человеку написано» ticked (copying a text ticks it) its notes say whom I wrote to
-(`outreach: <kind> <label>`), so replies can later be compared with and without a note.
-Published pay under the floor is a warning in the letter. The card's tile stays marked
-*подаю…* until recorded; going back to the card clears the mark.
+filled forms did not work out). It opens the posting in the browser — in the click, so no
+popup blocker stops it — and I apply there myself. The card stays as it was: **В воронку**
+records the application, `↓` walks on without a mark. From 2026-10-26 it also found whom to
+write to and drafted a LinkedIn note and a letter in the middle of the page (src/outreach.ts);
+that went on 2026-11-02, at my request, unused. Applications it noted keep their
+`outreach: <kind> <label>` line, shown in the drawer's «Что ушло с откликом».
 
 **A board's posting is not the employer's form**, and `apply.mjs` asks the board first.
 justjoin.it renders each offer's `applyUrl` into its page: the employer's form (traffit,
