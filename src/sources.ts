@@ -616,7 +616,7 @@ function filterByQuery(jobs: Job[], query?: string): Job[] {
  * Company and title as screening.ts compares them: "Xebia sp. z o.o." is
  * Xebia, "Front-end Engineer (m/f/d)" is "frontend engineer". Compared raw,
  * a role posted on two boards under two spellings stayed two cards, and the
- * copy of one already applied to came back in «Подходят».
+ * copy of one already applied to came back in "Good fit".
  */
 function companyTitleKey(job: Job): string {
   return `${companyKey(job.company)}|${roleKey(job.title)}`;

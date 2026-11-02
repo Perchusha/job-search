@@ -254,7 +254,7 @@ export const WATCHLIST: WatchedBoard[] = [
  * above or below the floor, never what a card displays.
  */
 export const SALARY = {
-  // From «Мои условия» (src/preferences.ts): Настройки change them, defaults as below.
+  // From "My terms" (src/preferences.ts): Settings change them, defaults as below.
   get floorB2bPlnMonth(): number {
     return preferences().floorB2bPlnMonth;
   },
@@ -716,7 +716,7 @@ function titleDisqualifies(job: Job): boolean {
 }
 
 /**
- * Why the fit gate leaves a job out (tier 3), for Настройки → Правила: a
+ * Why the fit gate leaves a job out (tier 3), for Settings → Rules: a
  * junior title, a foreign stack in the title (the term), or one that
  * outweighs the target stack in the text. null when the gate keeps it.
  */
@@ -793,7 +793,7 @@ export function relevanceBoost(job: Job): number {
  * The rules that decide, from the title, that a role is not for me — the same
  * ones the job-screen skill used to apply after the search (scripts/funnel.mjs).
  * The search now applies them itself (src/screening.ts) and puts the hits
- * behind the "скрыто правилами" toggle instead of on screen. funnel.mjs
+ * behind the "Hidden by rules" toggle instead of on screen. funnel.mjs
  * imports them from here, so there is one copy.
  *
  * Matched on whole words; FRONTEND and BACKEND_ONLY are tested against the
@@ -836,25 +836,25 @@ export const SCREEN_TITLE_RULES: Array<[reason: string, pattern: RegExp]> = [
   ["requires another language", T("german|deutsch|italian|french|spanish|dutch|polish speaker|with (?:german|italian|french|spanish|dutch)|(?:german|italian|french|spanish|dutch)[- ]speaking")],
 ];
 
-/** How Настройки → Правила names each rule (the reasons above stay English: hides store them). */
+/** How Settings → Rules names each rule, in English like the catalog's keys (the reasons above: hides store them). */
 export const SCREEN_RULE_LABELS: Record<string, string> = {
-  "junior/intern level": "Джуниор, стажёр",
-  "mid-level role, CV is senior": "Мидл",
-  "management role, not engineering": "Менеджмент",
-  "AI-training gig, not engineering": "Разметка данных для ИИ",
-  "not an engineering role": "Не инженерная роль",
-  "QA / test role": "QA, тестирование",
-  "DevOps / infra / security role": "DevOps, инфраструктура, безопасность",
-  "architect role, not hands-on product work": "Архитектор",
+  "junior/intern level": "Junior, intern",
+  "mid-level role, CV is senior": "Mid-level",
+  "management role, not engineering": "Management",
+  "AI-training gig, not engineering": "AI data labelling",
+  "not an engineering role": "Not an engineering role",
+  "QA / test role": "QA, testing",
+  "DevOps / infra / security role": "DevOps, infrastructure, security",
+  "architect role, not hands-on product work": "Architect",
   "data / ML role": "Data, ML",
-  "AI infrastructure / research role": "ИИ-инфраструктура и исследования",
-  "mobile role": "Мобильная разработка",
+  "AI infrastructure / research role": "AI infrastructure and research",
+  "mobile role": "Mobile development",
   "wrong stack: .NET / Java": ".NET, Java",
-  "wrong stack: other language": "Другой язык: Python, Go, Ruby…",
+  "wrong stack: other language": "Another language: Python, Go, Ruby…",
   "wrong stack: other frontend framework": "Angular, Vue, Svelte",
-  "wrong stack: platform / CMS / ERP": "Платформы, CMS, ERP",
+  "wrong stack: platform / CMS / ERP": "Platforms, CMS, ERP",
   "PHP-first role": "PHP",
-  "requires another language": "Нужен другой язык: немецкий…",
+  "requires another language": "Another language required: German…",
 };
 
 /**

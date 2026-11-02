@@ -33,7 +33,7 @@ import { loadPreferences } from "./preferences.ts";
 import { formatSourceReports } from "./sources.ts";
 
 const server = new McpServer({ name: "job-hunt", version: "1.0.0" });
-// «Мои условия» saved in the dashboard (the floor, the offices, Polish): read now and before each search.
+// "My terms" saved in the dashboard (the floor, the offices, Polish): read now and before each search.
 loadPreferences();
 
 /** find_jobs page size: a full profile pass keeps ~100 matches, too many for one reply. */

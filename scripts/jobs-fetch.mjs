@@ -588,7 +588,7 @@ function formatLine(r) {
     : "";
   const v = r.verdict;
   const claude = v ? `claude:${v.verdict}/${v.score}${v.stale ? "(old)" : ""}${v.verdict === "skip" && v.hideReason ? ` «${v.hideReason}»` : ""}` : "claude:—";
-  const marks = [r.belowSalaryFloor ? "!low-pay" : "", ...(r.flags ?? []).filter((flag) => /похоже на отклик/.test(flag)).map(() => "!applied-before")]
+  const marks = [r.belowSalaryFloor ? "!low-pay" : "", ...(r.flags ?? []).filter((flag) => /^(?:looks like application|похоже на отклик) #/.test(flag)).map(() => "!applied-before")]
     .filter(Boolean)
     .join(" ");
   return [

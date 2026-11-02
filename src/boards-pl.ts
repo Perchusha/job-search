@@ -100,7 +100,7 @@ export function payVsFloor(job: Pick<Job, "pay">): PayState | null {
 
 /**
  * True only when a posting publishes pay and even its top is under the floor:
- * what demotes a card and makes «Подать» ask "Всё равно подать?".
+ * what demotes a card and makes apply-batch stop before sending it.
  */
 export function belowSalaryFloor(job: Pick<Job, "pay">): boolean {
   return payVsFloor(job) === "below";

@@ -292,7 +292,7 @@ function migrate(database: Database.Database): void {
      * with its reasons in details (the structured output, as JSON). One row
      * per job, replaced on a re-run. criteria is the version of the criteria
      * it was made under — an older one shows as stale. session_id is the
-     * Claude Code session it came from, which "обсудить в Claude" reopens.
+     * Claude Code session it came from, which "Discuss with Claude" reopens.
      * requested: 'auto' (the background queue) or 'manual' (a card asked).
      */
     CREATE TABLE IF NOT EXISTS verdicts (
@@ -327,7 +327,7 @@ function migrate(database: Database.Database): void {
     /*
      * The text of src/verdict-criteria.md under each criteria version, from
      * the first time the version was used. verdicts.criteria holds only the
-     * hash: without the text, "по старым критериям" could not say what changed,
+     * hash: without the text, "under old criteria" could not say what changed,
      * and an edit could not be taken back.
      */
     CREATE TABLE IF NOT EXISTS criteria_versions (
@@ -337,7 +337,7 @@ function migrate(database: Database.Database): void {
     );
 
     /*
-     * «Верно» / «Мимо» on a card: what Claude's verdict should have been for
+     * "Right" / "Wrong" on a card: what Claude's verdict should have been for
      * this posting, in my words — the labels the criteria are checked against
      * (src/verdict-eval.ts). One row per job, the latest mark; verdict and
      * criteria are what was on the card when I marked it.
@@ -379,9 +379,9 @@ function migrate(database: Database.Database): void {
     );
 
     /*
-     * «Правило ошиблось»: cards a screening rule hid that I want shown anyway
+     * "Rule was wrong": cards a screening rule hid that I want shown anyway
      * (src/screening.ts lets them past every hiding rule). The rule and the
-     * card as they were, so Настройки → Правила can list them and the misfire
+     * card as they were, so Settings → Rules can list them and the misfire
      * is on record against the rule.
      */
     CREATE TABLE IF NOT EXISTS rule_overrides (
@@ -393,13 +393,13 @@ function migrate(database: Database.Database): void {
     );
 
     /*
-     * Настройки → Компании и память: a blocked company given back ("company",
+     * Settings → Companies & memory: a blocked company given back ("company",
      * its companyKey) or a hide that should stop teaching ("hide", its job
      * key). The hide itself stays — that posting is still hidden.
      */
     /*
      * Which search query found a stored posting (one row per query that
-     * returned it), for Настройки → Поиск: what each query brings, and what
+     * returned it), for Settings → Search: what each query brings, and what
      * only it brings. Boards read whole each pass have none.
      */
     CREATE TABLE IF NOT EXISTS posting_queries (
@@ -431,7 +431,7 @@ function migrate(database: Database.Database): void {
    * url_key: the job's identity, independent of tracking parameters (see
    * jobkey.ts). Both tables used to match on the exact URL, so when Himalayas
    * started appending ?utm_source=api every hidden and applied Himalayas job
-   * came back as new, and "В воронку" on one inserted a second application.
+   * came back as new, and "Add to funnel" on one inserted a second application.
    * The url column stays as the link to open; url_key is what gets compared.
    *
    * Not UNIQUE: two stored rows may legitimately collapse to one key, and the
@@ -1117,7 +1117,7 @@ export function listVerdicts(since?: string): VerdictRow[] {
 
 export type FeedbackRow = { job_key: string; expected: string; verdict: string; score: number | null; criteria: string; at: string };
 
-/** «Верно» / «Мимо»: the verdict this posting should have had. A later mark replaces an earlier one. */
+/** "Right" / "Wrong": the verdict this posting should have had. A later mark replaces an earlier one. */
 export function saveFeedback(row: Omit<FeedbackRow, "at">): FeedbackRow {
   const saved = { ...row, at: nowIso() };
   getDb()

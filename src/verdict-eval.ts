@@ -9,9 +9,9 @@
  * answer is known, from their saved texts, and says where Claude and I differ.
  *
  * Where the right answers come from, strongest first:
- *   - «Верно» / «Мимо» on a card (verdict_feedback): the verdict it should have.
+ *   - "Right" / "Wrong" on a card (verdict_feedback): the verdict it should have.
  *   - What I did after a verdict (decisions): hidden with a reason the posting's
- *     text carries (не remote, не тот стек, …) should be "skip"; added to the
+ *     text carries (not remote, wrong stack, …) should be "skip"; added to the
  *     funnel, not "skip". Hides for reasons outside the text (already applied
  *     elsewhere, the company, pay below the floor — a "maybe" by design) are
  *     not labels.
@@ -22,7 +22,7 @@
  * the ones a criteria edit tends to flip, run again to see what flips.
  *
  * Nothing is stored as a verdict. Runs go through `claude -p` like any verdict
- * (model and effort from Настройки) and are not counted in the daily cap.
+ * (model and effort from Settings) and are not counted in the daily cap.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -39,6 +39,7 @@ import {
   setMeta,
   type DecisionRow,
 } from "./db.ts";
+import { reasonWord, t } from "./i18n.ts";
 import type { Job } from "./sources.ts";
 import { criteriaVersion, judgeText, type Verdict } from "./verdict.ts";
 
@@ -55,7 +56,7 @@ export type GoldenRow = {
   text: string;
   expected: Expected;
   origin: "feedback" | "decision" | "calibration" | "stored";
-  /** Why this is the right answer: the hide reason, «Мимо», the calibration. */
+  /** Why this is the right answer: the hide reason, "Wrong", the calibration. */
   note: string;
 };
 
@@ -85,7 +86,7 @@ export type EvalSummary = {
   stopped: string | null;
 };
 
-/** Hide reasons the posting's own text can carry: a hide with one says the verdict should be "skip". */
+/** Hide reasons (ids, src/i18n.ts) the posting's own text can carry: a hide with one says the verdict should be "skip". */
 const TEXT_REASONS = new Set([
   "не remote",
   "не тот стек",
@@ -141,7 +142,7 @@ export function goldenSet(): GoldenRow[] {
       text: textFor(mark.job_key),
       expected: mark.expected as Verdict,
       origin: "feedback",
-      note: mark.expected === mark.verdict ? "«Верно»" : `«Мимо»: было ${mark.verdict}`,
+      note: mark.expected === mark.verdict ? t("“Right”") : t("“Wrong”: was {verdict}", { verdict: mark.verdict ?? "?" }),
     });
   }
 
@@ -167,7 +168,7 @@ export function goldenSet(): GoldenRow[] {
       text: textFor(decision.job_key),
       expected,
       origin: "decision",
-      note: decision.action === "hide" ? `скрыта: ${decision.reason}` : "в воронке",
+      note: decision.action === "hide" ? t("hidden: {reason}", { reason: reasonWord(decision.reason ?? "") }) : t("in funnel"),
     });
   }
 
@@ -184,7 +185,9 @@ export function goldenSet(): GoldenRow[] {
         text: textFor(row.key, row.text ?? ""),
         expected: row.truth === "skip" ? "skip" : "fit",
         origin: "calibration",
-        note: row.truth === "skip" ? `скрыта 23.10${row.reason ? `: ${row.reason}` : " без причины"}` : "откликался",
+        note: row.truth === "skip"
+          ? row.reason ? t("hidden 23.10: {reason}", { reason: reasonWord(row.reason) }) : t("hidden 23.10 without a reason")
+          : t("applied"),
       });
     }
   }
@@ -208,7 +211,7 @@ export function borderlineSet(limit = 40): GoldenRow[] {
         text: textFor(row.job_key),
         expected: row.verdict,
         origin: "stored",
-        note: `сейчас ${row.verdict}/${row.score}`,
+        note: t("now {verdict}/{score}", { verdict: row.verdict, score: row.score ?? "?" }),
       };
     })
     .filter((row) => readable(row.text))
@@ -298,7 +301,7 @@ export async function runEval(
 }
 
 /* ------------------------------------------------------------------ */
-/* The run Настройки starts                                             */
+/* The run Settings starts                                              */
 /* ------------------------------------------------------------------ */
 
 const LAST_KEY = "verdict_eval_last";

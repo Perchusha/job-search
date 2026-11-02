@@ -1,17 +1,22 @@
 <!doctype html>
-<html lang="ru">
+<html lang="__LANG__">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Job Hunt</title>
 <!--
   dashboard.html — the page src/dashboard.ts serves at /. Plain HTML, CSS and
-  JS in one file, read at boot; the server fills in __STATUSES__ and
-  __SOURCES__. It used to be a template literal inside dashboard.ts, where a
+  JS in one file, read at boot; the server fills in __STATUSES__, __SOURCES__,
+  __LANG__, __CATALOG__ and __REASON_WORDS__. It used to be a template literal inside dashboard.ts, where a
   stray backtick or an unescaped backslash blanked the page; here they are
   just characters. tests/ui.mjs still runs this script against a real server.
 
-  The look («Глубина», chosen 2026-10-27): dark only, a near-black ground with
+  Two languages, English the source text and the default (src/i18n.ts): the
+  server replaces the markup's double-braced texts when it serves the page, the
+  script's t() and tn() read the catalog it puts in, and choosing another
+  language reloads the page.
+
+  The look ("Depth", chosen 2026-10-27): dark only, a near-black ground with
   one soft tangerine glow, translucent layers instead of solid panels, the
   tangerine accent always with dark text on it. Unbounded for the few display
   lines, Onest for everything else — both served from node_modules
@@ -21,11 +26,11 @@
   Search is one posting at a time: the stacks in the middle of the header, a
   strip of Claude's scores on the left (always folded: a title shows on
   hover), the posting with Claude's read inside it in the middle, a floating
-  dock with Скрыть · В воронку · Обсудить · Подать, and on the right what is
+  dock with Hide · Add to funnel · Discuss · Apply, and on the right what is
   known around the posting — the company, its copies on other boards, the
-  rules. «Подать» opens the posting in the browser; I apply there myself.
+  rules. "Apply" opens the posting in the browser; I apply there myself.
 
-  Keys, on purpose few: Enter is «Подать», ↑ ↓ walk the queue. Nothing else,
+  Keys, on purpose few: Enter is "Apply", ↑ ↓ walk the queue. Nothing else,
   and no key is drawn on the page. Scrollbars are hidden everywhere; a list
   that goes on fades out at its foot instead.
 
@@ -169,7 +174,7 @@
   .sweep span { display: block; width: 32%; height: 100%; background: var(--accent); animation: sweep 1.2s ease-in-out infinite; }
   @keyframes sweep { from { transform: translateX(-110%); } to { transform: translateX(320%); } }
 
-  /* ---------- rail: the two sections, Настройки at the foot ---------- */
+  /* ---------- rail: the two sections, Settings at the foot ---------- */
   .frame { flex: 1 1 auto; min-height: 0; display: flex; }
   .rail { flex: 0 0 72px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 6px 0 16px; }
   .tab, .railbtn { position: relative; width: 46px; height: 46px; display: grid; place-items: center; padding: 0; border: 0;
@@ -214,8 +219,8 @@
   .strip .count { flex: 0 0 auto; margin: 0; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
   /*
    * A posting's tile: Claude's score in it, in the verdict's colour (green
-   * подходит, amber проверить, grey не подходит), pulsing while Claude reads,
-   * a dash before.
+   * fits, amber check, grey doesn't fit), pulsing while Claude reads, a dash
+   * before.
    */
   .pts { width: 40px; height: 40px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 13px; background: var(--soft-2);
          color: var(--muted); font: 600 13px/1 var(--font); font-variant-numeric: tabular-nums; letter-spacing: -.02em;
@@ -231,7 +236,7 @@
   .mono { width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 11px; background: var(--c-bg); color: var(--c);
           font-size: 13px; font-weight: 700; line-height: 1; }
 
-  /* Фильтры: from the strip's top, opening beside it. */
+  /* Filters: from the strip's top, opening beside it. */
   .popover { position: absolute; z-index: 30; left: calc(100% + 10px); top: 0; width: min(440px, calc(100vw - 120px));
              max-height: calc(100vh - 100px); overflow-y: auto; padding: 20px; border-radius: 22px; background: var(--raised);
              box-shadow: var(--pop); display: grid; gap: 18px; animation: ctxin .12s var(--ease); }
@@ -385,7 +390,7 @@
   .claudeline { margin: 4px 6px 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
   .claudeline:empty { display: none; }
 
-  /* ---------- Отклики ---------- */
+  /* ---------- Applications ---------- */
   .tmain { flex: 1 1 auto; min-width: 0; padding: 6px 24px 64px 0; }
   .hero h1 { margin: 0; font: 600 32px/1.15 var(--display); letter-spacing: -0.02em; }
   .hero p { margin: 10px 0 0; font-size: 16px; color: var(--muted); }
@@ -466,7 +471,7 @@
                      color: var(--ink); font-size: 13.5px; font-weight: 600; text-decoration: none; }
   .drawer .dfoot a:hover { background: var(--soft-2); }
 
-  /* ---------- Настройки: a dialog, its sections listed on the left ---------- */
+  /* ---------- Settings: a dialog, its sections listed on the left ---------- */
   .scrim { position: fixed; inset: 0; z-index: 60; background: rgba(4, 5, 9, .72); display: grid; place-items: center; padding: 24px; }
   .modal { width: min(840px, 100%); height: min(660px, 100%); display: flex; flex-direction: column; border-radius: 28px; background: var(--raised);
            box-shadow: var(--pop); overflow: hidden; }
@@ -480,6 +485,9 @@
   .setnav button:hover { background: var(--soft); color: var(--ink); }
   .setnav button[aria-current="true"] { background: var(--accent-tint); color: var(--accent-ink); font-weight: 600; }
   .setnav p { margin: auto 0 0; padding: 0 14px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+  /* The language, in sight from every section. It applies at once: not part of what "Save" saves. */
+  .setnav .select { flex: 0 0 auto; margin-top: 10px; background: var(--soft); color: var(--ink); justify-content: space-between; }
+  .setnav .select:hover { background: var(--soft-2); }
   .secs { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 22px 28px 48px; }
   .sec { display: flex; flex-direction: column; gap: 6px; }
   .sec h3 { margin: 0; }
@@ -536,7 +544,7 @@
   .modal > .foot .saved.dirty { color: var(--warn); }
   .warnbox { margin: 0 0 8px; padding: 12px 16px; border-radius: 16px; background: var(--note-bg); color: var(--note); font-size: 14px; }
 
-  /* ---------- Найти: a posting, a stack or an application ---------- */
+  /* ---------- Find: a posting, a stack or an application ---------- */
   .scrim.jump { place-items: start center; padding-top: 14vh; }
   .jumpbox { width: min(560px, 100%); padding: 14px; border-radius: 26px; background: var(--raised); box-shadow: var(--pop);
              animation: rise .28s var(--spring); }
@@ -621,93 +629,93 @@
   <div class="brand">
     <span class="mark" aria-hidden="true">J</span><span class="word">Job Hunt</span>
     <!-- Refresh and how fresh the boards are, in one: the time is the button's own text. -->
-    <button class="fresh" id="searchbtn" type="button" aria-label="Обновить площадки">
+    <button class="fresh" id="searchbtn" type="button" aria-label="{{Refresh the boards}}">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 4v5h-5"></path></svg>
       <span id="freshness"></span>
     </button>
   </div>
   <div class="center">
-    <nav class="segbar" id="stacks" role="group" aria-label="Что разбирать"></nav>
-    <nav class="segbar" id="statuspills" role="group" aria-label="Статус" hidden></nav>
+    <nav class="segbar" id="stacks" role="group" aria-label="{{What to go through}}"></nav>
+    <nav class="segbar" id="statuspills" role="group" aria-label="{{Status}}" hidden></nav>
   </div>
   <div class="tools">
-    <div class="links" role="group" aria-label="Мои ссылки: клик копирует" style="display: flex; gap: 2px">
+    <div class="links" role="group" aria-label="{{My links: a click copies}}" style="display: flex; gap: 2px">
       <button class="iconbtn copy" id="copy-linkedin" type="button" data-label="LinkedIn" data-url="https://www.linkedin.com/in/anton-perch-768578113/"
-              data-copied="LinkedIn скопирован" aria-label="Скопировать ссылку на LinkedIn" data-tip="LinkedIn" data-tip-at="below">
+              data-copied="{{LinkedIn copied}}" aria-label="{{Copy the LinkedIn link}}" data-tip="LinkedIn" data-tip-at="below">
         <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.98 3.5A2.5 2.5 0 1 1 5 8.5a2.5 2.5 0 0 1-.02-5zM3 9.5h4V21H3zM10 9.5h3.8v1.6h.1c.5-1 1.8-2 3.7-2 4 0 4.7 2.6 4.7 6V21h-4v-5.2c0-1.3 0-2.9-1.8-2.9s-2 1.4-2 2.8V21h-4z"></path></svg>
         <svg class="ok" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>
       </button>
       <button class="iconbtn copy" id="copy-github" type="button" data-label="GitHub" data-url="https://github.com/Perchusha"
-              data-copied="GitHub скопирован" aria-label="Скопировать ссылку на GitHub" data-tip="GitHub" data-tip-at="below">
+              data-copied="{{GitHub copied}}" aria-label="{{Copy the GitHub link}}" data-tip="GitHub" data-tip-at="below">
         <svg class="ic" width="17" height="17" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg>
         <svg class="ok" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>
       </button>
       <button class="iconbtn copy" id="copy-portfolio" type="button" data-label="Portfolio" data-url="https://perchusha.github.io/portfolio/"
-              data-copied="Портфолио скопировано" aria-label="Скопировать ссылку на портфолио" data-tip="Портфолио" data-tip-at="below">
+              data-copied="{{Portfolio copied}}" aria-label="{{Copy the portfolio link}}" data-tip="{{Portfolio}}" data-tip-at="below">
         <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"></path></svg>
         <svg class="ok" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>
       </button>
     </div>
     <span class="vsep" aria-hidden="true"></span>
     <button class="iconbtn" id="findbtn" type="button" aria-haspopup="dialog" aria-controls="jump"
-            aria-label="Найти вакансию, компанию, стопку" data-tip="Найти" data-tip-at="below">
+            aria-label="{{Find a posting, company or stack}}" data-tip="{{Find}}" data-tip-at="below">
       <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
     </button>
-    <button class="avatar" id="opensettings" type="button" aria-label="Настройки" data-tip="Настройки" data-tip-at="below"><img src="/avatar.jpg" alt="" width="36" height="36"></button>
+    <button class="avatar" id="opensettings" type="button" aria-label="{{Settings}}" data-tip="{{Settings}}" data-tip-at="below"><img src="/avatar.jpg" alt="" width="36" height="36"></button>
   </div>
 </header>
-<div class="sweep" id="searchprogress" role="status" aria-label="Обновляю площадки" hidden><span></span></div>
+<div class="sweep" id="searchprogress" role="status" aria-label="{{Refreshing the boards}}" hidden><span></span></div>
 
 <div class="frame">
-<nav class="rail" id="rail" aria-label="Разделы">
-  <button class="tab is-active" data-view="search" type="button" data-tip="Поиск" aria-label="Поиск">
+<nav class="rail" id="rail" aria-label="{{Sections}}">
+  <button class="tab is-active" data-view="search" type="button" data-tip="{{Search}}" aria-label="{{Search}}">
     <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.5 8.5 4.5-8.5 4.5L3.5 8 12 3.5z"></path><path d="m3.5 12.5 8.5 4.5 8.5-4.5"></path><path d="m3.5 16.5 8.5 4 8.5-4"></path></svg>
     <span class="sr" id="searchcount"></span></button>
-  <button class="tab" data-view="tracker" type="button" data-tip="Отклики" aria-label="Отклики">
+  <button class="tab" data-view="tracker" type="button" data-tip="{{Applications}}" aria-label="{{Applications}}">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 3 10.5 13.5M21 3l-6.5 18-4-7.5L3 9.5 21 3z"></path></svg>
     <span class="sr" id="trackercount"></span></button>
   <span class="grow"></span>
-  <button class="railbtn" id="railsettings" type="button" data-tip="Настройки" aria-label="Настройки">
+  <button class="railbtn" id="railsettings" type="button" data-tip="{{Settings}}" aria-label="{{Settings}}">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
   </button>
 </nav>
 <main class="views">
   <!-- ---------------- Search: one posting at a time ---------------- -->
-  <section class="view" id="view-search" aria-label="Поиск">
-    <aside class="strip" aria-label="Очередь">
-      <button class="iconbtn" id="filtersbtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="filters" aria-label="Фильтры" data-tip="Фильтры">
+  <section class="view" id="view-search" aria-label="{{Search}}">
+    <aside class="strip" aria-label="{{Queue}}">
+      <button class="iconbtn" id="filtersbtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="filters" aria-label="{{Filters}}" data-tip="{{Filters}}">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2.2"></circle><circle cx="10" cy="17" r="2.2"></circle></svg>
         <span class="filterdot" id="filterdot" hidden></span>
       </button>
       <div class="popover" id="filters" hidden>
         <label class="field">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
-          <span class="sr">Искать среди вакансий</span>
-          <input type="search" id="jobsearch" placeholder="Компания, стек, город…" autocomplete="off">
+          <span class="sr">{{Search the postings}}</span>
+          <input type="search" id="jobsearch" placeholder="{{Company, stack, city…}}" autocomplete="off">
         </label>
         <fieldset style="margin: 0; padding: 0; border: 0">
-          <legend><h3>Опубликовано</h3></legend>
+          <legend><h3>{{Posted}}</h3></legend>
           <div class="seg" id="datefilter">
-            <label><input type="radio" name="age" value="1"><span>сутки</span></label>
-            <label><input type="radio" name="age" value="3"><span>3 дня</span></label>
-            <label><input type="radio" name="age" value="7"><span>неделя</span></label>
-            <label><input type="radio" name="age" value="14"><span>2 недели</span></label>
-            <label><input type="radio" name="age" value="30" checked><span>месяц</span></label>
+            <label><input type="radio" name="age" value="1"><span>{{a day}}</span></label>
+            <label><input type="radio" name="age" value="3"><span>{{3 days}}</span></label>
+            <label><input type="radio" name="age" value="7"><span>{{a week}}</span></label>
+            <label><input type="radio" name="age" value="14"><span>{{2 weeks}}</span></label>
+            <label><input type="radio" name="age" value="30" checked><span>{{a month}}</span></label>
           </div>
         </fieldset>
         <fieldset style="margin: 0; padding: 0; border: 0">
-          <legend><h3>Площадки</h3></legend>
+          <legend><h3>{{Boards}}</h3></legend>
           <div class="checks" id="sourcefilter"></div>
         </fieldset>
         <fieldset style="margin: 0; padding: 0; border: 0">
-          <legend><h3>Показывать</h3></legend>
-          <label class="check"><input type="checkbox" id="hideApplied" checked><i aria-hidden="true"></i>Прятать отклики</label>
-          <label class="check"><input type="checkbox" id="showDismissed"><i aria-hidden="true"></i>Скрытые мной <span class="n" id="dismissedCount"></span></label>
-          <label class="check" title="отсеянные правилами скрининга (src/screening.ts), с причиной на карточке"><input type="checkbox" id="showRuleHidden"><i aria-hidden="true"></i>Скрытые правилами <span class="n" id="ruleHiddenCount"></span></label>
+          <legend><h3>{{Show}}</h3></legend>
+          <label class="check"><input type="checkbox" id="hideApplied" checked><i aria-hidden="true"></i>{{Hide applied}}</label>
+          <label class="check"><input type="checkbox" id="showDismissed"><i aria-hidden="true"></i>{{Hidden by me}} <span class="n" id="dismissedCount"></span></label>
+          <label class="check" title="{{dropped by the screening rules (src/screening.ts), with the reason on the card}}"><input type="checkbox" id="showRuleHidden"><i aria-hidden="true"></i>{{Hidden by rules}} <span class="n" id="ruleHiddenCount"></span></label>
         </fieldset>
         <div>
-          <h3>Порядок</h3>
-          <button type="button" class="select wide" id="jobsort" data-select="jobsort" data-label="Порядок в очереди" value="claude" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <h3>{{Order}}</h3>
+          <button type="button" class="select wide" id="jobsort" data-select="jobsort" data-label="{{Queue order}}" value="claude" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
             <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
         </div>
       </div>
@@ -716,47 +724,47 @@
     </aside>
     <div class="stage">
       <div class="scroller fades-lg" id="scroller"><div id="focus" aria-live="polite"></div></div>
-      <div class="dock" id="dock" role="toolbar" aria-label="Действия с вакансией" hidden></div>
+      <div class="dock" id="dock" role="toolbar" aria-label="{{Posting actions}}" hidden></div>
     </div>
-    <aside class="side fades" id="sidecol" aria-label="Вокруг вакансии">
+    <aside class="side fades" id="sidecol" aria-label="{{Around the posting}}">
       <details class="needsyou" id="needsyou" hidden></details>
       <div id="side"></div>
       <p class="claudeline" id="claudeline"></p>
     </aside>
   </section>
 
-  <!-- ---------------- Отклики ---------------- -->
-  <section class="view" id="view-tracker" aria-label="Отклики" hidden>
+  <!-- ---------------- Applications ---------------- -->
+  <section class="view" id="view-tracker" aria-label="{{Applications}}" hidden>
     <div class="tmain scroller fades-lg">
       <div class="hero">
-        <h1 id="trackertitle">Отклики</h1>
+        <h1 id="trackertitle">{{Applications}}</h1>
         <p id="trackersub"></p>
       </div>
       <div class="tiles" id="cards"></div>
       <section class="block">
-        <h2>Где сейчас отклики</h2>
+        <h2>{{Where the applications are}}</h2>
         <div class="funnelbar" id="funnel" role="img"></div>
         <div class="legend" id="legend"></div>
       </section>
       <section class="block">
         <div class="listhead">
-          <h2 id="applicationcount">Отклики</h2>
-          <span class="hint">клик по строке открывает отклик</span>
+          <h2 id="applicationcount">{{Applications}}</h2>
+          <span class="hint">{{a click on a row opens the application}}</span>
           <label class="field">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
-            <span class="sr">Искать среди откликов</span>
-            <input type="search" id="appsearch" placeholder="Компания, роль, город…" autocomplete="off">
+            <span class="sr">{{Search the applications}}</span>
+            <input type="search" id="appsearch" placeholder="{{Company, role, city…}}" autocomplete="off">
           </label>
         </div>
         <div class="tablewrap">
           <table>
             <thead>
               <tr>
-                <th><button type="button" data-sort="company">Компания <span class="arrow"></span></button></th>
-                <th>Роль</th>
-                <th><button type="button" data-sort="status">Статус <span class="arrow"></span></button></th>
-                <th><button type="button" data-sort="applied">Отправлен <span class="arrow"></span></button></th>
-                <th><button type="button" data-sort="days">Прошло <span class="arrow"></span></button></th>
+                <th><button type="button" data-sort="company">{{Company}} <span class="arrow"></span></button></th>
+                <th>{{Role}}</th>
+                <th><button type="button" data-sort="status">{{Status}} <span class="arrow"></span></button></th>
+                <th><button type="button" data-sort="applied">{{Sent}} <span class="arrow"></span></button></th>
+                <th><button type="button" data-sort="days">{{Elapsed}} <span class="arrow"></span></button></th>
               </tr>
             </thead>
             <tbody id="rows"></tbody>
@@ -765,8 +773,8 @@
         </div>
       </section>
     </div>
-    <aside class="side fades" id="trackerside" aria-label="Итоги"></aside>
-    <section class="drawer" id="drawer" role="dialog" aria-label="Отклик" hidden></section>
+    <aside class="side fades" id="trackerside" aria-label="{{Totals}}"></aside>
+    <section class="drawer" id="drawer" role="dialog" aria-label="{{Application}}" hidden></section>
   </section>
 </main>
 </div>
@@ -774,83 +782,85 @@
 <div class="scrim" id="settings" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settingstitle">
     <div class="head">
-      <h2 id="settingstitle">Настройки</h2>
-      <button class="iconbtn" type="button" data-close aria-label="Закрыть">
+      <h2 id="settingstitle">{{Settings}}</h2>
+      <button class="iconbtn" type="button" data-close aria-label="{{Close}}">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
       </button>
     </div>
     <div class="mbody">
-      <nav class="setnav" id="setnav" aria-label="Разделы настроек">
-        <button type="button" data-sec="prefs">Мои условия</button>
+      <nav class="setnav" id="setnav" aria-label="{{Settings sections}}">
+        <button type="button" data-sec="prefs">{{My terms}}</button>
         <button type="button" data-sec="claude" aria-current="true">Claude</button>
-        <button type="button" data-sec="rules">Правила</button>
-        <button type="button" data-sec="memory">Компании и память</button>
-        <button type="button" data-sec="search">Поиск</button>
-        <button type="button" data-sec="app" id="setnav-app" hidden>Приложение</button>
-        <p>Запросы и площадки — в src/profile.ts, здесь только посмотреть.</p>
+        <button type="button" data-sec="rules">{{Rules}}</button>
+        <button type="button" data-sec="memory">{{Companies & memory}}</button>
+        <button type="button" data-sec="search">{{Search}}</button>
+        <button type="button" data-sec="app" id="setnav-app" hidden>{{App}}</button>
+        <p>{{Queries and boards live in src/profile.ts; here you can only look.}}</p>
+        <button type="button" class="select wide" id="language" data-select="language" data-label="{{Language}}" value="__LANG__" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
       </nav>
       <div class="secs fades" id="secs">
         <section class="sec prefs" data-sec="prefs" hidden>
-          <h3>Мои условия</h3>
-          <p class="lead">Одно место для того, что читают и правила, и Claude: порог денег, где офис допустим, мой польский. Критерии Claude получают их отдельным разделом в конце, поэтому после смены оценки пересчитаются по настройке «После правки критериев».</p>
-          <div class="setrow"><span>Порог, PLN нетто в месяц на B2B<small>вилка с верхом ниже — «ниже порога»: пометка, вниз в списке</small></span>
-            <input type="number" id="pref-floor" min="1000" max="200000" step="500" aria-label="Порог B2B"></div>
-          <div class="setrow"><span>Трудовой договор (UoP)<small>сколько брутто на UoP стоят для меня сколько на B2B</small></span>
-            <span class="pair"><input type="number" id="pref-uop-gross" min="1000" max="200000" step="500" aria-label="UoP брутто"> брутто =
-              <input type="number" id="pref-uop-b2b" min="1000" max="200000" step="500" aria-label="B2B нетто"> B2B</span></div>
-          <div class="setrow"><span>Часов в месяце<small>для почасовых ставок</small></span>
-            <input type="number" id="pref-hours" min="100" max="200" step="1" aria-label="Часов в месяце"></div>
+          <h3>{{My terms}}</h3>
+          <p class="lead">{{One place for what both the rules and Claude read: the pay floor, where an office is acceptable, my Polish. Claude's criteria get them as a separate section at the end, so after a change the verdicts are redone as “After a criteria edit” says.}}</p>
+          <div class="setrow"><span>{{Floor, PLN net a month on B2B}}<small>{{a range whose top is under it is “below the floor”: flagged, and moved down the list}}</small></span>
+            <input type="number" id="pref-floor" min="1000" max="200000" step="500" aria-label="{{B2B floor}}"></div>
+          <div class="setrow"><span>{{Employment contract (UoP)}}<small>{{how much gross on UoP is worth how much on B2B to me}}</small></span>
+            <span class="pair"><input type="number" id="pref-uop-gross" min="1000" max="200000" step="500" aria-label="{{UoP gross}}"> {{gross}} =
+              <input type="number" id="pref-uop-b2b" min="1000" max="200000" step="500" aria-label="{{B2B net}}"> B2B</span></div>
+          <div class="setrow"><span>{{Hours in a month}}<small>{{for hourly rates}}</small></span>
+            <input type="number" id="pref-hours" min="100" max="200" step="1" aria-label="{{Hours in a month}}"></div>
           <p class="stat" id="pref-derived" style="padding: 10px 0"></p>
-          <div class="setrow" style="box-shadow: none"><span>Офис и гибрид допустимы у<small>через запятую, дочерние компании называй отдельно</small></span></div>
-          <textarea id="pref-companies" aria-label="Компании, у которых офис допустим"></textarea>
-          <div class="setrow"><span>…и только в городе<small>через запятую, разные написания одного города</small></span>
-            <input type="text" id="pref-cities" aria-label="Город офиса"></div>
-          <div class="setrow"><span>Мой польский<small>требование выше — стоп-фактор</small></span>
-            <button type="button" class="select" id="pref-polish" data-select="pref-polish" data-label="Мой польский" value="B1" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <div class="setrow" style="box-shadow: none"><span>{{Office and hybrid are fine at}}<small>{{comma-separated; name subsidiaries separately}}</small></span></div>
+          <textarea id="pref-companies" aria-label="{{Companies whose office is fine}}"></textarea>
+          <div class="setrow"><span>{{…and only in the city}}<small>{{comma-separated; different spellings of one city}}</small></span>
+            <input type="text" id="pref-cities" aria-label="{{Office city}}"></div>
+          <div class="setrow"><span>{{My Polish}}<small>{{a higher requirement is a stop factor}}</small></span>
+            <button type="button" class="select" id="pref-polish" data-select="pref-polish" data-label="{{My Polish}}" value="B1" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
               <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
         </section>
 
         <section class="sec" data-sec="claude">
           <h3>Claude</h3>
-          <p class="lead">Claude читает каждую вакансию из ленты и раскладывает по стопкам. Работает на подписке Claude Code этого компьютера — без API-ключа.</p>
+          <p class="lead">{{Claude reads every posting in the feed and sorts it into the stacks. It runs on this computer's Claude Code subscription, with no API key.}}</p>
           <div class="status-box">
             <p class="stat" id="cl-stat"></p>
             <p class="stat" id="cl-crit"></p>
-            <div><button class="btn soft" type="button" id="cl-now">Оценить оставшиеся сейчас</button></div>
+            <div><button class="btn soft" type="button" id="cl-now">{{Judge the rest now}}</button></div>
           </div>
-          <div class="setrow"><span>Оценивать новые вакансии сам<small>в фоне, по мере того как они появляются</small></span>
-            <label class="switch"><input type="checkbox" id="cl-auto" aria-label="Оценивать новые вакансии сам"><i></i></label></div>
-          <div class="setrow"><span>Модель<small>Opus читает внимательнее, но тратит вдвое больше лимитов</small></span>
-            <button type="button" class="select" id="cl-model" data-select="cl-model" data-label="Модель" value="sonnet" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <div class="setrow"><span>{{Judge new postings on its own}}<small>{{in the background, as they appear}}</small></span>
+            <label class="switch"><input type="checkbox" id="cl-auto" aria-label="{{Judge new postings on its own}}"><i></i></label></div>
+          <div class="setrow"><span>{{Model}}<small>{{Opus reads more carefully but uses twice the limits}}</small></span>
+            <button type="button" class="select" id="cl-model" data-select="cl-model" data-label="{{Model}}" value="sonnet" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
               <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
-          <div class="setrow"><span>Усилие<small>на одну вакансию хватает низкого</small></span>
-            <button type="button" class="select" id="cl-effort" data-select="cl-effort" data-label="Усилие" value="low" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <div class="setrow"><span>{{Effort}}<small>{{low is enough for one posting}}</small></span>
+            <button type="button" class="select" id="cl-effort" data-select="cl-effort" data-label="{{Effort}}" value="low" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
               <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
-          <div class="setrow"><span>Запусков в день<small>для фона; то, что просишь сам, не считается</small></span>
-            <input type="number" id="cl-daily" min="0" max="1000" step="1" aria-label="Запусков в день"></div>
-          <div class="setrow"><span>Дочитывать общие заголовки<small>«Senior Software Engineer» без стека в названии и без текста на площадке: Claude читает вакансию в фоне, на экран она попадает, только если подходит. Не больше четверти дневного лимита</small></span>
-            <label class="switch"><input type="checkbox" id="cl-soft" aria-label="Дочитывать общие заголовки"><i></i></label></div>
-          <div class="setrow" style="box-shadow: none"><span>Не убирать, если единственная причина — …<small>такие skip покажутся в «Проверить» с пометкой; без нового прогона Claude</small></span></div>
+          <div class="setrow"><span>{{Runs a day}}<small>{{for the background; what you ask for yourself does not count}}</small></span>
+            <input type="number" id="cl-daily" min="0" max="1000" step="1" aria-label="{{Runs a day}}"></div>
+          <div class="setrow"><span>{{Read generic titles in full}}<small>{{“Senior Software Engineer” with no stack in the title and no text on the board: Claude reads the posting in the background, and it reaches the screen only if it fits. At most a quarter of the daily limit}}</small></span>
+            <label class="switch"><input type="checkbox" id="cl-soft" aria-label="{{Read generic titles in full}}"><i></i></label></div>
+          <div class="setrow" style="box-shadow: none"><span>{{Keep a card if the only reason is…}}<small>{{such skips show in “Check” with a note; no new Claude run}}</small></span></div>
           <div class="factors" id="cl-soften">
-            <label class="check"><input type="checkbox" value="format"><i aria-hidden="true"></i>формат</label>
-            <label class="check"><input type="checkbox" value="level"><i aria-hidden="true"></i>уровень</label>
-            <label class="check"><input type="checkbox" value="stack"><i aria-hidden="true"></i>стек</label>
-            <label class="check"><input type="checkbox" value="role"><i aria-hidden="true"></i>роль</label>
-            <label class="check"><input type="checkbox" value="language"><i aria-hidden="true"></i>язык</label>
+            <label class="check"><input type="checkbox" value="format"><i aria-hidden="true"></i>{{format}}</label>
+            <label class="check"><input type="checkbox" value="level"><i aria-hidden="true"></i>{{level}}</label>
+            <label class="check"><input type="checkbox" value="stack"><i aria-hidden="true"></i>{{stack}}</label>
+            <label class="check"><input type="checkbox" value="role"><i aria-hidden="true"></i>{{role}}</label>
+            <label class="check"><input type="checkbox" value="language"><i aria-hidden="true"></i>{{language}}</label>
           </div>
-          <div class="setrow"><span>После правки критериев<small>что пересчитывать в фоне; четверть дневного лимита всегда остаётся новым вакансиям</small></span>
-            <button type="button" class="select" id="cl-rejudge" data-select="cl-rejudge" data-label="После правки критериев" value="all" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <div class="setrow"><span>{{After a criteria edit}}<small>{{what to redo in the background; a quarter of the daily limit always stays for new postings}}</small></span>
+            <button type="button" class="select" id="cl-rejudge" data-select="cl-rejudge" data-label="{{After a criteria edit}}" value="all" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
               <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
           <details class="more">
-            <summary>История критериев</summary>
+            <summary>{{Criteria history}}</summary>
             <div><ul class="crithist" id="cl-history"></ul></div>
           </details>
           <details class="more">
-            <summary>Сверка с эталоном</summary>
+            <summary>{{Check against known answers}}</summary>
             <div>
-              <p class="lead">Текущие критерии на вакансиях, где правильный ответ известен: скрытия с причиной из текста, отклики, калибровка 23.10, прежние отметки «Верно / Мимо». Или пограничные оценки (20–70) — что из них перевернётся. Ничего не перезаписывает; идёт мимо дневного лимита.</p>
-              <div class="foot" style="padding-top: 0"><button class="btn soft" type="button" id="cl-eval-labels">Сверить с твоими решениями</button>
-                <button class="btn soft" type="button" id="cl-eval-border">Пересчитать пограничные</button></div>
+              <p class="lead">{{The current criteria on postings whose right answer is known: hides with a reason from the text, applications, the 23.10 calibration, earlier “Right / Wrong” marks. Or the borderline verdicts (20–70): which of them would flip. It overwrites nothing and goes past the daily limit.}}</p>
+              <div class="foot" style="padding-top: 0"><button class="btn soft" type="button" id="cl-eval-labels">{{Check against your decisions}}</button>
+                <button class="btn soft" type="button" id="cl-eval-border">{{Re-judge the borderline ones}}</button></div>
               <p class="stat" id="cl-eval"></p>
               <ul class="crithist" id="cl-misses"></ul>
             </div>
@@ -858,134 +868,160 @@
         </section>
 
         <section class="sec" data-sec="rules" hidden>
-          <h3>Правила</h3>
-          <p class="lead">Правила прячут карточку ещё до Claude — по заголовку, тексту или возрасту. Спрятанные лежат в «Фильтры → Скрытые правилами», с причиной на карточке. Выключенное правило перестаёт прятать: его карточки пойдут в стопки и к Claude.</p>
+          <h3>{{Rules}}</h3>
+          <p class="lead">{{Rules hide a card before Claude sees it: by title, text or age. What they hide sits under “Filters → Hidden by rules”, with the reason on the card. A rule switched off stops hiding: its cards go to the stacks and to Claude.}}</p>
           <div class="rulelist" id="rules-list"></div>
-          <h4 class="sub">Правило ошиблось</h4>
-          <p class="lead">Карточки, про которые ты так сказал (кнопка в причине на карточке): их не прячет ни одно правило.</p>
+          <h4 class="sub">{{Rule was wrong}}</h4>
+          <p class="lead">{{Cards you said this about (the button in the reason on the card): no rule hides them.}}</p>
           <ul class="crithist" id="rules-freed"></ul>
-          <h4 class="sub">Ещё до правил: фильтр по стеку</h4>
-          <p class="lead">Ранжирование убирает то, что по заголовку и тексту точно не твоё: джуниора, чужой стек. Он не выключается — здесь видно, что он убрал за месяц.</p>
+          <h4 class="sub">{{Before the rules: the stack filter}}</h4>
+          <p class="lead">{{Ranking removes what is surely not yours by title and text: juniors, another stack. It cannot be switched off; here you can see what it removed this month.}}</p>
           <ul class="crithist" id="rules-fit"></ul>
         </section>
 
         <section class="sec" data-sec="memory" hidden>
-          <h3>Компании и память</h3>
-          <p class="lead">Что правила помнят о твоих скрытиях: компании, которые ты не смотришь, и роли, которые ты уже скрыл, — их копии на других площадках прячутся сами. Скрытия, которые написали сами правила, не считаются.</p>
-          <div class="setrow"><span>Помнить мои скрытия<small>более старые не прячут копии и не блокируют компанию; «не интересна компания» помнится всегда</small></span>
-            <button type="button" class="select" id="pref-memory" data-select="pref-memory" data-label="Помнить мои скрытия" value="0" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
+          <h3>{{Companies & memory}}</h3>
+          <p class="lead">{{What the rules remember of your hides: companies you don't look at, and roles you already hid, whose copies on other boards hide themselves. Hides the rules wrote themselves do not count.}}</p>
+          <div class="setrow"><span>{{Remember my hides}}<small>{{older ones hide no copies and block no company; “company not of interest” is always remembered}}</small></span>
+            <button type="button" class="select" id="pref-memory" data-select="pref-memory" data-label="{{Remember my hides}}" value="0" aria-haspopup="listbox" aria-expanded="false"><span class="sv"></span>
               <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
-          <h4 class="sub">Компании, которые я не смотрю</h4>
+          <h4 class="sub">{{Companies I don't look at}}</h4>
           <ul class="crithist" id="mem-companies"></ul>
-          <h4 class="sub">Скрытия, которые прячут копии</h4>
+          <h4 class="sub">{{Hides that hide copies}}</h4>
           <p class="stat" id="mem-roles-stat"></p>
           <ul class="crithist" id="mem-roles"></ul>
-          <h4 class="sub">Забытое</h4>
+          <h4 class="sub">{{Forgotten}}</h4>
           <ul class="crithist" id="mem-forgotten"></ul>
-          <h4 class="sub">Доски компаний</h4>
+          <h4 class="sub">{{Company boards}}</h4>
           <p class="stat" id="mem-boards-stat"></p>
           <ul class="crithist" id="mem-boards"></ul>
         </section>
 
         <section class="sec" data-sec="search" hidden>
-          <h3>Поиск</h3>
-          <p class="lead">Что ищется и что из этого выходит. Запросы, площадки и окно задаются в src/profile.ts — здесь только посмотреть.</p>
+          <h3>{{Search}}</h3>
+          <p class="lead">{{What is searched and what comes of it. Queries, boards and the window are set in src/profile.ts; here you can only look.}}</p>
           <p class="stat" id="search-setup"></p>
-          <h4 class="sub">От базы до экрана</h4>
+          <h4 class="sub">{{From the database to the screen}}</h4>
           <ul class="crithist" id="search-funnel"></ul>
-          <h4 class="sub">Запросы</h4>
-          <p class="lead">Сколько вакансий нашёл каждый запрос на Indeed, LinkedIn и Himalayas, сколько из них не нашёл ни один другой, сколько сейчас на экране, у скольких Claude сказал «подходит» или «проверить», на сколько ты откликнулся. Счёт идёт с обновлений после 24.10.</p>
+          <h4 class="sub">{{Queries}}</h4>
+          <p class="lead">{{How many postings each query found on Indeed, LinkedIn and Himalayas, how many of them no other query found, how many are on screen now, how many Claude called “fits” or “check”, and how many you applied to. Counted from the refreshes after 24.10.}}</p>
           <ul class="crithist" id="search-queries"></ul>
-          <h4 class="sub">Площадки</h4>
+          <h4 class="sub">{{Boards}}</h4>
           <ul class="crithist" id="search-boards"></ul>
         </section>
 
         <section class="sec" data-sec="app" id="appsettings" hidden>
-          <h3>Приложение Job Hunt</h3>
-          <p class="warnbox" id="toastwarn" hidden>Уведомления Windows выключены — Job Hunt не сможет показать новые вакансии. <button class="linkbtn" id="opennotif" type="button">Открыть настройки уведомлений</button></p>
-          <div class="setrow"><span>Запускать вместе с Windows<small>сразу в трей, без окна</small></span><label class="switch"><input type="checkbox" data-app="autostart" aria-label="Запускать вместе с Windows"><i></i></label></div>
-          <div class="setrow"><span>Обновлять площадки каждые, ч<small>NoFluffJobs, justjoin.it, Workable, Jobicy, DOU, Indeed, Himalayas</small></span><input type="number" data-app="refreshHours" min="1" max="48" step="1" aria-label="Часы между обновлениями"></div>
-          <div class="setrow"><span>LinkedIn раз в день<small>только новое, по одному запросу</small></span><label class="switch"><input type="checkbox" data-app="linkedinBackground" aria-label="LinkedIn раз в день"><i></i></label></div>
-          <div class="setrow"><span>Уведомлять о новых вакансиях</span><label class="switch"><input type="checkbox" data-app="notifyNew" aria-label="Уведомлять о новых вакансиях"><i></i></label></div>
-          <div class="setrow"><span>Не раньше, чем наберётся</span><input type="number" data-app="notifyMin" min="1" max="50" step="1" aria-label="Минимум вакансий для уведомления"></div>
-          <div class="setrow"><span>Тихие часы<small>с … до …</small></span><span style="display: flex; gap: 8px"><input type="time" data-app="quietFrom" aria-label="Тихие часы с"><input type="time" data-app="quietTo" aria-label="Тихие часы до"></span></div>
-          <div class="setrow"><span>Сводка за сутки<small>«За сутки появилось N новых вакансий»</small></span><span style="display: flex; align-items: center; gap: 10px"><input type="time" data-app="digestTime" aria-label="Время сводки"><label class="switch"><input type="checkbox" data-app="digest" aria-label="Сводка за сутки"><i></i></label></span></div>
-          <div class="setrow"><span>Порт<small>после смены сервер перезапустится</small></span><input type="number" data-app="port" min="1024" max="65535" aria-label="Порт"></div>
-          <div class="setrow"><span>Доступ с телефона в той же Wi-Fi<small>без пароля — только для доверенной сети</small></span><label class="switch"><input type="checkbox" data-app="lanAccess" aria-label="Доступ с телефона"><i></i></label></div>
-          <div class="foot"><button class="btn soft" type="button" id="app-test">Проверить уведомление</button><button class="btn soft" type="button" id="app-log">Открыть лог</button></div>
+          <h3>{{The Job Hunt app}}</h3>
+          <p class="warnbox" id="toastwarn" hidden>{{Windows notifications are off, so Job Hunt cannot show new postings.}} <button class="linkbtn" id="opennotif" type="button">{{Open notification settings}}</button></p>
+          <div class="setrow"><span>{{Start with Windows}}<small>{{straight to the tray, no window}}</small></span><label class="switch"><input type="checkbox" data-app="autostart" aria-label="{{Start with Windows}}"><i></i></label></div>
+          <div class="setrow"><span>{{Refresh the boards every, h}}<small>NoFluffJobs, justjoin.it, Workable, Jobicy, DOU, Indeed, Himalayas</small></span><input type="number" data-app="refreshHours" min="1" max="48" step="1" aria-label="{{Hours between refreshes}}"></div>
+          <div class="setrow"><span>{{LinkedIn once a day}}<small>{{only what is new, one query at a time}}</small></span><label class="switch"><input type="checkbox" data-app="linkedinBackground" aria-label="{{LinkedIn once a day}}"><i></i></label></div>
+          <div class="setrow"><span>{{Notify about new postings}}</span><label class="switch"><input type="checkbox" data-app="notifyNew" aria-label="{{Notify about new postings}}"><i></i></label></div>
+          <div class="setrow"><span>{{Not before there are at least}}</span><input type="number" data-app="notifyMin" min="1" max="50" step="1" aria-label="{{Fewest postings for a notification}}"></div>
+          <div class="setrow"><span>{{Quiet hours}}<small>{{from … to …}}</small></span><span style="display: flex; gap: 8px"><input type="time" data-app="quietFrom" aria-label="{{Quiet hours from}}"><input type="time" data-app="quietTo" aria-label="{{Quiet hours to}}"></span></div>
+          <div class="setrow"><span>{{Daily digest}}<small>{{“N new postings in the last 24 hours”}}</small></span><span style="display: flex; align-items: center; gap: 10px"><input type="time" data-app="digestTime" aria-label="{{Digest time}}"><label class="switch"><input type="checkbox" data-app="digest" aria-label="{{Daily digest}}"><i></i></label></span></div>
+          <div class="setrow"><span>{{Port}}<small>{{the server restarts after a change}}</small></span><input type="number" data-app="port" min="1024" max="65535" aria-label="{{Port}}"></div>
+          <div class="setrow"><span>{{Access from a phone on the same Wi-Fi}}<small>{{no password: for a trusted network only}}</small></span><label class="switch"><input type="checkbox" data-app="lanAccess" aria-label="{{Access from a phone}}"><i></i></label></div>
+          <div class="foot"><button class="btn soft" type="button" id="app-test">{{Test notification}}</button><button class="btn soft" type="button" id="app-log">{{Open the log}}</button></div>
         </section>
       </div>
     </div>
     <div class="foot">
-      <button class="btn main" type="button" id="settingssave">Сохранить</button>
-      <button class="btn soft" type="button" data-close>Закрыть</button>
+      <button class="btn main" type="button" id="settingssave">{{Save}}</button>
+      <button class="btn soft" type="button" data-close>{{Close}}</button>
       <span class="saved" id="settingssaved" role="status"></span>
     </div>
   </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="scrim jump" id="jump" hidden>
-  <div class="jumpbox" role="dialog" aria-modal="true" aria-label="Найти">
+  <div class="jumpbox" role="dialog" aria-modal="true" aria-label="{{Find}}">
     <label class="field">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
-      <span class="sr">Куда перейти</span>
-      <input type="search" id="jumpq" placeholder="Вакансия, компания или стопка" autocomplete="off" role="combobox" aria-controls="jumplist" aria-expanded="true">
+      <span class="sr">{{Where to go}}</span>
+      <input type="search" id="jumpq" placeholder="{{Posting, company or stack}}" autocomplete="off" role="combobox" aria-controls="jumplist" aria-expanded="true">
     </label>
-    <div class="jumplist" id="jumplist" role="listbox" aria-label="Куда перейти"></div>
-    <p class="jumphint"><span><b>#</b> стопки</span><span><b>@</b> компании и отклики</span></p>
+    <div class="jumplist" id="jumplist" role="listbox" aria-label="{{Where to go}}"></div>
+    <p class="jumphint"><span><b>#</b> {{stacks}}</span><span><b>@</b> {{companies and applications}}</span></p>
   </div>
 </div>
-<div class="ctx" id="ctx" role="menu" aria-label="Действия с вакансией" hidden></div>
-<div class="ctx" id="ctxsub" role="menu" aria-label="Почему скрыть" hidden></div>
+<div class="ctx" id="ctx" role="menu" aria-label="{{Posting actions}}" hidden></div>
+<div class="ctx" id="ctxsub" role="menu" aria-label="{{Why hide it}}" hidden></div>
 <div class="selpop" id="selpop" role="listbox" hidden></div>
 <div class="tip" id="tip" role="tooltip"></div>
 
 <script>
+// The language, and its catalog ({} in English, the source text): src/i18n.ts has the same t() and tn().
+const LANG = "__LANG__";
+const CATALOG = __CATALOG__;
+const LOCALE = LANG === "ru" ? "ru" : "en-GB";
+const fillIn = (text, vars) => (vars ? text.replace(/\{(\w+)\}/g, (whole, name) => (name in vars ? vars[name] : whole)) : text);
+function t(text, vars) {
+  return fillIn(typeof CATALOG[text] === "string" ? CATALOG[text] : text, vars);
+}
+function tn(n, one, other, vars) {
+  const forms = CATALOG[other];
+  return fillIn(Array.isArray(forms) ? forms[pluralForm(n)] : n === 1 ? one : other, { n, ...vars });
+}
+/** Which of Russian's three plural forms: 1, 2 and 5 take a different one. */
+function pluralForm(n) {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 0;
+  return mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20) ? 1 : 2;
+}
+const quote = (text) => (LANG === "ru" ? "«" + text + "»" : "“" + text + "”");
+const decimal = (value) => (LANG === "ru" ? String(value).replace(".", ",") : String(value));
+
 const STATUSES = __STATUSES__;
 // The boards this dashboard may query, straight from SEARCH_DEFAULTS.sources.
 const SOURCES = __SOURCES__;
 const FUNNEL_ORDER = ["applied", "responded", "screening", "interview", "offer", "rejected", "dropped", "ghosted"];
 const STATUS_WORD = {
-  applied: "ждём ответа", responded: "ответили", screening: "скрининг", interview: "собеседование",
-  offer: "оффер", rejected: "отказ", dropped: "отозвал", ghosted: "тишина",
+  applied: t("awaiting reply"), responded: t("replied"), screening: t("screening"), interview: t("interview"),
+  offer: t("offer"), rejected: t("rejected"), dropped: t("withdrawn"), ghosted: t("no reply"),
 };
 const SOURCE_NAME = {
-  nofluffjobs: "NoFluffJobs", justjoin: "justjoin.it", watchlist: "Компании", workable: "Workable", jobicy: "Jobicy", dou: "DOU", indeed: "Indeed",
+  nofluffjobs: "NoFluffJobs", justjoin: "justjoin.it", watchlist: t("Companies"), workable: "Workable", jobicy: "Jobicy", dou: "DOU", indeed: "Indeed",
   linkedin: "LinkedIn", himalayas: "Himalayas", hackernews: "HN: Who is hiring", remoteok: "RemoteOK", arbeitnow: "Arbeitnow",
 };
 // A board's host where its name is not in it, or where the name also stands for its ATS (apply.workable.com).
 const SOURCE_HOST = { hackernews: "news.ycombinator.com", workable: "jobs.workable.com", dou: "jobs.dou.ua" };
 // The selects' options, by their data-select; a row's status takes STATUSES instead.
 const SELECT_OPTIONS = {
-  jobsort: [["claude", "лучшие по Claude"], ["match", "лучшие по профилю"], ["newest", "новые сначала"], ["company", "компания А–Я"]],
+  jobsort: [["claude", t("best by Claude")], ["match", t("best by profile")], ["newest", t("newest first")], ["company", t("company A–Z")]],
   "cl-model": [["sonnet", "Sonnet"], ["opus", "Opus"]],
-  "cl-effort": [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"]],
-  "cl-rejudge": [["all", "все карточки"], ["active", "только Подходят и Проверить"], ["none", "ничего, только новые"]],
-  "pref-polish": [["A2", "A2"], ["B1", "B1"], ["B2", "B2"], ["C1", "C1 и выше"]],
-  "pref-memory": [["0", "всегда"], ["30", "30 дней"], ["60", "60 дней"], ["90", "90 дней"], ["180", "полгода"], ["365", "год"]],
+  "cl-effort": [["low", t("low")], ["medium", t("medium")], ["high", t("high")]],
+  "cl-rejudge": [["all", t("all cards")], ["active", t("only Good fit and Check")], ["none", t("nothing, new ones only")]],
+  "pref-polish": [["A2", "A2"], ["B1", "B1"], ["B2", "B2"], ["C1", t("C1 and above")]],
+  "pref-memory": [["0", t("always")], ["30", t("30 days")], ["60", t("60 days")], ["90", t("90 days")], ["180", t("half a year")], ["365", t("a year")]],
+  // Each language in its own words, whichever is on.
+  language: [["en", "English"], ["ru", "Русский"]],
 };
-const VERDICT_WORD = { apply: "Подходит", maybe: "Проверить", skip: "Не подходит" };
-const FACTOR_WORD = { format: "формат", level: "уровень", stack: "стек", role: "роль", language: "язык", poland: "не из Польши", citizenship: "гражданство", closed: "закрыта" };
-const STATE_WORD = { queued: "ждёт очереди", reading: "читает вакансию…", thinking: "думает…" };
-const WORKMODE_WORD = { remote: "удалённо", hybrid: "гибрид", onsite: "офис", office: "офис", unclear: "не ясно" };
-const LEVEL_WORD = { junior: "Junior", mid: "Mid", senior: "Senior", lead: "Lead / Staff", unclear: "не указан" };
-const POLAND_WORD = { yes: "да", no: "нет", unclear: "не ясно" };
+const VERDICT_WORD = { apply: t("Fits"), maybe: t("Check"), skip: t("Doesn't fit") };
+const FACTOR_WORD = { format: t("format"), level: t("level"), stack: t("stack"), role: t("role"), language: t("language"), poland: t("not from Poland"), citizenship: t("citizenship"), closed: t("closed") };
+const STATE_WORD = { queued: t("is waiting in the queue"), reading: t("is reading the posting…"), thinking: t("is thinking…") };
+const WORKMODE_WORD = { remote: t("remote"), hybrid: t("hybrid"), onsite: t("office"), office: t("office"), unclear: t("unclear") };
+const LEVEL_WORD = { junior: "Junior", mid: "Mid", senior: "Senior", lead: "Lead / Staff", unclear: t("not stated") };
+const POLAND_WORD = { yes: t("yes"), no: t("no"), unclear: t("unclear") };
 /*
- * One-click reasons for "скрыть". A reason teaches the screening rules: role
- * reasons hide reposts of that role, and "не интересна компания" — the same
+ * One-click reasons for "Hide". A reason teaches the screening rules: role
+ * reasons hide reposts of that role, and "company not of interest" — the same
  * string as COMPANY_REASON in src/screening.ts — hides the whole company.
- * "вакансия неактуальна" teaches nothing (DEAD_POSTING_REASONS there).
+ * "Posting out of date" teaches nothing (DEAD_POSTING_REASONS there). These
+ * are ids, stored as they are in either language; REASON_WORD says them.
  */
+const REASON_WORD = __REASON_WORDS__;
+const reasonWord = (reason) => REASON_WORD[reason] || reason;
 const HIDE_REASONS = ["не remote", "не тот стек", "уровень (mid/junior)", "не интересна компания",
   "зарплата ниже", "уже откликался в другом месте", "вакансия неактуальна"];
 // The stacks: what Claude said, then everything it did not take away.
 const STACKS = [
-  { id: "good", label: "Подходят", test: (job) => job.verdict && job.verdict.verdict === "apply" },
-  { id: "maybe", label: "Проверить", test: (job) => job.verdict && job.verdict.verdict === "maybe" },
-  { id: "all", label: "Все", test: (job) => !isClaudeSkip(job) },
+  { id: "good", label: t("Good fit"), test: (job) => job.verdict && job.verdict.verdict === "apply" },
+  { id: "maybe", label: t("Check"), test: (job) => job.verdict && job.verdict.verdict === "maybe" },
+  { id: "all", label: t("All"), test: (job) => !isClaudeSkip(job) },
   // Claude's skips that were close: the score keeps them apart from the obvious misses.
-  { id: "near", label: "Почти подошли", test: (job) => isClaudeSkip(job) && job.verdict.score >= NEAR_SCORE },
-  { id: "skipped", label: "Убрал Claude", test: (job) => isClaudeSkip(job) },
+  { id: "near", label: t("Near misses"), test: (job) => isClaudeSkip(job) && job.verdict.score >= NEAR_SCORE },
+  { id: "skipped", label: t("Skipped by Claude"), test: (job) => isClaudeSkip(job) },
 ];
 /*
  * A skip scored this or higher was close (scores of skips run 0–30). All six
@@ -1034,10 +1070,10 @@ let lastFocusHtml = "";
 let lastFocusKey = undefined;
 let lastDockHtml = "";
 let lastSideHtml = "";
-// The application open in Отклики' drawer, by id; null when it is closed.
+// The application open in the Applications drawer, by id; null when it is closed.
 let drawerId = null;
 let lastDrawerHtml = "";
-// The section Настройки show; the last one picked stays for the next opening.
+// The section Settings show; the last one picked stays for the next opening.
 let settingsSec = "claude";
 
 // Ctrl K and the right-click menu: open or not, and what they list.
@@ -1067,13 +1103,6 @@ function toast(message, isError) {
   el._t = setTimeout(() => { el.className = "toast"; }, 3200);
 }
 
-/** 1 отклик, 2 отклика, 5 откликов. */
-function plural(n, one, few, many) {
-  const mod10 = n % 10, mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
-  return many;
-}
 function ageInDays(iso) {
   if (!iso) return null;
   const t = Date.parse(iso);
@@ -1081,15 +1110,15 @@ function ageInDays(iso) {
 }
 function ageLabel(iso) {
   const days = ageInDays(iso);
-  if (days === null) return "без даты";
-  if (days === 0) return "сегодня";
-  if (days === 1) return "вчера";
-  return days + " дн. назад";
+  if (days === null) return t("no date");
+  if (days === 0) return t("today");
+  if (days === 1) return t("yesterday");
+  return t("{n} days ago", { n: days });
 }
 function shortDate(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
-  return isNaN(d) ? "—" : d.toLocaleDateString("ru", { day: "numeric", month: "short" });
+  return isNaN(d) ? "—" : d.toLocaleDateString(LOCALE, { day: "numeric", month: "short" });
 }
 /** "claude-sonnet-5-5" -> "Sonnet 5.5" */
 function modelName(model) {
@@ -1124,10 +1153,10 @@ async function copyContactLink(button) {
     await writeClipboard(button.dataset.url);
     button.classList.add("is-copied");
     clearTimeout(button._copyTimer);
-    // The button says it itself: a tick, and «… скопирован» under it for a moment.
+    // The button says it itself: a tick, and "… copied" under it for a moment.
     button._copyTimer = setTimeout(() => button.classList.remove("is-copied"), 1600);
   } catch {
-    toast("Не удалось скопировать ссылку " + label, true);
+    toast(t("Could not copy the {label} link", { label }), true);
   }
 }
 
@@ -1203,7 +1232,7 @@ function orderJobs(list) {
     out.sort((a, b) => String(a.company || "").localeCompare(String(b.company || "")));
   } else if (jobSort === "claude") {
     // Verdict, then score. Most cards share a score with another (39 of 48 in
-    // «Подходят» and «Проверить» on 2026-10-24), and the profile rank that
+    // "Good fit" and "Check" on 2026-10-24), and the profile rank that
     // broke those ties has nothing to do with Claude's read. So: a verdict made
     // under the current criteria before an old one, fewer things Claude could
     // not tell (Poland, work mode, level) first, then the newer posting.
@@ -1264,7 +1293,7 @@ function renderSearch() {
     + '" data-stack="' + s.id + '" aria-pressed="' + (s.id === stack) + '">' + esc(s.label)
     + ' <span class="n">' + counts[s.id] + "</span></button>").join("");
   $("searchcount").textContent = searchLoaded ? String(counts.all) : "";
-  setTabTip("search", "Поиск" + (searchLoaded ? " · " + counts.all : ""));
+  setTabTip("search", t("Search") + (searchLoaded ? " · " + counts.all : ""));
 
   const jobs = stackJobs(stack);
   const job = currentJob(jobs);
@@ -1310,7 +1339,7 @@ function renderSearch() {
 }
 
 /*
- * The strip: by Claude's order, «Подходит» first, then a short rule, then the
+ * The strip: by Claude's order, "Fits" first, then a short rule, then the
  * rest — the line between them is seen without reading a number.
  */
 function queueHtml(jobs, current) {
@@ -1325,7 +1354,7 @@ function queueHtml(jobs, current) {
   return html;
 }
 
-const DECIDED_WORD = { funnel: "в воронке", hidden: "скрыто", restored: "возвращено" };
+const DECIDED_WORD = { funnel: t("in funnel"), hidden: t("hidden"), restored: t("restored") };
 
 /*
  * A tile in the strip: Claude's score, in the verdict's colour. The title is
@@ -1336,7 +1365,7 @@ function queueItem(job, current) {
   const v = job.verdict;
   const on = Boolean(current && job.key === current.key);
   const status = decided.get(job.key);
-  const said = v ? VERDICT_WORD[v.verdict] + ", " + v.score : "без оценки";
+  const said = v ? VERDICT_WORD[v.verdict] + ", " + v.score : t("no verdict");
   const name = job.title + " — " + (job.company || "") + ", " + said + (status ? ", " + (DECIDED_WORD[status] || status) : "");
   return '<button type="button" class="q' + (on ? " is-on" : "") + (status ? " is-done" : "")
     + '" data-key="' + esc(job.key) + '"' + (on ? ' aria-current="true"' : "")
@@ -1397,49 +1426,52 @@ function facts(job) {
     ? [job.payMonthly.min, job.payMonthly.max].filter((n) => n !== null && n !== undefined)
       .map((n) => (n / 1000).toFixed(1).replace(/\.0$/, "")).filter((n, i, all) => all.indexOf(n) === i).join("–")
     : "";
-  const salary = (job.salary ? job.salary + (monthly ? " · ≈ " + monthly + "k PLN/мес B2B" : "") : v.salary) || "не указана";
+  const salary = (job.salary ? job.salary + (monthly ? " · " + t("≈ {k}k PLN/mo B2B", { k: monthly }) : "") : v.salary) || t("none stated");
   // The word first and Claude's quote under it: a quote alone ("remote-first environment") read as no answer.
   const mode = WORKMODE_WORD[v.workMode] || WORKMODE_WORD[job.workMode]
-    || (signals.mode === "onsite" ? "офис" : signals.mode === "hybrid" ? "офис N дней" : "не ясно");
-  const quote = v.workModeQuote ? "«" + v.workModeQuote + "»" : "";
-  const level = LEVEL_WORD[v.seniority] || job.seniorityLevel || "не указан";
+    || (signals.mode === "onsite" ? t("office") : signals.mode === "hybrid" ? t("office N days") : t("unclear"));
+  const said = v.workModeQuote ? quote(v.workModeQuote) : "";
+  const level = LEVEL_WORD[v.seniority] || job.seniorityLevel || t("not stated");
   const poland = POLAND_WORD[v.canWorkFromPoland]
-    || (job.eligibility && job.eligibility.level === "high" ? "да" : "проверить");
+    || (job.eligibility && job.eligibility.level === "high" ? t("yes") : t("check"));
   return [
-    ["Вилка", salary, job.belowSalaryFloor ? "low" : job.payState === "midlow" ? "midlow" : ""],
-    ["Формат", mode, "", quote],
-    ["Уровень", level, ""],
-    ["Из Польши", poland, ""],
+    [t("Pay range"), salary, job.belowSalaryFloor ? "low" : job.payState === "midlow" ? "midlow" : ""],
+    [t("Format"), mode, "", said],
+    [t("Level"), level, ""],
+    [t("From Poland"), poland, ""],
   ];
 }
 
+/** How the server's flag about earlier applications here starts: it goes to the right column, not on the card. */
+const APPLIED_HERE = t("applied here");
+
 function notesHtml(job) {
   const notes = [];
-  if (job.dismissed) notes.push(["plain", "Вы скрыли эту вакансию" ]);
-  if (isTracked(job)) notes.push(["plain", "Вы уже откликнулись на неё"]);
+  if (job.dismissed) notes.push(["plain", t("You hid this posting")]);
+  if (isTracked(job)) notes.push(["plain", t("You already applied to it")]);
   if (isRuleHidden(job)) {
-    notes.push(["plain", "Правило скрининга: " + job.screen.reason,
-      ' <button type="button" class="linkbtn" data-act="rule-wrong">правило ошиблось</button>']);
+    notes.push(["plain", t("Screening rule: {reason}", { reason: job.screen.reason }),
+      ' <button type="button" class="linkbtn" data-act="rule-wrong">' + t("rule was wrong") + "</button>"]);
   }
   // An earlier application at the company is said in the right column, with the rest of its history.
-  for (const flag of (job.screen && job.screen.flags) || []) if (!/^откликался/.test(flag)) notes.push(["", flag]);
+  for (const flag of (job.screen && job.screen.flags) || []) if (!flag.startsWith(APPLIED_HERE)) notes.push(["", flag]);
   if (job.verdict && job.verdict.softened) {
-    notes.push(["", "Claude убрал бы её (" + job.verdict.softened.map((kind) => FACTOR_WORD[kind] || kind).join(", ")
-      + ") — показана в «Проверить» по твоей настройке"]);
+    notes.push(["", t("Claude would skip it ({factors}); shown in “Check” by your setting",
+      { factors: job.verdict.softened.map((kind) => FACTOR_WORD[kind] || kind).join(", ") })]);
   }
   const signals = job.signals || {};
-  if (signals.mode) notes.push(["", (signals.mode === "onsite" ? "В тексте — работа в офисе" : "В тексте — дни в офисе")
-    + (signals.context ? ": «" + signals.context + "»" : "")]);
-  if (signals.polishRequired) notes.push(["", "В тексте просят свободный польский"]);
-  if (job.repostedAt) notes.push(["plain", "Площадка перевыложила её " + shortDate(job.repostedAt) + "; возраст — с первого появления"]);
+  if (signals.mode) notes.push(["", (signals.mode === "onsite" ? t("The text says office work") : t("The text says office days"))
+    + (signals.context ? ": " + quote(signals.context) : "")]);
+  if (signals.polishRequired) notes.push(["", t("The text asks for fluent Polish")]);
+  if (job.repostedAt) notes.push(["plain", t("The board reposted it on {date}; the age counts from its first appearance", { date: shortDate(job.repostedAt) })]);
   return notes.map(([kind, text, button]) => '<p class="note ' + kind + '">' + esc(text) + (button || "") + "</p>").join("");
 }
 
 /*
  * Claude's read, inside the card and kept quiet: the score's tile, one line
  * with the verdict, who and when, the summary, then what fits and what not.
- * The «Верно / Мимо» marks went on 2026-10-27; the ones made stay labels for
- * Настройки → Claude → «Сверка с эталоном».
+ * The "Right / Wrong" marks went on 2026-10-27; the ones made stay labels for
+ * Settings → Claude → "Check against known answers".
  */
 function claudeHtml(job) {
   const v = job.verdict;
@@ -1452,23 +1484,23 @@ function claudeHtml(job) {
         + '<span style="width: 74%"></span><span style="width: 51%"></span></div></div></div></section>';
     }
     return '<section class="claude" aria-label="Claude"><div class="head">' + scoreTile(job) + "<div>"
-      + '<p class="say">' + (failure ? "Не получилось: " + esc(failure) : "Claude ещё не смотрел эту вакансию.") + "</p>"
+      + '<p class="say">' + (failure ? esc(t("Did not work: {error}", { error: failure })) : t("Claude has not looked at this posting yet.")) + "</p>"
       + '<div class="by"><button type="button" class="linkbtn" data-act="ask">'
-      + (failure ? "Попробовать ещё раз" : "Спросить Claude — секунд 10") + "</button></div></div></div></section>";
+      + (failure ? t("Try again") : t("Ask Claude: about 10 seconds")) + "</button></div></div></div></section>";
   }
   const queueTakes = claudeStatus.auto && !job.dismissed && !isTracked(job) && !isRuleHidden(job) && !failure;
   const lists = v.matches.length || v.concerns.length
-    ? '<div class="why"><ul aria-label="Что совпадает">'
+    ? '<div class="why"><ul aria-label="' + esc(t("What matches")) + '">'
       + v.matches.map((t) => '<li class="ok"><b aria-hidden="true">+</b><span>' + esc(t) + "</span></li>").join("")
-      + '</ul><ul aria-label="Что смущает">'
+      + '</ul><ul aria-label="' + esc(t("What is off")) + '">'
       + v.concerns.map((t) => '<li class="hm"><b aria-hidden="true">–</b><span>' + esc(t) + "</span></li>").join("") + "</ul></div>"
     : "";
   return '<section class="claude" aria-label="Claude"><div class="head">' + scoreTile(job) + "<div>"
     + '<div class="by"><span class="v ' + esc(v.verdict) + '">' + esc(VERDICT_WORD[v.verdict]) + "</span>"
     + "<span>Claude · " + esc(modelName(v.model)) + " · " + esc(ageLabel(v.at)) + "</span>"
-    + (v.stale ? "<span>" + (queueTakes ? "по старым критериям, пересчитаю" : "по старым критериям") + "</span>" : "")
-    + (failure && !state ? '<span style="color: var(--bad)">не удалось пересчитать: ' + esc(failure) + "</span>" : "")
-    + (state ? "<span>пересчитываю…</span>" : '<button type="button" class="linkbtn quiet" data-act="ask">спросить заново</button>')
+    + (v.stale ? "<span>" + (queueTakes ? t("under old criteria, will redo") : t("under old criteria")) + "</span>" : "")
+    + (failure && !state ? '<span style="color: var(--bad)">' + esc(t("could not redo: {error}", { error: failure })) + "</span>" : "")
+    + (state ? "<span>" + t("redoing…") + "</span>" : '<button type="button" class="linkbtn quiet" data-act="ask">' + t("ask again") + "</button>")
     + '</div><p class="say">' + esc(v.summary) + "</p></div></div>" + lists + "</section>";
 }
 
@@ -1482,15 +1514,15 @@ function cardHtml(job) {
     ? '<span class="chip ' + esc(v.verdict) + (v.stale ? " is-stale" : "") + '"><span class="dot ' + esc(v.verdict) + '"></span>'
       + esc(VERDICT_WORD[v.verdict]) + " · " + v.score + "</span>"
     : '<span class="chip wait"><span class="dot' + (state ? " busy" : "") + '"></span>'
-      + (state ? "Claude " + esc(STATE_WORD[state]) : "Без оценки") + "</span>";
-  const where = job.location || (job.eligibility && job.eligibility.level === "high" ? "удалённо" : "место не указано");
+      + (state ? "Claude " + esc(STATE_WORD[state]) : t("No verdict")) + "</span>";
+  const where = job.location || (job.eligibility && job.eligibility.level === "high" ? t("remote") : t("place not stated"));
   const tags = (v && v.mainStack && v.mainStack.length ? v.mainStack : job.tags || []).slice(0, 8);
   const deal = v ? v.dealbreakers || [] : [];
   return '<article class="card">'
     + '<div class="cardtop">' + chip
     + "<span>" + esc(ageLabel(job.postedAt)) + '</span><span aria-hidden="true">·</span><span>' + esc(SOURCE_NAME[job.source] || job.source) + "</span>"
-    + (isNewJob(job) ? '<span class="newtag">новая</span>' : "")
-    + '<a class="out" href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener">Открыть на площадке ' + ARROW_OUT + "</a></div>"
+    + (isNewJob(job) ? '<span class="newtag">' + t("new") + "</span>" : "")
+    + '<a class="out" href="' + esc(job.applyUrl) + '" target="_blank" rel="noreferrer noopener">' + t("Open on the board") + " " + ARROW_OUT + "</a></div>"
     + "<div><h1>" + esc(job.title) + '</h1><p class="co">' + esc(job.company) + " · " + esc(where) + "</p></div>"
     + notesHtml(job)
     + '<div class="facts">' + facts(job).map(([k, value, cls, sub]) => '<div class="fact"><span class="k">' + esc(k)
@@ -1504,21 +1536,21 @@ function cardHtml(job) {
 }
 
 /*
- * The dock floats over the card's foot: Скрыть · В воронку · Обсудить · Подать,
- * in three tiers: Скрыть is the quietest, the middle two tinted, Подать solid.
- * «Потом» went on 2026-10-27 — unused; ↓ does the same without marking anything.
+ * The dock floats over the card's foot: Hide · Add to funnel · Discuss · Apply,
+ * in three tiers: Hide is the quietest, the middle two tinted, Apply solid.
+ * "Later" went on 2026-10-27 — unused; ↓ does the same without marking anything.
  */
 function dockHtml(job) {
   const v = job.verdict;
   const tracked = isTracked(job);
   return (hideOpen && !job.dismissed ? hideMenuHtml(job) : "")
     + (job.dismissed
-      ? '<button type="button" class="btn" data-act="restore">Вернуть</button>'
-      : '<button type="button" class="btn quiet" data-act="hide" aria-expanded="' + hideOpen + '">Скрыть</button>')
-    + '<button type="button" class="btn tint" data-act="funnel"' + (tracked ? " disabled" : "") + ">" + (tracked ? "✓ В воронке" : "В воронку") + "</button>"
-    + '<button type="button" class="btn tint" data-act="discuss"' + (v && v.session ? "" : ' disabled title="у вакансии ещё нет разговора с Claude"')
-    + ">Обсудить</button>"
-    + '<button type="button" class="btn main" data-act="apply"' + (tracked ? " disabled" : "") + ">Подать</button>";
+      ? '<button type="button" class="btn" data-act="restore">' + t("Restore") + "</button>"
+      : '<button type="button" class="btn quiet" data-act="hide" aria-expanded="' + hideOpen + '">' + t("Hide") + "</button>")
+    + '<button type="button" class="btn tint" data-act="funnel"' + (tracked ? " disabled" : "") + ">" + (tracked ? t("✓ In funnel") : t("Add to funnel")) + "</button>"
+    + '<button type="button" class="btn tint" data-act="discuss"' + (v && v.session ? "" : ' disabled title="' + esc(t("the posting has no conversation with Claude yet")) + '"')
+    + ">" + t("Discuss") + "</button>"
+    + '<button type="button" class="btn main" data-act="apply"' + (tracked ? " disabled" : "") + ">" + t("Apply") + "</button>";
 }
 
 /* ---------------- search: the right column, what is known around the posting ---------------- */
@@ -1536,13 +1568,13 @@ function sameCompany(a, b) {
 function boardOfKey(key) {
   const host = String(key || "").split("/")[0].replace(/^www\./, "");
   const source = Object.keys(SOURCE_NAME).find((name) => SOURCE_HOST[name] ? host === SOURCE_HOST[name] : host.includes(name));
-  return source ? SOURCE_NAME[source] : "сайт компании (" + host + ")";
+  return source ? SOURCE_NAME[source] : t("company site ({host})", { host });
 }
 
 /** My applications to the company, and its other postings in the feed. */
 function companyBox(job) {
   const apps = applications.filter((a) => sameCompany(a.company, job.company));
-  const flag = ((job.screen && job.screen.flags) || []).find((f) => /^откликался/.test(f));
+  const flag = ((job.screen && job.screen.flags) || []).find((f) => f.startsWith(APPLIED_HERE));
   const others = (lastSearchPayload.jobs || []).filter((j) => j.key !== job.key && !j.dismissed && !isRuleHidden(j)
     && sameCompany(j.company, job.company));
   const shown = orderJobs(others).slice(0, 3);
@@ -1550,21 +1582,21 @@ function companyBox(job) {
   if (apps.length) {
     history = "<ul>" + apps.slice(0, 3).map((a) => "<li><span>" + esc(a.title) + "</span><small>"
       + esc((STATUS_WORD[a.status] || a.status) + ", " + shortDate(a.applied_at)) + "</small></li>").join("") + "</ul>"
-      + (apps.length > 3 ? '<p class="small">и ещё ' + (apps.length - 3) + "</p>" : "");
+      + (apps.length > 3 ? '<p class="small">' + t("and {n} more", { n: apps.length - 3 }) + "</p>" : "");
   } else if (flag) {
     // The server also matched it through a copy on another board.
-    history = "<p>" + esc(flag.replace(/^откликался/, "Откликался")) + "</p>";
+    history = "<p>" + esc(flag.charAt(0).toUpperCase() + flag.slice(1)) + "</p>";
   } else {
-    history = "<p>Откликов сюда не было.</p>";
+    history = "<p>" + t("No applications here.") + "</p>";
   }
-  return '<section class="box"><span class="k">История с компанией</span><span class="name">' + esc(job.company || "?") + "</span>"
+  return '<section class="box"><span class="k">' + t("History with the company") + '</span><span class="name">' + esc(job.company || "?") + "</span>"
     + history
     + (shown.length
-      ? '<p class="small">Ещё в ленте:</p>' + shown.map((j) => '<button type="button" class="pick" data-pick="' + esc(j.key) + '">'
+      ? '<p class="small">' + t("Also in the feed:") + "</p>" + shown.map((j) => '<button type="button" class="pick" data-pick="' + esc(j.key) + '">'
         + scoreTile(j) + "<span>" + esc(j.title) + "</span></button>").join("")
         + (others.length > shown.length
-          ? '<button type="button" class="linkbtn" data-company="' + esc(job.company) + '">Все ' + others.length + " "
-            + plural(others.length, "вакансия", "вакансии", "вакансий") + " компании</button>"
+          ? '<button type="button" class="linkbtn" data-company="' + esc(job.company) + '">'
+            + tn(others.length, "The company's {n} posting", "All {n} postings of the company") + "</button>"
           : "")
       : "")
     + "</section>";
@@ -1574,19 +1606,19 @@ function companyBox(job) {
 function copiesBox(job) {
   const own = SOURCE_NAME[job.source] || job.source;
   const boards = [...new Set((job.aliases || []).map(boardOfKey))].filter((board) => board !== own);
-  return '<section class="box"><span class="k">Копии на площадках</span>'
+  return '<section class="box"><span class="k">' + t("Copies on boards") + "</span>"
     + (boards.length
-      ? "<ul>" + boards.map((board) => "<li><span>" + esc(board) + "</span><small>свёрнута сюда</small></li>").join("") + "</ul>"
-        + '<p class="small">Отклик или скрытие здесь считаются и за копии.</p>'
-      : "<p>Только на " + esc(own) + ".</p>")
+      ? "<ul>" + boards.map((board) => "<li><span>" + esc(board) + "</span><small>" + t("folded into this") + "</small></li>").join("") + "</ul>"
+        + '<p class="small">' + t("An application or a hide here counts for the copies too.") + "</p>"
+      : "<p>" + esc(t("Only on {board}.", { board: own })) + "</p>")
     + "</section>";
 }
 
 function rulesBox(job) {
   const fit = typeof job.fit === "number" ? (job.fit >= 0 ? "+" : "") + job.fit : "";
-  return '<section class="box"><span class="k">Правила</span><p>'
-    + (isRuleHidden(job) ? "Правило прячет её: " + esc(job.screen.reason) + "." : job.dismissed ? "Ты её скрыл." : "Карточку не прятали.")
-    + (fit ? " Фильтр по стеку: " + esc(fit) + "." : "")
+  return '<section class="box"><span class="k">' + t("Rules") + "</span><p>"
+    + (isRuleHidden(job) ? esc(t("A rule hides it: {reason}.", { reason: job.screen.reason })) : job.dismissed ? t("You hid it.") : t("The card was not hidden."))
+    + (fit ? " " + esc(t("Stack filter: {fit}.", { fit })) : "")
     + "</p></section>";
 }
 
@@ -1602,10 +1634,10 @@ function hideReasons(job) {
 
 function hideMenuHtml(job) {
   const { suggested, reasons } = hideReasons(job);
-  return '<div class="reasons" role="group" aria-label="Почему скрыть">'
+  return '<div class="reasons" role="group" aria-label="' + esc(t("Why hide it")) + '">'
     + reasons.map((r) => '<button type="button" class="reason' + (r === suggested ? " claude-pick" : "") + '" data-act="reason" data-reason="'
-      + esc(r) + '">' + (r === suggested ? "Claude предлагает: " : "") + esc(r) + "</button>").join("")
-    + '<button type="button" class="reason" data-act="reason" data-reason="">Просто скрыть</button></div>';
+      + esc(r) + '">' + esc(r === suggested ? t("Claude suggests: {reason}", { reason: reasonWord(r) }) : reasonWord(r)) + "</button>").join("")
+    + '<button type="button" class="reason" data-act="reason" data-reason="">' + t("Just hide") + "</button></div>";
 }
 
 /** No card to show: the stack is done, or there is nothing in it yet. */
@@ -1613,25 +1645,25 @@ function emptyHtml(jobs, counts) {
   const nextStack = stack === "good" ? "maybe" : stack === "maybe" ? "all" : stack === "all" ? "near" : null;
   const next = nextStack ? STACKS.find((s) => s.id === nextStack) : null;
   const nextBtn = next && counts[next.id]
-    ? '<button type="button" class="btn main" data-stack-go="' + next.id + '">Дальше — «' + esc(next.label) + "» · " + counts[next.id] + "</button>"
+    ? '<button type="button" class="btn main" data-stack-go="' + next.id + '">' + esc(t("Next: {stack} · {n}", { stack: quote(next.label), n: counts[next.id] })) + "</button>"
     : "";
   if (!searchLoaded) {
-    return '<section class="card empty"><span class="big soft" aria-hidden="true">…</span><h1>Загружаю вакансии</h1></section>';
+    return '<section class="card empty"><span class="big soft" aria-hidden="true">…</span><h1>' + t("Loading postings") + "</h1></section>";
   }
   if (jobs.length > 0) {
     const tally = (kind) => jobs.filter((j) => decided.get(j.key) === kind).length;
     return '<section class="card empty"><span class="big" aria-hidden="true">'
       + '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></span>'
-      + "<h1>Эта стопка разобрана</h1><p>В воронке: " + tally("funnel") + " · скрыто: " + tally("hidden") + "</p>"
+      + "<h1>" + t("This stack is done") + "</h1><p>" + t("In funnel: {funnel} · hidden: {hidden}", { funnel: tally("funnel"), hidden: tally("hidden") }) + "</p>"
       + '<div class="row">' + nextBtn + "</div></section>";
   }
   const why = claudeBusy() && (stack === "good" || stack === "maybe")
-    ? "Claude ещё оценивает вакансии — " + ((claudeStatus.queued || []).length + (claudeStatus.running || []).length)
-      + " в работе. Подходящие появятся здесь."
-    : "Здесь пусто" + (jobQuery || maxAgeDays !== 30 ? " — может, мешают фильтры." : ".");
+    ? t("Claude is still judging postings: {n} in progress. The ones that fit will show here.",
+      { n: (claudeStatus.queued || []).length + (claudeStatus.running || []).length })
+    : jobQuery || maxAgeDays !== 30 ? t("Nothing here; the filters may be in the way.") : t("Nothing here.");
   return '<section class="card empty"><span class="big soft" aria-hidden="true">'
     + '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span>'
-    + "<h1>Ничего нет</h1><p>" + esc(why) + '</p><div class="row">' + nextBtn + "</div></section>";
+    + "<h1>" + t("Nothing to show") + "</h1><p>" + esc(why) + '</p><div class="row">' + nextBtn + "</div></section>";
 }
 
 /** Claude's line next to the stack: what the verdict queue is doing. */
@@ -1639,10 +1671,12 @@ function renderClaudeLine() {
   const running = (claudeStatus.running || []).length;
   const queued = (claudeStatus.queued || []).length;
   $("claudeline").textContent = claudeStatus.pausedUntil
-    ? (claudeStatus.pauseReason || "Claude на паузе") + (running || queued ? " · в очереди " + (running + queued) : "")
-    : running || queued
-      ? "Claude оценивает " + running + (queued ? ", ждут " + queued : "")
-      : "";
+    ? (claudeStatus.pauseReason || t("Claude is paused")) + (running || queued ? " · " + t("in the queue: {n}", { n: running + queued }) : "")
+    : queued
+      ? t("Claude is judging {running}, {queued} waiting", { running, queued })
+      : running
+        ? t("Claude is judging {running}", { running })
+        : "";
 }
 
 /* ---------------- search: acting on the card ---------------- */
@@ -1661,7 +1695,7 @@ async function act(name, arg) {
   } else if (name === "funnel") {
     await addToFunnel(job);
   } else if (name === "apply") {
-    // In the click, so no popup blocker stands in the way. I apply on the page; «В воронку» records it.
+    // In the click, so no popup blocker stands in the way. I apply on the page; "Add to funnel" records it.
     window.open(job.applyUrl, "_blank", "noopener");
   } else if (name === "discuss") {
     await discussInClaude(job);
@@ -1673,9 +1707,9 @@ async function act(name, arg) {
 }
 
 /*
- * «Правило ошиблось»: no hiding rule applies to this card any more (the
+ * "Rule was wrong": no hiding rule applies to this card any more (the
  * server keeps it in rule_overrides); it goes to the stacks and to Claude.
- * Настройки → Правила lists such cards and gives one back to the rules.
+ * Settings → Rules lists such cards and gives one back to the rules.
  */
 async function ruleWrong(job) {
   try {
@@ -1684,11 +1718,11 @@ async function ruleWrong(job) {
     if (!response.ok) throw new Error(payload.error || response.statusText);
     job.screen = payload.screen
       || { bucket: job.eligibility && job.eligibility.level === "high" ? "apply" : "check", reason: "", flags: job.screen.flags || [] };
-    toast("Правило больше не прячет " + job.company + ": карточка в стопках");
+    toast(t("The rule no longer hides {company}: the card is in the stacks", { company: job.company }));
     renderSearch();
     pollVerdicts();
   } catch (error) {
-    toast("Не сохранилось: " + error.message, true);
+    toast(t("Not saved: {error}", { error: error.message }), true);
   }
 }
 
@@ -1722,10 +1756,10 @@ async function dismiss(job, reason) {
     if (!response.ok) throw new Error(payload.error || response.statusText);
     job.dismissed = true;
     decided.set(job.key, "hidden");
-    toast(job.company + " скрыта" + (reason ? ": " + reason : ""));
+    toast(reason ? t("{company} hidden: {reason}", { company: job.company, reason: reasonWord(reason) }) : t("{company} hidden", { company: job.company }));
     advance();
   } catch (error) {
-    toast("Не скрылось: " + error.message, true);
+    toast(t("Could not hide: {error}", { error: error.message }), true);
   }
 }
 
@@ -1735,10 +1769,10 @@ async function restore(job) {
     if (!response.ok) throw new Error(payload.error || response.statusText);
     job.dismissed = false;
     decided.set(job.key, "restored");
-    toast(job.company + " возвращена");
+    toast(t("{company} restored", { company: job.company }));
     renderSearch();
   } catch (error) {
-    toast("Не вернулась: " + error.message, true);
+    toast(t("Did not come back: {error}", { error: error.message }), true);
   }
 }
 
@@ -1751,16 +1785,16 @@ async function addToFunnel(job) {
     if (!response.ok) throw new Error(payload.error || response.statusText);
     trackedUrls.add(job.key);
     decided.set(job.key, "funnel");
-    toast(payload.result === "already_tracked" ? job.company + " уже в воронке" : job.company + ": записал в воронку");
+    toast(payload.result === "already_tracked" ? t("{company} is already in the funnel", { company: job.company }) : t("{company}: added to the funnel", { company: job.company }));
     advance();
     await load();
   } catch (error) {
-    toast("Не записалось: " + error.message, true);
+    toast(t("Could not add: {error}", { error: error.message }), true);
   }
 }
 
 /*
- * "Спросить Claude" / "спросить заново": the server reads the posting and runs
+ * "Ask Claude" / "ask again": the server reads the posting and runs
  * claude -p on it (src/verdict.ts), ~10–20 s; the verdict lands through pollVerdicts.
  */
 async function askClaude(job) {
@@ -1771,22 +1805,22 @@ async function askClaude(job) {
     renderSearch();
     pollVerdicts();
   } catch (error) {
-    toast("Claude не запустился: " + error.message, true);
+    toast(t("Claude did not start: {error}", { error: error.message }), true);
   }
 }
 
 /** The verdict's own session, opened in Claude Desktop: the posting and the verdict are already in it. */
 async function discussInClaude(job) {
   if (!job.verdict || !job.verdict.session) {
-    toast("У этой вакансии ещё нет разговора с Claude", true);
+    toast(t("This posting has no conversation with Claude yet"), true);
     return;
   }
   try {
     const { response, payload } = await postJson("/api/verdict/open", { key: job.key });
     if (!response.ok) throw new Error(payload.error || response.statusText);
-    toast(payload.opened === "desktop" ? "Открываю разговор в Claude Desktop…" : "Открываю Claude в терминале…");
+    toast(payload.opened === "desktop" ? t("Opening the conversation in Claude Desktop…") : t("Opening Claude in a terminal…"));
   } catch (error) {
-    toast("Не открылось: " + error.message, true);
+    toast(t("Could not open: {error}", { error: error.message }), true);
   }
 }
 
@@ -1869,7 +1903,7 @@ async function runSearch(refresh, quiet) {
     }
   } catch (error) {
     if (seq !== searchSeq || quiet) return;
-    toast("Поиск не удался: " + error.message, true);
+    toast(t("Search failed: {error}", { error: error.message }), true);
   } finally {
     if (seq === searchSeq && !quiet) stopSearchProgress();
   }
@@ -1887,18 +1921,18 @@ function stopSearchProgress() {
   $("searchbtn").classList.remove("is-spinning");
 }
 
-/** "2 ч назад" on the refresh button, with every board's age in its tooltip. */
+/** "2 h ago" on the refresh button, with every board's age in its tooltip. */
 function showFreshness(freshness) {
   if (!freshness || !freshness.sources) return;
   const entries = Object.entries(freshness.sources);
   const latest = entries.map(([, state]) => Date.parse(state.lastSuccessAt || 0) || 0).reduce((a, b) => Math.max(a, b), 0);
   const hours = latest ? Math.floor((Date.now() - latest) / 3600000) : null;
-  $("freshness").textContent = freshness.refreshing ? "обновляю…"
-    : hours === null ? "" : hours < 1 ? "только что" : hours < 48 ? hours + " ч назад" : Math.floor(hours / 24) + " дн. назад";
-  $("searchbtn").title = "Обновить площадки. " + entries.map(([source, state]) => {
-    if (!state.lastSuccessAt) return (SOURCE_NAME[source] || source) + ": " + (state.lastError ? "ошибка" : "ещё не загружен");
+  $("freshness").textContent = freshness.refreshing ? t("refreshing…")
+    : hours === null ? "" : hours < 1 ? t("just now") : hours < 48 ? t("{n} h ago", { n: hours }) : t("{n} days ago", { n: Math.floor(hours / 24) });
+  $("searchbtn").title = t("Refresh the boards") + ". " + entries.map(([source, state]) => {
+    if (!state.lastSuccessAt) return (SOURCE_NAME[source] || source) + ": " + (state.lastError ? t("error") : t("not loaded yet"));
     const h = Math.floor((Date.now() - Date.parse(state.lastSuccessAt)) / 3600000);
-    return (SOURCE_NAME[source] || source) + ": " + (h < 1 ? "<1 ч" : h + " ч") + (state.lastError ? " (последняя попытка — ошибка)" : "");
+    return (SOURCE_NAME[source] || source) + ": " + (h < 1 ? t("<1 h") : t("{n} h", { n: h })) + (state.lastError ? " (" + t("last attempt failed") + ")" : "");
   }).join(", ");
 }
 
@@ -1908,13 +1942,13 @@ function renderSourceFilter() {
     + esc(source) + '"' + (activeSources.has(source) ? " checked" : "") + '><i aria-hidden="true"></i>' + esc(SOURCE_NAME[source] || source) + "</label>").join("");
 }
 
-/* ---------------- "нужно вам" ---------------- */
+/* ---------------- "needs you" ---------------- */
 
 const ATTEMPT_LABEL = {
-  "needs-code": "код из письма", "captcha": "капча", "needs-account": "нужен аккаунт",
-  "missing-answers": "нет ответа на вопрос", "submit-failed": "отправка не прошла",
-  "no-form": "форма не найдена", "no-submit-button": "нет кнопки отправки", "not-remote": "не удалённо",
-  "board-form": "только через площадку", "closed": "вакансия закрыта", "dry-run": "полей для заполнения нет",
+  "needs-code": t("code from an email"), "captcha": t("captcha"), "needs-account": t("account needed"),
+  "missing-answers": t("a question has no answer"), "submit-failed": t("sending failed"),
+  "no-form": t("form not found"), "no-submit-button": t("no submit button"), "not-remote": t("not a remote role"),
+  "board-form": t("through the board only"), "closed": t("posting closed"), "dry-run": t("no fields to fill"),
 };
 
 function renderAttempts(attempts) {
@@ -1922,13 +1956,12 @@ function renderAttempts(attempts) {
   box.hidden = attempts.length === 0;
   if (attempts.length === 0) return;
   const open = box.open;
-  box.innerHTML = "<summary>Нужно вам: " + attempts.length + " " + plural(attempts.length, "отклик ждёт", "отклика ждут", "откликов ждут")
-    + " ваших действий</summary><ul>"
+  box.innerHTML = "<summary>" + tn(attempts.length, "Needs you: {n} application is waiting for you", "Needs you: {n} applications are waiting for you") + "</summary><ul>"
     + attempts.map((a) => "<li><b>" + esc(a.company || "?") + "</b> — " + esc(a.title || "?")
       + " · " + esc(ATTEMPT_LABEL[a.result] || a.result)
-      + (a.tries > 1 ? " · попыток: " + a.tries : "")
+      + (a.tries > 1 ? " · " + t("tries: {n}", { n: a.tries }) : "")
       + (a.detail ? " · " + esc(a.detail) : "")
-      + ' · <a href="' + esc(a.apply_url || a.url) + '" target="_blank" rel="noreferrer noopener">открыть форму</a></li>').join("")
+      + ' · <a href="' + esc(a.apply_url || a.url) + '" target="_blank" rel="noreferrer noopener">' + t("open the form") + "</a></li>").join("")
     + "</ul>";
   box.open = open;
 }
@@ -1943,32 +1976,31 @@ function renderStats(s) {
   const total = s.total || 0;
   const responded = s.responded || 0;
   $("trackercount").textContent = String(total);
-  setTabTip("tracker", "Отклики · " + total);
-  $("trackertitle").textContent = total + " " + plural(total, "отклик", "отклика", "откликов") + ", "
-    + responded + " " + plural(responded, "ответ", "ответа", "ответов");
+  setTabTip("tracker", t("Applications") + " · " + total);
+  $("trackertitle").textContent = tn(total, "{n} application", "{n} applications") + ", " + tn(responded, "{n} reply", "{n} replies");
   const pct = Math.round((s.responseRate || 0) * 100);
-  $("trackersub").textContent = total === 0 ? "Пока ни одного — найдите вакансию на вкладке «Поиск»."
-    : "Отвечают " + pct + "%" + (s.avgDaysToResponse !== null ? ", в среднем через " + s.avgDaysToResponse + " дн." : "")
-      + " " + waiting + " " + plural(waiting, "отклик ждёт", "отклика ждут", "откликов ждут") + " ответа.";
-  $("trackersub").title = "Тишина дольше " + s.staleDays + " дн. считается «без ответа». База: " + (s.dbPath || "");
+  $("trackersub").textContent = total === 0 ? t("None yet: find a posting on the Search tab.")
+    : (s.avgDaysToResponse !== null ? t("{pct}% reply, after {days} days on average.", { pct, days: decimal(s.avgDaysToResponse) }) : t("{pct}% reply.", { pct }))
+      + " " + tn(waiting, "{n} application is awaiting a reply.", "{n} applications are awaiting a reply.");
+  $("trackersub").title = t("Silence longer than {n} days counts as “no reply”. Database: {path}", { n: s.staleDays, path: s.dbPath || "" });
   const tiles = [
-    ["Ждут ответа", waiting, "моложе " + s.staleDays + " дн."],
-    ["Ответили", responded, pct + "% откликов"],
-    ["В процессе", talks, "ответ, скрининг, собеседование"],
-    ["Офферы", f.offer || 0, (f.offer ? "поздравляю" : "пока впереди")],
-    ["Без ответа", f.ghosted || 0, Math.round((s.ghostRate || 0) * 100) + "%, тишина дольше " + s.staleDays + " дн."],
-    ["Ответ в среднем", s.avgDaysToResponse === null ? "—" : String(s.avgDaysToResponse).replace(".", ","), "от отклика до письма",
-      s.avgDaysToResponse === null ? "" : "дн."],
+    [t("Awaiting reply"), waiting, t("younger than {n} days", { n: s.staleDays })],
+    [t("Replied"), responded, t("{pct}% of applications", { pct })],
+    [t("In progress"), talks, t("reply, screening, interview")],
+    [t("Offers"), f.offer || 0, (f.offer ? t("congratulations") : t("still ahead"))],
+    [t("No reply"), f.ghosted || 0, t("{pct}%, silence longer than {n} days", { pct: Math.round((s.ghostRate || 0) * 100), n: s.staleDays })],
+    [t("Average reply"), s.avgDaysToResponse === null ? "—" : decimal(s.avgDaysToResponse), t("from application to reply"),
+      s.avgDaysToResponse === null ? "" : t("days")],
   ];
   $("cards").innerHTML = tiles.map(([k, v, sub, unit]) => '<div class="tile"><span class="k">' + esc(k) + '</span><span class="v">'
     + esc(v) + (unit ? "<small>" + esc(unit) + "</small>" : "") + '</span><span class="s">' + esc(sub) + "</span></div>").join("");
   const parts = [
-    ["Ждут ответа", waiting, "var(--accent)"],
-    ["В процессе", talks, "var(--warn-dot)"],
-    ["Оффер", f.offer || 0, "var(--good-dot)"],
-    ["Отказ", f.rejected || 0, "var(--ink-2)"],
-    ["Без ответа", f.ghosted || 0, "var(--bar-rest)"],
-    ["Отозвал сам", f.dropped || 0, "var(--bar-dropped)"],
+    [t("Awaiting reply"), waiting, "var(--accent)"],
+    [t("In progress"), talks, "var(--warn-dot)"],
+    [t("Offer"), f.offer || 0, "var(--good-dot)"],
+    [t("Rejected"), f.rejected || 0, "var(--ink-2)"],
+    [t("No reply"), f.ghosted || 0, "var(--bar-rest)"],
+    [t("Withdrawn by me"), f.dropped || 0, "var(--bar-dropped)"],
   ].filter(([, n]) => n > 0);
   const sum = parts.reduce((acc, [, n]) => acc + n, 0) || 1;
   $("funnel").innerHTML = parts.map(([, n, color]) => '<span style="width: ' + (n / sum * 100).toFixed(1)
@@ -1978,7 +2010,7 @@ function renderStats(s) {
   renderTrackerSide();
 }
 
-/* Отклики' right column: the totals, the last reply, this week. */
+/* The Applications right column: the totals, the last reply, this week. */
 function renderTrackerSide() {
   const s = stats;
   if (!s) return;
@@ -1989,25 +2021,24 @@ function renderTrackerSide() {
   const weekAgo = Date.now() - 7 * 86400000;
   const sentWeek = applications.filter((a) => Date.parse(a.applied_at) >= weekAgo).length;
   const repliedWeek = replies.filter((a) => Date.parse(a.response_at) >= weekAgo).length;
-  const days = (x) => (x === null || x === undefined ? "—" : String(x).replace(".", ","));
+  const days = (x) => (x === null || x === undefined ? "—" : decimal(x));
   $("trackerside").innerHTML = total === 0 ? ""
-    : '<section class="box"><span class="k">Итоги' + (first ? " с " + esc(shortDate(first)) : "") + '</span><div class="stats">'
-      + "<div><b>" + Math.round((s.responseRate || 0) * 100) + "%</b><span>отвечают</span></div>"
-      + "<div><b>" + Math.round((s.ghostRate || 0) * 100) + "%</b><span>тишина</span></div>"
-      + "<div><b>" + days(s.avgDaysToResponse) + "</b><span>дн. до ответа</span></div>"
-      + "<div><b>" + s.staleDays + "</b><span>дн. — уже тишина</span></div></div></section>"
+    : '<section class="box"><span class="k">' + esc(first ? t("Totals since {date}", { date: shortDate(first) }) : t("Totals")) + '</span><div class="stats">'
+      + "<div><b>" + Math.round((s.responseRate || 0) * 100) + "%</b><span>" + t("reply") + "</span></div>"
+      + "<div><b>" + Math.round((s.ghostRate || 0) * 100) + "%</b><span>" + t("silence") + "</span></div>"
+      + "<div><b>" + days(s.avgDaysToResponse) + "</b><span>" + t("days to a reply") + "</span></div>"
+      + "<div><b>" + s.staleDays + "</b><span>" + t("days, then it is silence") + "</span></div></div></section>"
       + (last
-        ? '<section class="box"><span class="k">Последний ответ</span><span class="name">' + esc(last.company) + " — "
+        ? '<section class="box"><span class="k">' + t("Last reply") + '</span><span class="name">' + esc(last.company) + " — "
           + esc(STATUS_WORD[last.status] || last.status) + "</span><p>" + esc(last.title) + '</p><p class="small">' + esc(shortDate(last.response_at))
-          + (last.daysToResponse !== null ? ", через " + last.daysToResponse + " дн. после отклика" : "") + "</p></section>"
+          + (last.daysToResponse !== null ? ", " + t("{n} days after applying", { n: last.daysToResponse }) : "") + "</p></section>"
         : "")
-      + '<section class="box"><span class="k">Эта неделя</span><p>' + sentWeek + " "
-      + plural(sentWeek, "отклик отправлен", "отклика отправлено", "откликов отправлено") + ", " + repliedWeek + " "
-      + plural(repliedWeek, "ответ", "ответа", "ответов") + ".</p></section>";
+      + '<section class="box"><span class="k">' + t("This week") + "</span><p>"
+      + tn(sentWeek, "{n} application sent", "{n} applications sent") + ", " + tn(repliedWeek, "{n} reply", "{n} replies") + ".</p></section>";
 }
 
-const PILLS = [["", "Все"], ["open", "В работе"], ["applied", "Ждём"], ["rejected", "Отказ"], ["ghosted", "Тишина"],
-  ["interview", "Собеседование"], ["offer", "Оффер"], ["dropped", "Отозвал"]];
+const PILLS = [["", t("All")], ["open", t("Open")], ["applied", t("Waiting")], ["rejected", t("Rejected")], ["ghosted", t("Silence")],
+  ["interview", t("Interview")], ["offer", t("Offer")], ["dropped", t("Withdrawn")]];
 
 function sortedApplications() {
   const dir = sort.dir === "asc" ? 1 : -1;
@@ -2039,23 +2070,23 @@ function renderRows() {
     .map(([id, label]) => '<button type="button" class="pill' + (id === statusFilter ? " is-on" : "") + '" data-status="' + id
       + '" aria-pressed="' + (id === statusFilter) + '">' + esc(label) + ' <span class="n">' + count(id) + "</span></button>").join("");
   $("applicationcount").textContent = rows.length === applications.length
-    ? "Все отклики" : rows.length + " из " + applications.length;
+    ? t("All applications") : t("{shown} of {total}", { shown: rows.length, total: applications.length });
   $("empty").hidden = rows.length > 0;
-  $("empty").textContent = applications.length ? "Таких откликов нет." : "Пока пусто — откликнитесь на что-нибудь на вкладке «Поиск».";
+  $("empty").textContent = applications.length ? t("No such applications.") : t("Empty so far: apply to something on the Search tab.");
   $("rows").innerHTML = rows.map((a) => {
     // Plain text: a click anywhere on the row opens the application; the posting's link is in there.
     const title = esc(a.title);
     // How early I applied: days from publication (or first sighting) to the application.
     const lead = a.posted_at ? Math.max(0, Math.floor((Date.parse(a.applied_at) - Date.parse(a.posted_at)) / 86400000)) : null;
-    const sub = [SOURCE_NAME[a.source] || a.source, a.location, a.salary, lead === null ? null : "через " + lead + " дн. после публикации"]
+    const sub = [SOURCE_NAME[a.source] || a.source, a.location, a.salary, lead === null ? null : t("{n} days after posting", { n: lead })]
       .filter(Boolean).map(esc).join(" · ");
-    const age = a.daysSinceApplied === 0 ? "сегодня" : a.daysSinceApplied + " дн.";
+    const age = a.daysSinceApplied === 0 ? t("today") : t("{n} d", { n: a.daysSinceApplied });
     return '<tr class="' + (a.ghosted ? "is-ghosted" : "") + (a.id === drawerId ? " is-open" : "") + '" data-app="' + a.id + '">'
       + '<td class="company">' + esc(a.company) + "</td>"
       + '<td class="title">' + title + (sub ? '<div class="meta">' + sub + "</div>" : "") + "</td>"
-      + "<td>" + selectHtml("status", a.status, "Статус: " + a.company, ' data-s="' + esc(a.status) + '" data-id="' + a.id + '"') + "</td>"
-      + '<td class="num">' + shortDate(a.applied_at) + (a.response_at ? '<div class="meta">ответ ' + shortDate(a.response_at) + "</div>" : "") + "</td>"
-      + '<td class="num">' + age + (a.daysToResponse !== null ? '<div class="meta">ответ за ' + a.daysToResponse + " дн.</div>" : "") + "</td>"
+      + "<td>" + selectHtml("status", a.status, t("Status: {company}", { company: a.company }), ' data-s="' + esc(a.status) + '" data-id="' + a.id + '"') + "</td>"
+      + '<td class="num">' + shortDate(a.applied_at) + (a.response_at ? '<div class="meta">' + t("reply {date}", { date: shortDate(a.response_at) }) + "</div>" : "") + "</td>"
+      + '<td class="num">' + age + (a.daysToResponse !== null ? '<div class="meta">' + t("replied in {n} d", { n: a.daysToResponse }) + "</div>" : "") + "</td>"
       + "</tr>";
   }).join("");
   // On each button, not delegated: the 15-second reload can redraw the rows while
@@ -2066,7 +2097,7 @@ function renderRows() {
   renderDrawer();
 }
 
-/* ---------------- Отклики: one application, in the drawer ---------------- */
+/* ---------------- Applications: one application, in the drawer ---------------- */
 
 function openDrawer(id) {
   drawerId = id;
@@ -2083,7 +2114,7 @@ function closeDrawer() {
 function shortDateTime(iso) {
   if (!iso) return "";
   const d = new Date(iso);
-  return isNaN(d) ? "" : d.toLocaleString("ru", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return isNaN(d) ? "" : d.toLocaleString(LOCALE, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 function renderDrawer() {
@@ -2099,39 +2130,39 @@ function renderDrawer() {
   if (selFor && selFor.closest && selFor.closest("#drawer")) return;
   const lead = a.posted_at ? Math.max(0, Math.floor((Date.parse(a.applied_at) - Date.parse(a.posted_at)) / 86400000)) : null;
   const sub = [SOURCE_NAME[a.source] || a.source, a.location, a.salary].filter(Boolean).join(" · ");
-  const steps = [["Отправлен", shortDateTime(a.applied_at), lead === null ? "" : "через " + lead + " дн. после публикации"]];
+  const steps = [[t("Sent"), shortDateTime(a.applied_at), lead === null ? "" : t("{n} days after posting", { n: lead })]];
   if (a.response_at) {
-    steps.push(["Ответ: " + (STATUS_WORD[a.status] || a.status), shortDateTime(a.response_at),
-      a.daysToResponse !== null ? "через " + a.daysToResponse + " дн. после отклика" : ""]);
+    steps.push([t("Reply: {status}", { status: STATUS_WORD[a.status] || a.status }), shortDateTime(a.response_at),
+      a.daysToResponse !== null ? t("{n} days after applying", { n: a.daysToResponse }) : ""]);
   } else if (a.ghosted) {
-    steps.push(["Тишина", "", "ответа нет " + a.daysSinceApplied + " дн."]);
+    steps.push([t("Silence"), "", t("no reply for {n} days", { n: a.daysSinceApplied })]);
   }
   const notes = String(a.notes || "").trim();
   const others = applications.filter((row) => row.id !== a.id && sameCompany(row.company, a.company));
   const inFeed = (lastSearchPayload.jobs || []).filter((job) => !job.dismissed && sameCompany(job.company, a.company));
   const html = '<div class="dhead"><div><h2>' + esc(a.company) + "</h2><p>" + esc(a.title) + "</p>" + (sub ? "<small>" + esc(sub) + "</small>" : "")
-    + '</div><button type="button" class="iconbtn" data-drawer="close" aria-label="Закрыть">' + CROSS + "</button></div>"
+    + '</div><button type="button" class="iconbtn" data-drawer="close" aria-label="' + esc(t("Close")) + '">' + CROSS + "</button></div>"
     + '<div class="dbody fades"><div class="row">'
-    + selectHtml("status", a.status, "Статус: " + a.company, ' data-s="' + esc(a.status) + '" data-id="' + a.id + '"')
-    + "<span>" + (a.daysSinceApplied === 0 ? "отправлен сегодня" : "прошло " + a.daysSinceApplied + " дн.") + "</span></div>"
+    + selectHtml("status", a.status, t("Status: {company}", { company: a.company }), ' data-s="' + esc(a.status) + '" data-id="' + a.id + '"')
+    + "<span>" + (a.daysSinceApplied === 0 ? t("sent today") : t("{n} days passed", { n: a.daysSinceApplied })) + "</span></div>"
     + '<ol class="timeline">' + steps.map(([what, when, note]) => "<li><i></i><span>" + esc(what)
       + (when || note ? "<small>" + esc([when, note].filter(Boolean).join(" · ")) + "</small>" : "") + "</span></li>").join("") + "</ol>"
-    + (notes ? '<section><span class="k">Что ушло с откликом</span><p>' + esc(notes) + "</p></section>" : "")
-    + '<section><span class="k">С этой компанией</span><p>'
+    + (notes ? '<section><span class="k">' + t("What went with the application") + "</span><p>" + esc(notes) + "</p></section>" : "")
+    + '<section><span class="k">' + t("With this company") + "</span><p>"
     + (others.length
-      ? "Ещё " + others.length + " " + plural(others.length, "отклик", "отклика", "откликов") + ": "
-        + esc(others.map((o) => o.title + " — " + (STATUS_WORD[o.status] || o.status)).join("; ")) + "."
-      : "Других откликов сюда не было.")
+      ? esc(tn(others.length, "{n} more application: {list}.", "{n} more applications: {list}.",
+        { list: others.map((o) => o.title + " — " + (STATUS_WORD[o.status] || o.status)).join("; ") }))
+      : t("No other applications here."))
     + " " + (inFeed.length
-      ? "В ленте сейчас " + inFeed.length + " " + plural(inFeed.length, "вакансия", "вакансии", "вакансий") + " компании."
-      : "В ленте вакансий компании сейчас нет.")
+      ? tn(inFeed.length, "{n} posting of the company in the feed now.", "{n} postings of the company in the feed now.")
+      : t("No postings of the company in the feed now."))
     + "</p></section></div>"
-    + (a.url ? '<div class="dfoot"><a href="' + esc(a.url) + '" target="_blank" rel="noreferrer noopener">Открыть вакансию ' + ARROW_OUT + "</a></div>" : "");
+    + (a.url ? '<div class="dfoot"><a href="' + esc(a.url) + '" target="_blank" rel="noreferrer noopener">' + t("Open the posting") + " " + ARROW_OUT + "</a></div>" : "");
   box.hidden = false;
   if (html === lastDrawerHtml) return;
   box.innerHTML = html;
   lastDrawerHtml = html;
-  box.setAttribute("aria-label", "Отклик: " + a.company);
+  box.setAttribute("aria-label", t("Application: {company}", { company: a.company }));
   const select = box.querySelector && box.querySelector("[data-select]");
   if (select) select.addEventListener("change", () => setStatus(select.dataset.id, select.value));
 }
@@ -2142,7 +2173,7 @@ async function setStatus(id, status) {
     if (!response.ok) throw new Error(payload.error || response.statusText);
     toast("#" + id + ": " + (STATUS_WORD[status] || status));
   } catch (error) {
-    toast("Не обновилось: " + error.message, true);
+    toast(t("Could not update: {error}", { error: error.message }), true);
   }
   await load();
 }
@@ -2214,9 +2245,9 @@ function jumpResults(raw) {
   const q = String(raw || "").trim().toLocaleLowerCase();
   const has = (text, needle) => String(text || "").toLocaleLowerCase().includes(needle);
   const shown = visibleJobs();
-  const stacks = STACKS.map((s) => ({ kind: "stack", id: s.id, label: s.label, meta: "стопка · " + shown.filter(s.test).length }));
+  const stacks = STACKS.map((s) => ({ kind: "stack", id: s.id, label: s.label, meta: t("stack · {n}", { n: shown.filter(s.test).length }) }));
   const jobs = shown.map((job) => ({ kind: "job", id: job.key, job, label: job.title, meta: job.company }));
-  const apps = applications.map((a) => ({ kind: "app", id: a.id, app: a, label: a.company + " — " + a.title, meta: "отклик · " + (STATUS_WORD[a.status] || a.status) }));
+  const apps = applications.map((a) => ({ kind: "app", id: a.id, app: a, label: a.company + " — " + a.title, meta: t("application · {status}", { status: STATUS_WORD[a.status] || a.status }) }));
   if (q.startsWith("#")) return stacks.filter((s) => has(s.label, q.slice(1)));
   if (q.startsWith("@")) {
     const name = q.slice(1);
@@ -2246,10 +2277,10 @@ function renderJump() {
   jumpItems = jumpResults($("jumpq").value);
   jumpAt = Math.min(jumpAt, Math.max(0, jumpItems.length - 1));
   $("jumplist").innerHTML = jumpItems.length
-    ? '<p class="menulabel">' + ($("jumpq").value.trim() ? "Найдено" : "Дальше в стопке") + "</p>"
+    ? '<p class="menulabel">' + ($("jumpq").value.trim() ? t("Found") : t("Next in the stack")) + "</p>"
       + jumpItems.map((item, i) => '<button type="button" class="jr' + (i === jumpAt ? " is-on" : "") + '" role="option" aria-selected="' + (i === jumpAt)
         + '" data-jump="' + i + '">' + jumpIcon(item) + '<span class="jl">' + esc(item.label) + '</span><span class="jm">' + esc(item.meta) + "</span></button>").join("")
-    : '<p class="menulabel">Ничего не нашлось</p>';
+    : '<p class="menulabel">' + t("Nothing found") + "</p>";
   const on = $("jumplist").querySelector && $("jumplist").querySelector(".jr.is-on");
   if (on && typeof on.scrollIntoView === "function") on.scrollIntoView({ block: "nearest" });
 }
@@ -2290,28 +2321,28 @@ function jobMenu(job) {
   const open = (fn) => () => { pickJob(job.key); return fn(); };
   const { suggested, reasons } = hideReasons(job);
   return [
-    { label: "Подать", disabled: tracked, run: open(() => act("apply")) },
-    { label: "В воронку", disabled: tracked, run: open(() => act("funnel")) },
-    { label: "Обсудить с Claude", disabled: !(job.verdict && job.verdict.session), run: open(() => act("discuss")) },
-    { label: job.verdict ? "Спросить Claude заново" : "Спросить Claude", disabled: Boolean(verdictState(job)), run: open(() => act("ask")) },
-    ...(isRuleHidden(job) ? [{ label: "Правило ошиблось", run: open(() => act("rule-wrong")) }] : []),
+    { label: t("Apply"), disabled: tracked, run: open(() => act("apply")) },
+    { label: t("Add to funnel"), disabled: tracked, run: open(() => act("funnel")) },
+    { label: t("Discuss with Claude"), disabled: !(job.verdict && job.verdict.session), run: open(() => act("discuss")) },
+    { label: job.verdict ? t("Ask Claude again") : t("Ask Claude"), disabled: Boolean(verdictState(job)), run: open(() => act("ask")) },
+    ...(isRuleHidden(job) ? [{ label: t("Rule was wrong"), run: open(() => act("rule-wrong")) }] : []),
     { sep: true },
     job.dismissed
-      ? { label: "Вернуть", run: open(() => act("restore")) }
-      : { label: "Скрыть", danger: true,
-          sub: reasons.map((r) => ({ label: (r === suggested ? "Claude: " : "") + r, danger: true, run: open(() => act("reason", r)) }))
-            .concat([{ label: "Просто скрыть", danger: true, run: open(() => act("reason", "")) }]) },
+      ? { label: t("Restore"), run: open(() => act("restore")) }
+      : { label: t("Hide"), danger: true,
+          sub: reasons.map((r) => ({ label: (r === suggested ? "Claude: " : "") + reasonWord(r), danger: true, run: open(() => act("reason", r)) }))
+            .concat([{ label: t("Just hide"), danger: true, run: open(() => act("reason", "")) }]) },
     { sep: true },
-    { label: "Копировать ссылку", run: () => copyJobLink(job) },
+    { label: t("Copy link"), run: () => copyJobLink(job) },
   ];
 }
 
 async function copyJobLink(job) {
   try {
     await writeClipboard(job.applyUrl);
-    toast("Ссылка на " + job.company + " скопирована");
+    toast(t("Link to {company} copied", { company: job.company }));
   } catch {
-    toast("Не удалось скопировать ссылку", true);
+    toast(t("Could not copy the link"), true);
   }
 }
 
@@ -2402,7 +2433,7 @@ function onContextMenu(event) {
   openCtx(event.clientX || r.left + 24, event.clientY || r.bottom - 8, jobMenu(job));
 }
 
-/* Arrows walk the menu, → opens «Скрыть», ← goes back; Enter is the focused button's own. */
+/* Arrows walk the menu, → opens "Hide", ← goes back; Enter is the focused button's own. */
 function onMenuKey(event) {
   const active = document.activeElement;
   const inSub = Boolean(active && active.closest && active.closest("#ctxsub"));
@@ -2526,7 +2557,7 @@ function showView(name) {
   if (currentView === "search" && !searchLoaded) runSearch();
   $("view-tracker").hidden = currentView !== "tracker";
   $("view-search").hidden = currentView !== "search";
-  // The header's middle follows the view: the stacks on Search, the statuses on Отклики.
+  // The header's middle follows the view: the stacks on Search, the statuses on Applications.
   $("stacks").hidden = currentView !== "search";
   $("statuspills").hidden = currentView !== "tracker";
   toggleMenu("filtersbtn", "filters", false);
@@ -2542,15 +2573,15 @@ function toggleMenu(buttonId, menuId, open) {
   $(buttonId).setAttribute("aria-expanded", String(next));
 }
 
-/* ---------------- Настройки: my terms, Claude, the rules, the desktop app ---------------- */
+/* ---------------- Settings: my terms, Claude, the rules, the desktop app ---------------- */
 
 // Inside the desktop app its preload exposes the app's own settings; in a browser there are none.
 const appBridge = typeof window === "object" && window.jobHunt ? window.jobHunt : null;
-// Set once the app's own settings were read into Настройки: only then are they saved back.
+// Set once the app's own settings were read into Settings: only then are they saved back.
 let appLoaded = false;
 
 /*
- * Фильтры survive a reload: the window, the boards switched off, the toggles,
+ * Filters survive a reload: the window, the boards switched off, the toggles,
  * the order. Per browser, a convenience — not the text search, which is for
  * the moment. Boards are kept as the ones switched off, so a board added to
  * the profile later starts on.
@@ -2591,10 +2622,10 @@ function restoreFilters() {
   setSelect($("jobsort"), jobSort);
 }
 
-/** "через ≈ 7 мин" for n verdicts. */
+/** "≈ 7 min" for n verdicts. */
 function verdictMinutes(n, secondsPerVerdict) {
   const minutes = Math.max(1, Math.round((n * (secondsPerVerdict || 5)) / 60));
-  return "≈ " + minutes + " мин";
+  return t("≈ {n} min", { n: minutes });
 }
 
 /*
@@ -2605,23 +2636,23 @@ function verdictMinutes(n, secondsPerVerdict) {
 function fillCriteria(state) {
   if (!state) return;
   const current = (state.history || []).find((v) => v.current);
-  const when = current ? new Date(current.firstSeenAt).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "?";
+  const when = current ? new Date(current.firstSeenAt).toLocaleString(LOCALE, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "?";
   const todo = state.stale + state.missing;
-  $("cl-crit").textContent = "Критерии от " + when + " · "
+  $("cl-crit").textContent = t("Criteria from {date}", { date: when }) + " · "
     + (state.stale
-      ? "по старым критериям " + state.stale + " из " + state.shown + " оценок (в «Подходят» и «Проверить» — " + state.staleActive + ")"
-      : "все оценки по текущим критериям")
-    + (state.missing ? " · без оценки " + state.missing : "")
-    + (todo ? " · пересчитать всё — " + verdictMinutes(todo, state.secondsPerVerdict) : "");
-  $("cl-now").textContent = todo ? "Оценить оставшиеся сейчас · " + todo : "Оценить оставшиеся сейчас";
+      ? t("{stale} of {shown} verdicts under old criteria ({active} of them in “Good fit” and “Check”)", { stale: state.stale, shown: state.shown, active: state.staleActive })
+      : t("all verdicts under the current criteria"))
+    + (state.missing ? " · " + t("no verdict: {n}", { n: state.missing }) : "")
+    + (todo ? " · " + t("redoing everything: {time}", { time: verdictMinutes(todo, state.secondsPerVerdict) }) : "");
+  $("cl-now").textContent = t("Judge the rest now") + (todo ? " · " + todo : "");
   const history = state.history || [];
   $("cl-history").innerHTML = history.map((v, i) => {
-    const at = new Date(v.firstSeenAt).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const at = new Date(v.firstSeenAt).toLocaleString(LOCALE, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     const older = history[i + 1];
-    return '<li><span>' + esc(at) + (v.current ? ' <span class="now">· текущие</span>' : "") + "</span>"
-      + '<span class="now">' + v.verdicts + " " + plural(v.verdicts, "оценка", "оценки", "оценок") + "</span>"
-      + (older ? '<button type="button" class="linkbtn" data-critdiff="' + i + '">что изменилось</button>' : "")
-      + (v.current ? "" : '<button type="button" class="linkbtn" data-critrestore="' + esc(v.version) + '">вернуть этот текст</button>')
+    return '<li><span>' + esc(at) + (v.current ? ' <span class="now">· ' + t("current") + "</span>" : "") + "</span>"
+      + '<span class="now">' + tn(v.verdicts, "{n} verdict", "{n} verdicts") + "</span>"
+      + (older ? '<button type="button" class="linkbtn" data-critdiff="' + i + '">' + t("what changed") + "</button>" : "")
+      + (v.current ? "" : '<button type="button" class="linkbtn" data-critrestore="' + esc(v.version) + '">' + t("restore this text") + "</button>")
       + '<div class="critdiff" id="critdiff-' + i + '" hidden></div></li>';
   }).join("");
   criteriaHistoryState = history;
@@ -2629,7 +2660,7 @@ function fillCriteria(state) {
 
 let criteriaHistoryState = [];
 
-/* ---- Настройки → Правила: each screening rule, its hits, a switch; the freed cards; the fit gate ---- */
+/* ---- Settings → Rules: each screening rule, its hits, a switch; the freed cards; the fit gate ---- */
 let rulesLoaded = false;
 
 async function loadRules() {
@@ -2640,14 +2671,14 @@ async function loadRules() {
     fillRules(state);
   } catch (error) {
     rulesLoaded = false;
-    $("rules-list").textContent = "Правила не загрузились: " + error.message;
+    $("rules-list").textContent = t("The rules did not load: {error}", { error: error.message });
   }
 }
 
 function ruleRowHtml(rule) {
   const count = rule.on
-    ? (rule.hits ? "прячет " + rule.hits : "сейчас ничего")
-    : "выключено" + (rule.hits ? ", прятало бы " + rule.hits : "");
+    ? (rule.hits ? t("hides {n}", { n: rule.hits }) : t("nothing now"))
+    : rule.hits ? t("off, would hide {n}", { n: rule.hits }) : t("off");
   const what = [rule.words.join(", "), rule.note].filter(Boolean).join(" — ");
   const examples = rule.examples.map((e) => e.title + " · " + e.company).join("; ");
   return '<div class="setrow' + (rule.on ? "" : " off") + '"><span><b>' + esc(rule.label) + '</b> <span class="n">' + esc(count) + "</span>"
@@ -2664,15 +2695,15 @@ function fillRules(state) {
   $("rules-freed").innerHTML = freed.length
     ? freed.map((row) => "<li><span>" + esc((row.title || row.job_key) + (row.company ? " · " + row.company : "")) + "</span>"
       + '<span class="now">' + esc(row.label + " · " + shortDate(row.at)) + "</span>"
-      + '<button type="button" class="linkbtn" data-unrule="' + esc(row.job_key) + '">вернуть правилам</button></li>').join("")
-    : '<li class="now">пока ни одной</li>';
+      + '<button type="button" class="linkbtn" data-unrule="' + esc(row.job_key) + '">' + t("give back to the rules") + "</button></li>").join("")
+    : '<li class="now">' + t("none yet") + "</li>";
   const fit = state.fitGate || { total: 0, groups: [] };
   const groups = fit.groups.filter((group) => group.count > 0);
   $("rules-fit").innerHTML = groups.length
     ? groups.map((group) => "<li><b>" + esc(group.label) + '</b><span class="now">' + group.count + "</span><span>"
       + esc(group.examples.map((e) => e.title + (e.term ? " (" + e.term + ")" : "") + " · " + e.company).join("; ")
         + (group.count > group.examples.length ? "; …" : "")) + "</span></li>").join("")
-    : '<li class="now">ничего</li>';
+    : '<li class="now">' + t("nothing") + "</li>";
   rulesLoaded = true;
 }
 
@@ -2681,7 +2712,7 @@ function ruleBoxes() {
   return holder && holder.querySelectorAll ? Array.from(holder.querySelectorAll("input[data-rule]")) : [];
 }
 
-/* ---- Настройки → Компании и память ---- */
+/* ---- Settings → Companies & memory ---- */
 async function loadMemory() {
   try {
     const response = await fetch("/api/memory");
@@ -2689,43 +2720,43 @@ async function loadMemory() {
     if (!response.ok) throw new Error(state.error || response.statusText);
     fillMemory(state);
   } catch (error) {
-    $("mem-companies").textContent = "Память не загрузилась: " + error.message;
+    $("mem-companies").textContent = t("The memory did not load: {error}", { error: error.message });
   }
 }
 
 function fillMemory(state) {
   if (!state || !Array.isArray(state.companies)) return;
-  const hides = (n) => (n ? "прячет " + n : "сейчас ничего не прячет");
+  const hides = (n) => (n ? t("hides {n}", { n }) : t("hides nothing now"));
   $("mem-companies").innerHTML = state.companies.length
     ? state.companies.map((c) => "<li><b>" + esc(c.name) + '</b><span class="now">'
-      + esc((c.explicit ? "ты сказал «не интересна» · " : "") + hides(c.hides)) + "</span>"
-      + (c.explicit ? "" : "<span>" + esc(c.reason.replace(/^компания: /, "")) + "</span>")
-      + '<button type="button" class="linkbtn" data-forget="company" data-key="' + esc(c.key) + '" data-label="' + esc(c.name) + '">вернуть</button></li>').join("")
-    : '<li class="now">ни одной</li>';
-  $("mem-roles-stat").textContent = "Помню " + state.remembered + " " + plural(state.remembered, "скрытие", "скрытия", "скрытий")
-    + (state.memoryDays ? " за " + state.memoryDays + " дн." : "") + "; ниже — те, что сейчас прячут копию своей роли.";
+      + esc((c.explicit ? t("you said “not of interest”") + " · " : "") + hides(c.hides)) + "</span>"
+      + (c.explicit ? "" : "<span>" + esc(c.reason) + "</span>")
+      + '<button type="button" class="linkbtn" data-forget="company" data-key="' + esc(c.key) + '" data-label="' + esc(c.name) + '">' + t("restore") + "</button></li>").join("")
+    : '<li class="now">' + t("none") + "</li>";
+  $("mem-roles-stat").textContent = tn(state.remembered, "I remember {n} hide", "I remember {n} hides")
+    + (state.memoryDays ? " " + t("over {n} days", { n: state.memoryDays }) : "") + "; " + t("below are those hiding a copy of their role right now.");
   $("mem-roles").innerHTML = state.roles.length
     ? state.roles.map((r) => "<li><span>" + esc((r.title || "?") + " · " + (r.company || "?")) + '</span><span class="now">'
-      + esc((r.reason ? "«" + r.reason + "»" : "без причины") + " · " + shortDate(r.at) + " · " + hides(r.hides)) + "</span>"
+      + esc((r.reason ? quote(reasonWord(r.reason)) : t("no reason")) + " · " + shortDate(r.at) + " · " + hides(r.hides)) + "</span>"
       + '<button type="button" class="linkbtn" data-forget="hide" data-key="' + esc(r.key) + '" data-label="'
-      + esc((r.title || "?") + " · " + (r.company || "?")) + '">забыть</button></li>').join("")
-    : '<li class="now">сейчас ни одно</li>';
+      + esc((r.title || "?") + " · " + (r.company || "?")) + '">' + t("forget") + "</button></li>").join("")
+    : '<li class="now">' + t("none now") + "</li>";
   $("mem-forgotten").innerHTML = state.forgotten.length
     ? state.forgotten.map((f) => "<li><span>" + esc(f.label || f.key) + '</span><span class="now">'
-      + esc((f.kind === "company" ? "компания" : "скрытие") + " · " + shortDate(f.at)) + "</span>"
-      + '<button type="button" class="linkbtn" data-remember="' + esc(f.kind) + '" data-key="' + esc(f.key) + '">вспомнить</button></li>').join("")
-    : '<li class="now">ничего</li>';
+      + esc((f.kind === "company" ? t("company") : t("hide")) + " · " + shortDate(f.at)) + "</span>"
+      + '<button type="button" class="linkbtn" data-remember="' + esc(f.kind) + '" data-key="' + esc(f.key) + '">' + t("remember") + "</button></li>").join("")
+    : '<li class="now">' + t("nothing") + "</li>";
   const fetched = state.boardsFetched || {};
   $("mem-boards-stat").textContent = fetched.at
-    ? "Прочитаны " + ageLabel(fetched.at) + (fetched.error ? "; последняя попытка не удалась: " + fetched.error : "")
-      + ". «Открыто» — ещё висит на доске, «в ленте» — показано в стопках."
-    : "Доски ещё не читались.";
+    ? t("Read: {age}", { age: ageLabel(fetched.at) }) + (fetched.error ? "; " + t("the last attempt failed: {error}", { error: fetched.error }) : "")
+      + ". " + t("“Open” is still on the board, “in the feed” is shown in the stacks.")
+    : t("The boards have not been read yet.");
   $("mem-boards").innerHTML = state.boards.map((b) => "<li><b>" + esc(b.company) + '</b><span class="now">' + esc(b.vendor) + "</span><span>"
-    + esc("в базе " + b.stored + " · открыто " + b.open + " · в ленте " + b.shown + " · Claude за " + b.fits + " · откликов " + b.applied)
+    + esc(t("stored {stored} · open {open} · in the feed {shown} · Claude took {fits} · applications {applied}", { stored: b.stored, open: b.open, shown: b.shown, fits: b.fits, applied: b.applied }))
     + "</span></li>").join("");
 }
 
-/* ---- Настройки → Поиск, read only ---- */
+/* ---- Settings → Search, read only ---- */
 async function loadSearchSetup() {
   try {
     const response = await fetch("/api/search-setup");
@@ -2733,56 +2764,56 @@ async function loadSearchSetup() {
     if (!response.ok) throw new Error(state.error || response.statusText);
     fillSearchSetup(state);
   } catch (error) {
-    $("search-setup").textContent = "Не загрузилось: " + error.message;
+    $("search-setup").textContent = t("Did not load: {error}", { error: error.message });
   }
 }
 
 function hoursAgo(iso) {
-  if (!iso) return "ещё не читалась";
+  if (!iso) return t("not read yet");
   const hours = Math.floor((Date.now() - Date.parse(iso)) / 3600000);
-  return hours < 1 ? "обновлено только что" : hours < 48 ? "обновлено " + hours + " ч назад" : "обновлено " + ageLabel(iso);
+  return hours < 1 ? t("refreshed just now") : hours < 48 ? t("refreshed {n} h ago", { n: hours }) : t("refreshed {age}", { age: ageLabel(iso) });
 }
 
 function fillSearchSetup(state) {
   if (!state || !state.funnel) return;
-  const n = (x) => Number(x).toLocaleString("ru");
+  const n = (x) => Number(x).toLocaleString(LOCALE);
   const s = state.settings;
-  $("search-setup").textContent = s.location + (s.remoteOnly ? ", только удалённо" : "") + " · окно " + s.days + " дн. · на экране до "
-    + s.limit + " карточек · " + s.watchlist + " досок компаний · офисы гигантов: " + s.giants.location;
+  $("search-setup").textContent = [s.location + (s.remoteOnly ? ", " + t("remote only") : ""), t("window {n} days", { n: s.days }),
+    t("up to {n} cards on screen", { n: s.limit }), t("{n} company boards", { n: s.watchlist }), t("giants' offices: {location}", { location: s.giants.location })].join(" · ");
   const f = state.funnel;
   const v = f.verdicts;
   const steps = [
-    [f.stored, "в базе"],
-    [f.deduped, "без копий с других площадок"],
-    [f.inWindow, "за " + s.days + " дн."],
-    [f.eligible, "можно из Польши"],
-    [f.fit, "по стеку", f.noStack ? "+ " + n(f.noStack) + " без стека в названии: их дочитывает Claude, на экране " + n(f.softShown) : ""],
-    [null, "убрано", "скрыто тобой " + n(f.hiddenByMe) + " · правилами " + n(f.ruleHits) + " · уже отклики " + n(f.applied)],
-    [f.shown + f.softShown, "на экране", "Claude: " + n(v.apply) + " подходят · " + n(v.maybe) + " проверить · " + n(v.skip) + " убрал"
-      + (v.none ? " · " + n(v.none) + " ещё не читал" : "")],
+    [f.stored, t("stored")],
+    [f.deduped, t("without copies from other boards")],
+    [f.inWindow, t("within {n} days", { n: s.days })],
+    [f.eligible, t("possible from Poland")],
+    [f.fit, t("by stack"), f.noStack ? t("+ {n} with no stack in the title: Claude reads those, {shown} on screen", { n: n(f.noStack), shown: n(f.softShown) }) : ""],
+    [null, t("removed"), t("hidden by you {mine} · by rules {rules} · already applied {applied}", { mine: n(f.hiddenByMe), rules: n(f.ruleHits), applied: n(f.applied) })],
+    [f.shown + f.softShown, t("on screen"), t("Claude: {apply} fit · {maybe} to check · {skip} skipped", { apply: n(v.apply), maybe: n(v.maybe), skip: n(v.skip) })
+      + (v.none ? " · " + t("{n} not read yet", { n: n(v.none) }) : "")],
   ];
   $("search-funnel").innerHTML = steps.map(([count, label, note]) => "<li><b>" + (count === null ? "" : n(count)) + "</b><span>" + esc(label) + "</span>"
     + (note ? '<span class="now">' + esc(note) + "</span>" : "") + "</li>").join("");
-  $("search-queries").innerHTML = state.queries.map((q) => "<li><b>" + esc(q.giants ? "офисы гигантов (LinkedIn)" : "«" + q.query + "»") + "</b>"
-    + '<span class="now">' + esc("нашёл " + q.found + " · только он " + q.only + " · на экране " + q.shown + " · Claude за " + q.fits
-      + " · откликов " + q.applied) + "</span></li>").join("");
+  $("search-queries").innerHTML = state.queries.map((q) => "<li><b>" + esc(q.giants ? t("giants' offices (LinkedIn)") : quote(q.query)) + "</b>"
+    + '<span class="now">' + esc(t("found {found} · only this one {only} · on screen {shown} · Claude took {fits} · applications {applied}",
+      { found: q.found, only: q.only, shown: q.shown, fits: q.fits, applied: q.applied })) + "</span></li>").join("");
   $("search-boards").innerHTML = state.boards.map((b) => "<li><b>" + esc(SOURCE_NAME[b.source] || b.source) + "</b>"
-    + '<span class="now">' + esc((b.perQuery ? "по запросам" : "читается целиком") + " · в базе " + b.stored + " · на экране " + b.shown
-      + " · Claude за " + b.fits + " · только здесь " + b.only + (b.only ? " (Claude за " + b.onlyFits + ")" : "") + " · "
-      + hoursAgo(b.lastSuccessAt)) + "</span>"
-    + (b.lastError ? '<span style="color: var(--bad)">' + esc("последняя попытка: " + b.lastError) + "</span>" : "") + "</li>").join("");
+    + '<span class="now">' + esc((b.perQuery ? t("by query") : t("read whole")) + " · "
+      + t("stored {stored} · on screen {shown} · Claude took {fits} · only here {only}", { stored: b.stored, shown: b.shown, fits: b.fits, only: b.only })
+      + (b.only ? " " + t("(Claude took {n})", { n: b.onlyFits }) : "") + " · " + hoursAgo(b.lastSuccessAt)) + "</span>"
+    + (b.lastError ? '<span style="color: var(--bad)">' + esc(t("last attempt: {error}", { error: b.lastError })) + "</span>" : "") + "</li>").join("");
 }
 
-/* «вернуть» a company, «забыть» a hide — or, with `back`, take that back. */
+/* "Restore" a company, "forget" a hide — or, with `back`, take that back. */
 async function forgetMemory(kind, key, label, back) {
   try {
     const { response, payload } = await postJson("/api/memory/forget", back ? { kind, key } : { kind, key, label }, back ? "DELETE" : "POST");
     if (!response.ok) throw new Error(payload.error || response.statusText);
-    toast(back ? "Снова помню" : kind === "company" ? label + ": компания вернулась" : "Забыл: " + label);
+    toast(back ? t("Remembered again") : kind === "company" ? t("{company}: the company is back", { company: label }) : t("Forgot: {label}", { label }));
     await loadMemory();
     runSearch(false, true);
   } catch (error) {
-    toast("Не получилось: " + error.message, true);
+    toast(t("Did not work: {error}", { error: error.message }), true);
   }
 }
 
@@ -2790,11 +2821,11 @@ async function unfreeRule(key) {
   try {
     const { response, payload } = await postJson("/api/rules/override", { key }, "DELETE");
     if (!response.ok) throw new Error(payload.error || response.statusText);
-    toast("Карточка снова под правилами");
+    toast(t("The card is under the rules again"));
     await loadRules();
     runSearch(false, true);
   } catch (error) {
-    toast("Не получилось: " + error.message, true);
+    toast(t("Did not work: {error}", { error: error.message }), true);
   }
 }
 
@@ -2803,7 +2834,7 @@ function softenBoxes() {
   return holder && holder.querySelectorAll ? Array.from(holder.querySelectorAll("input[type=checkbox]")) : [];
 }
 
-/* «Мои условия»: the terms both the rules and Claude read (src/preferences.ts). */
+/* "My terms": the terms both the rules and Claude read (src/preferences.ts). */
 function fillPreferences(p) {
   if (!p) return;
   $("pref-floor").value = String(p.floorB2bPlnMonth);
@@ -2815,11 +2846,11 @@ function fillPreferences(p) {
   setSelect($("pref-polish"), p.polish || "B1");
   setSelect($("pref-memory"), String(p.memoryDays || 0));
   const d = p.derived;
-  const n = (x) => Math.round(x).toLocaleString("ru");
-  const h = (x) => (Math.round(x * 10) / 10).toLocaleString("ru");
+  const n = (x) => Math.round(x).toLocaleString(LOCALE);
+  const h = (x) => (Math.round(x * 10) / 10).toLocaleString(LOCALE);
   $("pref-derived").textContent = d
-    ? "Порог UoP ≈ " + n(d.uopPlnMonth) + " брутто · B2B ≈ " + n(d.b2b.eurMonth) + " EUR / " + n(d.b2b.usdMonth) + " USD в месяц · ≈ "
-      + h(d.b2b.plnHour) + " PLN / " + h(d.b2b.eurHour) + " EUR в час"
+    ? t("UoP floor ≈ {uop} gross · B2B ≈ {eur} EUR / {usd} USD a month · ≈ {plnHour} PLN / {eurHour} EUR an hour",
+      { uop: n(d.uopPlnMonth), eur: n(d.b2b.eurMonth), usd: n(d.b2b.usdMonth), plnHour: h(d.b2b.plnHour), eurHour: h(d.b2b.eurHour) })
     : "";
 }
 
@@ -2840,36 +2871,37 @@ function preferencesInput() {
   };
 }
 
-const EXPECTED_WORD = { apply: "«Подходит»", maybe: "«Проверить»", skip: "«Не подходит»", fit: "не «Не подходит»" };
+const EXPECTED_WORD = { apply: quote(VERDICT_WORD.apply), maybe: quote(VERDICT_WORD.maybe), skip: quote(VERDICT_WORD.skip),
+  fit: t("not {verdict}", { verdict: quote(VERDICT_WORD.skip) }) };
 let evalPoll = null;
 
 /* The last check of the criteria against the known answers, and the one running now. */
 function fillEval(st) {
   if (!st) return;
   const busy = Boolean(st.running);
-  $("cl-eval-labels").textContent = "Сверить с твоими решениями · " + st.sizes.labels;
-  $("cl-eval-border").textContent = "Пересчитать пограничные · " + st.sizes.borderline;
+  $("cl-eval-labels").textContent = t("Check against your decisions") + " · " + st.sizes.labels;
+  $("cl-eval-border").textContent = t("Re-judge the borderline ones") + " · " + st.sizes.borderline;
   $("cl-eval-labels").disabled = busy || st.sizes.labels === 0;
   $("cl-eval-border").disabled = busy || st.sizes.borderline === 0;
   const last = st.last;
   if (busy) {
-    $("cl-eval").textContent = "Сверяю: " + st.running.done + " из " + st.running.total + "…";
+    $("cl-eval").textContent = t("Checking: {done} of {total}…", { done: st.running.done, total: st.running.total });
   } else if (last) {
-    const at = new Date(last.at).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-    $("cl-eval").textContent = "Последняя сверка " + at + (last.set === "borderline" ? " (пограничные)" : "") + ": "
+    const at = new Date(last.at).toLocaleString(LOCALE, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    $("cl-eval").textContent = (last.set === "borderline" ? t("Last check {at} (borderline)", { at }) : t("Last check {at}", { at })) + ": "
       + (last.set === "borderline"
-        ? "не изменилось " + last.ok + " из " + last.n
-        : "совпало " + last.ok + " из " + last.n + " · skip / не skip — " + last.skipAgree + " из " + last.n)
-      + (last.version === st.current ? " · по текущим критериям" : " · по прошлым критериям")
-      + (last.errors ? " · не прочиталось " + last.errors : "")
-      + (last.stopped ? " · остановлено: " + last.stopped : "")
-      + " · " + last.seconds + " с";
+        ? t("unchanged {ok} of {n}", { ok: last.ok, n: last.n })
+        : t("matched {ok} of {n} · skip / not skip: {agree} of {n}", { ok: last.ok, n: last.n, agree: last.skipAgree }))
+      + " · " + (last.version === st.current ? t("under the current criteria") : t("under earlier criteria"))
+      + (last.errors ? " · " + t("unreadable: {n}", { n: last.errors }) : "")
+      + (last.stopped ? " · " + t("stopped: {why}", { why: last.stopped }) : "")
+      + " · " + t("{n} s", { n: last.seconds });
   } else {
-    $("cl-eval").textContent = "Сверок ещё не было.";
+    $("cl-eval").textContent = t("No checks yet.");
   }
   const misses = !busy && last ? last.misses : [];
   $("cl-misses").innerHTML = misses.map((m) => "<li><span><b>" + esc(m.company) + "</b> — " + esc(m.title) + "</span>"
-    + '<span class="now">' + (last.set === "borderline" ? "было" : "ждали") + " " + esc(EXPECTED_WORD[m.expected] || m.expected)
+    + '<span class="now">' + (last.set === "borderline" ? t("was") : t("expected")) + " " + esc(EXPECTED_WORD[m.expected] || m.expected)
     + " (" + esc(m.note) + "), Claude: " + esc(VERDICT_WORD[m.got] || m.got) + "/" + esc(m.score) + "</span>"
     + '<span class="now">' + esc(m.summary) + "</span></li>").join("");
   clearTimeout(evalPoll);
@@ -2880,7 +2912,7 @@ async function refreshEval() {
   try {
     fillEval(await fetch("/api/criteria/check").then((r) => r.json()));
   } catch {
-    // the next open of Настройки shows it
+    // the next open of Settings shows it
   }
 }
 
@@ -2890,7 +2922,7 @@ async function startCriteriaCheck(set) {
     if (!response.ok) throw new Error(payload.error || response.statusText);
     fillEval(payload.status);
   } catch (error) {
-    toast("Сверка не запустилась: " + error.message, true);
+    toast(t("The check did not start: {error}", { error: error.message }), true);
   }
 }
 
@@ -2924,7 +2956,7 @@ function toggleCriteriaDiff(index) {
   const lines = lineDiff(older.text, v.text);
   box.innerHTML = lines.length
     ? lines.map(([kind, line]) => '<span class="' + kind + '">' + (kind === "add" ? "+ " : "− ") + esc(line) + "</span>").join("\n")
-    : "Текст файла тот же — изменились постоянные инструкции или схема ответа.";
+    : t("The file's text is the same: the fixed instructions or the answer schema changed.");
   box.hidden = false;
 }
 
@@ -2933,9 +2965,9 @@ async function restoreCriteriaVersion(version) {
     const { response, payload } = await postJson("/api/criteria/restore", { version });
     if (!response.ok) throw new Error(payload.error || response.statusText);
     fillCriteria(payload.criteria);
-    toast("Текст критериев возвращён — оценки пересчитаются по настройке «После правки критериев»");
+    toast(t("The criteria text is back; verdicts are redone as “After a criteria edit” says"));
   } catch (error) {
-    toast("Не получилось вернуть: " + error.message, true);
+    toast(t("Could not restore the text: {error}", { error: error.message }), true);
   }
 }
 
@@ -2948,10 +2980,10 @@ function fillClaudeSettings(c) {
   for (const box of softenBoxes()) box.checked = (c.softenFactors || []).includes(box.value);
   $("cl-daily").value = String(c.daily);
   const left = (claudeStatus.queued || []).length + (claudeStatus.running || []).length;
-  $("cl-stat").textContent = "Сегодня в фоне: " + c.runsToday + " из " + c.daily
-    + (c.softToday ? " (из них общих заголовков " + c.softToday + ")" : "")
-    + (left ? " · сейчас в работе " + left : "")
-    + (claudeStatus.pausedUntil ? " · " + (claudeStatus.pauseReason || "пауза") : "");
+  $("cl-stat").textContent = t("In the background today: {runs} of {daily}", { runs: c.runsToday, daily: c.daily })
+    + (c.softToday ? " " + t("(generic titles among them: {n})", { n: c.softToday }) : "")
+    + (left ? " · " + t("in progress now: {n}", { n: left }) : "")
+    + (claudeStatus.pausedUntil ? " · " + (claudeStatus.pauseReason || t("paused")) : "");
 }
 
 const APP_FIELDS = ["autostart", "refreshHours", "linkedinBackground", "notifyNew", "notifyMin", "quietFrom", "quietTo",
@@ -2961,7 +2993,7 @@ function appField(name) {
   return document.querySelector && document.querySelector('[data-app="' + name + '"]');
 }
 
-/* One section of Настройки at a time, picked on the left; «Сохранить» saves all of them. */
+/* One section of Settings at a time, picked on the left; "Save" saves all of them. */
 function showSettingsSection(name) {
   const known = ["prefs", "claude", "rules", "memory", "search", "app"];
   settingsSec = known.includes(name) && (name !== "app" || appLoaded) ? name : "claude";
@@ -2988,7 +3020,7 @@ async function openSettings(section) {
     fillCriteria(criteria);
     refreshEval();
   } catch (error) {
-    toast("Настройки не загрузились: " + error.message, true);
+    toast(t("Settings did not load: {error}", { error: error.message }), true);
   }
   await Promise.all([loadRules(), loadMemory(), loadSearchSetup()]);
   if (appBridge) {
@@ -3017,7 +3049,7 @@ function closeSettings() {
 
 /* Claude's settings go to the server (stored in the database, used from the next run on); the app's to the app. */
 async function saveSettings() {
-  $("settingssaved").textContent = "Сохраняю…";
+  $("settingssaved").textContent = t("Saving…");
   try {
     const { response, payload } = await postJson("/api/settings/claude", {
       auto: $("cl-auto").checked,
@@ -3045,7 +3077,7 @@ async function saveSettings() {
       // A changed port or network setting restarts the server; the app reloads this window then.
       await appBridge.save(next);
     }
-    $("settingssaved").textContent = "Сохранено";
+    $("settingssaved").textContent = t("Saved");
     $("settingssaved").classList.remove("dirty");
     renderSearch();
     pollVerdicts();
@@ -3056,7 +3088,28 @@ async function saveSettings() {
     runSearch(false, true);
   } catch (error) {
     $("settingssaved").textContent = "";
-    toast("Не сохранилось: " + error.message, true);
+    toast(t("Not saved: {error}", { error: error.message }), true);
+  }
+}
+
+/*
+ * Another language: stored by the server, which then serves the page in it.
+ * Filters are in localStorage and survive; edits not saved would not, so those
+ * come first.
+ */
+async function setLanguage(next) {
+  if ($("settingssaved").classList.contains("dirty")) {
+    setSelect($("language"), LANG);
+    toast(t("Save or close the settings first: a language change reloads the page"), true);
+    return;
+  }
+  try {
+    const { response, payload } = await postJson("/api/settings/preferences", { language: next });
+    if (!response.ok) throw new Error(payload.error || response.statusText);
+    location.reload();
+  } catch (error) {
+    setSelect($("language"), LANG);
+    toast(t("Not saved: {error}", { error: error.message }), true);
   }
 }
 
@@ -3066,12 +3119,12 @@ async function judgeRemaining() {
     const { response, payload } = await postJson("/api/verdicts/queue", { scope: "missing" });
     if (!response.ok) throw new Error(payload.error || response.statusText);
     claudeStatus = payload.status || claudeStatus;
-    toast(payload.queued ? "Claude взял в работу " + payload.queued + " " + plural(payload.queued, "вакансию", "вакансии", "вакансий")
-      : "Оценивать нечего: у всех карточек есть свежая оценка");
+    toast(payload.queued ? tn(payload.queued, "Claude took {n} posting", "Claude took {n} postings")
+      : t("Nothing to judge: every card has a fresh verdict"));
     renderSearch();
     pollVerdicts();
   } catch (error) {
-    toast("Не запустилось: " + error.message, true);
+    toast(t("Did not start: {error}", { error: error.message }), true);
   }
 }
 
@@ -3089,20 +3142,21 @@ function bindChrome() {
     const button = event.target.closest && event.target.closest("[data-sec]");
     if (button) showSettingsSection(button.dataset.sec);
   });
-  // Anything typed or switched in a section, until «Сохранить».
+  // Anything typed or switched in a section, until "Save".
   const markDirty = (event) => {
     if (!(event.target && event.target.closest && event.target.closest("#secs"))) return;
-    $("settingssaved").textContent = "Не сохранено";
+    $("settingssaved").textContent = t("Not saved");
     $("settingssaved").classList.add("dirty");
   };
   $("settings").addEventListener("input", markDirty);
   $("settings").addEventListener("change", markDirty);
   $("settings").addEventListener("click", (event) => {
-    // The ✕, "Закрыть", or a click on the dimmed backdrop itself.
+    // The ✕, "Close", or a click on the dimmed backdrop itself.
     const close = event.target && (event.target === $("settings") || (event.target.closest && event.target.closest("[data-close]")));
     if (close) closeSettings();
   });
   $("settingssave").addEventListener("click", () => saveSettings());
+  $("language").addEventListener("change", (event) => setLanguage(event.target.value));
   $("cl-now").addEventListener("click", () => judgeRemaining());
   $("cl-eval-labels").addEventListener("click", () => startCriteriaCheck("labels"));
   $("cl-eval-border").addEventListener("click", () => startCriteriaCheck("borderline"));
@@ -3195,7 +3249,7 @@ function bindChrome() {
     const button = target.closest("[data-act]");
     if (button && !button.disabled) act(button.dataset.act, button.dataset.reason);
   });
-  // The right column: another posting of the company, or all of them in Найти.
+  // The right column: another posting of the company, or all of them in Find.
   $("side").addEventListener("click", (event) => {
     const target = event.target.closest ? event.target : null;
     if (!target) return;
@@ -3226,7 +3280,7 @@ function bindChrome() {
     if (activeSources.size === 0) {
       activeSources.add(box.value);
       box.checked = true;
-      toast("Хотя бы одна площадка должна остаться", true);
+      toast(t("At least one board must stay on"), true);
       return;
     }
     saveFilters();
@@ -3296,14 +3350,14 @@ function bindChrome() {
         if (chosen && !chosen.disabled) chosen.run();
       }
     }
-    // The queue's order is a select inside Фильтры: picking from its options keeps Фильтры open.
+    // The queue's order is a select inside Filters: picking from its options keeps Filters open.
     if (!$("filters").hidden && !inside("filters") && !inside("filtersbtn") && !option) toggleMenu("filtersbtn", "filters", false);
   });
   document.addEventListener("keydown", onKey);
 }
 
 /*
- * The keys, on purpose few (2026-10-27): Enter is «Подать», ↑ ↓ walk the
+ * The keys, on purpose few (2026-10-27): Enter is "Apply", ↑ ↓ walk the
  * queue — by event.code, so the Russian layout works too. Never while typing,
  * never with a modifier, and Enter on a focused button or link is that
  * button's own. Escape closes whatever is open; open lists have their arrows.
@@ -3367,7 +3421,7 @@ async function load() {
     const { attempts } = await fetch("/api/attempts").then((r) => r.json());
     renderAttempts(attempts || []);
   } catch (error) {
-    toast("Не загрузилось: " + error.message, true);
+    toast(t("Did not load: {error}", { error: error.message }), true);
   }
   showNewCount();
   // Verdicts the background queue made while nothing here was waiting for one.
@@ -3375,7 +3429,7 @@ async function load() {
 }
 
 /*
- * "(N) Job Hunt" in the browser tab and a badge on "Поиск": postings the
+ * "(N) Job Hunt" in the browser tab and a badge on "Search": postings the
  * background refresh found since the Search tab was last opened.
  */
 async function showNewCount() {
@@ -3396,7 +3450,7 @@ bindChrome();
 renderSourceFilter();
 load();
 // "#tracker" opens on the tracker; anything else (the desktop app's "#search") on Search;
-// "#settings" (the tray's "Настройки…") on Search with the settings open.
+// "#settings" on Search with the settings open.
 const startHash = typeof location === "object" ? location.hash : "";
 showView(startHash === "#tracker" ? "tracker" : "search");
 if (startHash === "#settings") openSettings();

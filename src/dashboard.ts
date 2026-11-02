@@ -51,12 +51,13 @@ import {
   postingSources,
   type Status,
 } from "./db.ts";
+import { catalog, language, reasonWords, t } from "./i18n.ts";
 import { jobKey } from "./jobkey.ts";
 import { inDateWindow, presentJob, searchStored } from "./pipeline.ts";
 import { evalStatus, startEval } from "./verdict-eval.ts";
 import { currentRefresh, describe, refreshDue, refreshing } from "./refresh.ts";
 import type { Job, SourceName } from "./sources.ts";
-import { SCREEN_RULES, companyKey, hideKey, ruleOf, sameCompany, screenAll } from "./screening.ts";
+import { SCREEN_RULES, companyHiddenByHand, companyKey, hideKey, ruleOf, sameCompany, screenAll } from "./screening.ts";
 import { storedContext } from "./screen-context.ts";
 import { OFFICE_OK, SALARY, SEARCH_DEFAULTS, TARGET_QUERIES, WATCHLIST, fitGateReason, fitTier } from "./profile.ts";
 import { PER_PASS_SOURCES } from "./sources.ts";
@@ -102,7 +103,7 @@ type SearchResult = ReturnType<typeof searchStored>;
  *
  * One entry per set of boards (the source pills), holding the whole ranked
  * month, hidden jobs included: /api/search cuts the date window and drops the
- * hidden ones per request, so neither a date chip nor "скрыть" asks a board.
+ * hidden ones per request, so neither a date chip nor "Hide" asks a board.
  */
 const feeds = new Map<string, { version: string; result: SearchResult }>();
 
@@ -110,7 +111,7 @@ const feeds = new Map<string, { version: string; result: SearchResult }>();
 const FEED_LIMIT = 10_000;
 
 function storedFeed(sources: readonly SourceName[]): SearchResult {
-  // «Мои условия» change eligibility (the offices), the pay floor and the
+  // "My terms" change eligibility (the offices), the pay floor and the
   // Polish rule: a save rebuilds the feed as a refresh does.
   const version = `${postingsVersion()}:${preferencesRevision()}`;
   const key = [...sources].sort().join(",");
@@ -190,6 +191,11 @@ const FONT_CSS = [
  */
 const PAGE = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "dashboard.html"), "utf8");
 
+/** A translated text in the markup, where it may stand inside an attribute. */
+function attribute(text: string): string {
+  return text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
+}
+
 /**
  * The header's avatar, read once like the page: src/assets/avatar.jpg, your own
  * picture (192 px, kept out of git), or the neutral avatar.svg without one.
@@ -205,8 +211,8 @@ const AVATAR = existsSync(join(ASSETS, "avatar.jpg"))
 
 /**
  * The pay Claude read in a posting's text, for a job whose board published
- * none — LinkedIn and Indeed never do. The floor flag, the card's «Вилка»,
- * «Подать»'s "Всё равно подать?" and its --pay then see it: Bold and Scalo,
+ * none — LinkedIn and Indeed never do. The floor flag, the card's "Pay range"
+ * and apply-batch's --pay then see it: Bold and Scalo,
  * the two low-pay applications that went out unnoticed, were Indeed copies
  * the floor check could not see. Added when shown, after the ranking (a flag,
  * never a demotion); the board's own pay always wins.
@@ -271,7 +277,7 @@ function feedView(
   const kept = includeDismissed ? keyed : keyed.filter(({ hidden }) => !hidden);
 
   // Rule hits stay in the payload with their reason; the page keeps them
-  // behind the "скрыто правилами" toggle.
+  // behind the "Hidden by rules" toggle.
   const context = storedContext({ rulesOff: options.rulesOff });
   const views = verdictViews();
   const screened = screenAll(
@@ -282,7 +288,7 @@ function feedView(
   // needs-you). Rule hits and jobs already applied to or hidden ride along
   // outside it, for the toggles: inside it they took 87 of the 200 places, and
   // the cards below the cut were neither shown nor judged by Claude. Claude's
-  // skips ride along too: the page folds them into «Убрал Claude», and on
+  // skips ride along too: the page folds them into "Skipped by Claude", and on
   // 2026-10-30 they held 163 of the 200 places, the 5 maybes below the cut
   // shown nowhere.
   let shownCount = 0;
@@ -297,7 +303,7 @@ function feedView(
     soft.push(row);
     const verdict = views.get(row.job.key)?.verdict;
     if (verdict !== "apply" && verdict !== "maybe") return false;
-    row.flags.push("в названии нет стека — Claude дочитал текст и считает, что подходит");
+    row.flags.push(t("no stack in the title: Claude read the text and says it fits"));
     return true;
   });
   const hiddenByRules: Record<string, number> = {};
@@ -406,10 +412,12 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && (path === "/" || path === "/index.html")) {
       // STATUSES is injected so the dropdown can never drift from the DB vocabulary.
       // All of them: the page's own header comment names the placeholders too.
-      const html = PAGE.replaceAll("__STATUSES__", JSON.stringify(STATUSES)).replaceAll(
-        "__SOURCES__",
-        JSON.stringify(SEARCH_DEFAULTS.sources),
-      );
+      const html = PAGE.replace(/\{\{(.+?)\}\}/g, (_, text: string) => attribute(t(text)))
+        .replaceAll("__LANG__", language())
+        .replaceAll("__CATALOG__", () => JSON.stringify(catalog()))
+        .replaceAll("__REASON_WORDS__", () => JSON.stringify(reasonWords()))
+        .replaceAll("__STATUSES__", JSON.stringify(STATUSES))
+        .replaceAll("__SOURCES__", JSON.stringify(SEARCH_DEFAULTS.sources));
       response.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",
@@ -478,7 +486,7 @@ const server = createServer(async (request, response) => {
       // Claude's "skip" is hidden on the page, so it is not news either; a
       // posting Claude liked goes first in `top`, marked. `pending`: how many
       // of them Claude is about to judge, and since when — the tray app waits
-      // for those before it says "N новых", so a skip is not announced first.
+      // for those before it says "N new", so a skip is not announced first.
       const sources = [...SEARCH_DEFAULTS.sources];
       const stored = sources.some((source) => lastFetch(source).lastSuccessAt !== null);
       const verdicts = verdictViews();
@@ -498,6 +506,8 @@ const server = createServer(async (request, response) => {
         ({ job }) => !verdicts.has(job.key) && verdictPending(job.key, job.firstSeenAt ?? null),
       );
       sendJson(response, 200, {
+        // For the tray app, which has no page to be told by.
+        language: language(),
         count: fresh.length,
         pending: pending.length,
         pendingSince: pending.map(({ job }) => job.firstSeenAt ?? "").sort()[0] || null,
@@ -549,7 +559,7 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    // Настройки → Claude: what the verdict queue runs with, and how much of today's cap is used.
+    // Settings → Claude: what the verdict queue runs with, and how much of today's cap is used.
     if (request.method === "GET" && path === "/api/settings") {
       sendJson(response, 200, {
         claude: { ...claudeSettings(), runsToday: autoRunsToday(), softToday: softRunsToday(), defaults: defaultClaudeSettings() },
@@ -559,26 +569,26 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    // Настройки → Правила: each rule with what it hides now, my «Правило ошиблось» cards, the fit gate.
+    // Settings → Rules: each rule with what it hides now, my "Rule was wrong" cards, the fit gate.
     if (request.method === "GET" && path === "/api/rules") {
       sendJson(response, 200, rulesState());
       return;
     }
 
-    // Настройки → Поиск: the queries and what each brings, the boards, the way from stored to shown. Read only.
+    // Settings → Search: the queries and what each brings, the boards, the way from stored to shown. Read only.
     if (request.method === "GET" && path === "/api/search-setup") {
       sendJson(response, 200, searchSetup());
       return;
     }
 
-    // Настройки → Компании и память: the blocked companies, the hides that hide copies, the forgotten, the company boards.
+    // Settings → Companies & memory: the blocked companies, the hides that hide copies, the forgotten, the company boards.
     if (request.method === "GET" && path === "/api/memory") {
       sendJson(response, 200, memoryState());
       return;
     }
 
     /*
-     * «вернуть» a blocked company / «забыть» a hide (POST), or take that back
+     * "Restore" a blocked company / "forget" a hide (POST), or take that back
      * (DELETE). The hides themselves stay: only what they teach changes.
      */
     if ((request.method === "POST" || request.method === "DELETE") && path === "/api/memory/forget") {
@@ -601,7 +611,7 @@ const server = createServer(async (request, response) => {
     }
 
     /*
-     * «Правило ошиблось» on a card a rule hid: no hiding rule applies to it
+     * "Rule was wrong" on a card a rule hid: no hiding rule applies to it
      * again (screening.ts `freed`), so it goes to the stacks and Claude's
      * queue. DELETE gives the rules it back. Both are kept in decisions too,
      * against the rule — the misfires are the rules' labels.
@@ -643,15 +653,16 @@ const server = createServer(async (request, response) => {
     }
 
     /*
-     * Настройки → «Мои условия»: the pay floor, the offices that are fine, my
+     * Settings → "My terms": the pay floor, the offices that are fine, my
      * Polish. The rules use them from the next request; the criteria get them
      * as their last section, so the verdicts go stale and are redone as
-     * «После правки критериев» says.
+     * "After a criteria edit" says. The language too (src/i18n.ts), which
+     * changes no verdict: the page reloads in it, and Claude writes in it.
      */
     if (request.method === "POST" && path === "/api/settings/preferences") {
       const body = JSON.parse((await readBody(request)) || "{}") as Record<string, unknown>;
       try {
-        // Настройки → Правила save here too: only the rules SCREEN_RULES knows can be off.
+        // Settings → Rules save here too: only the rules SCREEN_RULES knows can be off.
         const off = body["rulesOff"];
         if (Array.isArray(off) && !off.every((id) => SCREEN_RULES.some((rule) => rule.id === id))) {
           throw new Error(`rulesOff names a rule that does not exist: ${off.filter((id) => !SCREEN_RULES.some((rule) => rule.id === id)).join(", ")}`);
@@ -667,7 +678,7 @@ const server = createServer(async (request, response) => {
     }
 
     /*
-     * Настройки → Claude → «История критериев»: put an older text of
+     * Settings → Claude → "Criteria history": put an older text of
      * src/verdict-criteria.md back. A file in this repo, so this computer only.
      */
     if (request.method === "POST" && path === "/api/criteria/restore") {
@@ -706,7 +717,7 @@ const server = createServer(async (request, response) => {
     }
 
     /*
-     * "Оценить оставшиеся сейчас": every card the Search tab shows that has no
+     * "Judge the rest now": every card the Search tab shows that has no
      * verdict under the current criteria, queued as asked by hand — past the
      * daily cap, which is for the background, not for me.
      */
@@ -722,12 +733,12 @@ const server = createServer(async (request, response) => {
     }
 
     /*
-     * "обсудить в Claude": the verdict's own session, opened in Claude Desktop
+     * "Discuss with Claude": the verdict's own session, opened in Claude Desktop
      * (or a console running `claude --resume`). On this computer only — that
      * is where the window opens.
      */
     /*
-     * «Верно» / «Мимо» on a card: what its verdict should have been. Kept as
+     * "Right" / "Wrong" on a card: what its verdict should have been. Kept as
      * the label the criteria are checked against (src/verdict-eval.ts).
      */
     if (request.method === "POST" && path === "/api/verdict/feedback") {
@@ -736,7 +747,7 @@ const server = createServer(async (request, response) => {
       const expected = String(body["expected"] ?? "");
       const verdict = getVerdict(key);
       if (!verdict) {
-        sendJson(response, 404, { error: "у вакансии нет оценки Claude" });
+        sendJson(response, 404, { error: t("this posting has no verdict from Claude") });
         return;
       }
       if (!["apply", "maybe", "skip"].includes(expected)) {
@@ -750,7 +761,7 @@ const server = createServer(async (request, response) => {
     }
 
     /*
-     * Настройки → Claude → «Сверить с эталоном»: the current criteria on the
+     * Settings → Claude → "Check against known answers": the current criteria on the
      * postings whose right answer is known (or on the borderline verdicts),
      * in the background; GET says how far it got and what the last run found.
      * It spends the plan like the verdicts do, so this computer only.
@@ -774,13 +785,13 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && path === "/api/verdict/open") {
       if (!fromThisComputer(request)) {
-        sendJson(response, 403, { error: "Claude открывается только на этом компьютере" });
+        sendJson(response, 403, { error: t("Claude opens only on this computer") });
         return;
       }
       const body = JSON.parse((await readBody(request)) || "{}") as Record<string, unknown>;
       const row = getVerdict(typeof body["key"] === "string" ? body["key"] : "");
       if (!row?.session_id) {
-        sendJson(response, 404, { error: "у этой вакансии нет оценки Claude" });
+        sendJson(response, 404, { error: t("this posting has no verdict from Claude") });
         return;
       }
       try {
@@ -817,7 +828,7 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    // Open attempts: the "нужно вам" list on the Search tab.
+    // Open attempts: the "needs you" list on the Search tab.
     if (request.method === "GET" && path === "/api/attempts") {
       sendJson(response, 200, { attempts: listOpenAttempts() });
       return;
@@ -966,7 +977,7 @@ const server = createServer(async (request, response) => {
       }
 
       const statusRaw = text(body["status"]);
-      // Default 'applied': pressing "В воронку" means the application is sent.
+      // Default 'applied': pressing "Add to funnel" means the application is sent.
       const status =
         statusRaw && (STATUSES as readonly string[]).includes(statusRaw)
           ? (statusRaw as Status)
@@ -1160,7 +1171,7 @@ function queueVerdicts(): void {
 }
 
 /**
- * Where the criteria stand, for Настройки → Claude: the kept versions, and how
+ * Where the criteria stand, for Settings → Claude: the kept versions, and how
  * many shown cards' verdicts are older than the current one — what a re-judge
  * would cost before anything is queued.
  */
@@ -1178,7 +1189,7 @@ function criteriaState() {
   };
 }
 
-/** «Мои условия» with what they make: the floor in the other units Claude and the cards meet. */
+/** "My terms" with what they make: the floor in the other units Claude and the cards meet. */
 function preferencesState() {
   return { ...preferences(), defaults: defaultPreferences(), derived: derivedFloors(SALARY.fxToPln) };
 }
@@ -1197,7 +1208,7 @@ function decide(key: string, action: string, reason: string | null): void {
 }
 
 /*
- * Настройки → Правила. Each rule with its hits in the feed as it is now (the
+ * Settings → Rules. Each rule with its hits in the feed as it is now (the
  * cards it hides, a few named) and, switched off, what it would hide again —
  * from a second pass with every rule on. Then the cards I freed from a rule,
  * and what the fit gate (profile.ts fitTier) left out before any rule ran.
@@ -1218,10 +1229,13 @@ function rulesState() {
   const example = (job: Job) => ({ title: job.title, company: job.company, url: job.url });
   const rules = SCREEN_RULES.map((rule) => {
     const jobs = (off.has(rule.id) ? allOn : now).get(rule.id) ?? [];
-    return { ...rule, on: !off.has(rule.id), hits: jobs.length, examples: jobs.slice(0, 3).map(example) };
+    return { ...rule, label: t(rule.label), note: rule.note ? t(rule.note) : "", on: !off.has(rule.id), hits: jobs.length, examples: jobs.slice(0, 3).map(example) };
   });
 
-  const labelOf = (reason: string) => SCREEN_RULES.find((rule) => rule.id === ruleOf(reason))?.label ?? reason;
+  const labelOf = (reason: string) => {
+    const label = SCREEN_RULES.find((rule) => rule.id === ruleOf(reason))?.label;
+    return label ? t(label) : reason;
+  };
   const overrides = listRuleOverrides().map((row) => ({ ...row, label: labelOf(row.reason) }));
 
   const dismissedKeys = new Set(listDismissedKeys());
@@ -1235,9 +1249,9 @@ function rulesState() {
     groups.set(why.kind, [...(groups.get(why.kind) ?? []), { ...example(job), term: why.term }]);
   }
   const FIT_LABELS: Record<string, string> = {
-    junior: "Джуниор в заголовке",
-    "title-stack": "Чужой стек в заголовке",
-    "text-stack": "Чужой стек перевешивает в тексте",
+    junior: t("Junior in the title"),
+    "title-stack": t("Another stack in the title"),
+    "text-stack": t("Another stack outweighs in the text"),
   };
   return {
     rules,
@@ -1253,7 +1267,7 @@ function rulesState() {
 }
 
 /*
- * Настройки → Компании и память. What my earlier hides make the screening do
+ * Settings → Companies & memory. What my earlier hides make the screening do
  * now: the blocked companies (said by me, or two frontend roles hidden there
  * without a reason) and the hides that hide a copy of their role, each with
  * how many cards of the feed it stands behind; what I said to forget; and the
@@ -1274,8 +1288,9 @@ function memoryState() {
   const companies = [...context.blockedCompanies].map(([key, reason]) => ({
     key,
     name: nameOf(key),
-    reason,
-    explicit: reason === "компания скрыта вручную",
+    // What the page shows: the words after "company: ", or nothing for one I said no to.
+    reason: reason.replace(/^[^:]+: /, ""),
+    explicit: reason === companyHiddenByHand(),
     hides: hits.get(`company:${key}`) ?? 0,
   }));
   const roles = context.roleHides
@@ -1323,7 +1338,7 @@ function memoryState() {
 }
 
 /*
- * Настройки → Поиск, read only: what is searched and what comes of it. The
+ * Settings → Search, read only: what is searched and what comes of it. The
  * queries with their yield — found, found by no other query, shown, judged
  * fit by Claude, applied to — counted from posting_queries, so from the first
  * refresh that recorded them; the boards with their freshness and shelf; and

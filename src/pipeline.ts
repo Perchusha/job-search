@@ -111,7 +111,7 @@ export type SearchResult = {
   reports: SourceReport[];
   counts: SearchCounts;
   levelCounts: Record<string, number>;
-  /** What the fit gate left out (maxFitTier), for Настройки → Правила; empty without the gate. */
+  /** What the fit gate left out (maxFitTier), for Settings → Rules; empty without the gate. */
   fitDropped: RankedJob[];
 };
 
@@ -232,7 +232,7 @@ export async function fetchJobs(params: SearchParams = {}): Promise<Fetched> {
   const perQuery = sources.filter((source) => !PER_PASS_SOURCES.includes(source));
   const byQuery = async (query: string) => {
     const outcome = await fetchAllSources({ ...common, sources: perQuery, query: query || undefined });
-    // Which query found what: Настройки → Поиск counts each query's yield from this.
+    // Which query found what: Settings → Search counts each query's yield from this.
     return query ? { ...outcome, jobs: outcome.jobs.map((job) => ({ ...job, foundBy: query })) } : outcome;
   };
   const outcomes = await Promise.all([
@@ -489,7 +489,7 @@ export function presentJob(job: RankedJob) {
     applyUrl: job.url,
     location: job.location,
     salary: job.salary,
-    // The published ranges: what «Подать» and apply-batch pass as --pay / --contract.
+    // The published ranges: what apply-batch passes as --pay / --contract.
     pay: job.pay ?? null,
     postedAt: job.postedAt,
     tags: job.tags.slice(0, 8),

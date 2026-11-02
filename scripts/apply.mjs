@@ -784,12 +784,12 @@ async function boardTarget(url) {
     // its own form (apply.option "email") and the redirect to the employer's form
     // ("url": verifyCaptchaCall before the redirect id is handed out). The API never
     // carries the employer's link.
-    return { byHand: true, reason: "NoFluffJobs отдаёт отклик только через свою кнопку «Aplikuj», с капчей" };
+    return { byHand: true, reason: "NoFluffJobs takes an application only through its own Aplikuj button, with a captcha" };
   }
   if (/^https?:\/\/(?:www\.)?himalayas\.app\/companies\/[^/]+\/jobs\//i.test(url)) {
     // Its API's applicationLink points back at its own page since October 2026, and the
     // page answers even a real Chrome with Cloudflare's "Just a moment…".
-    return { byHand: true, reason: "Himalayas не отдаёт ссылку работодателя: она только за кнопкой Apply на его странице" };
+    return { byHand: true, reason: "Himalayas does not give the employer's link: it is only behind the Apply button on its page" };
   }
   return null;
 }
@@ -804,16 +804,16 @@ async function justJoinTarget(url, slug) {
   try {
     response = await fetch(url, { headers: { "user-agent": UA, "accept-language": "en-US,en;q=0.9" } });
   } catch (error) {
-    return { byHand: true, reason: `justjoin.it не открылся: ${error.message}` };
+    return { byHand: true, reason: `justjoin.it did not open: ${error.message}` };
   }
   const offer = justJoinOffer(await response.text().catch(() => ""), slug);
   if (!offer) {
-    if (response.status === 404 || response.status === 410) return { closed: true, reason: "justjoin.it: вакансии больше нет" };
-    return { byHand: true, reason: `justjoin.it: на странице нет данных вакансии (HTTP ${response.status})` };
+    if (response.status === 404 || response.status === 410) return { closed: true, reason: "justjoin.it: the posting is gone" };
+    return { byHand: true, reason: `justjoin.it: no posting data on the page (HTTP ${response.status})` };
   }
-  if (offer.isOfferActive === false) return { closed: true, reason: "justjoin.it: вакансия закрыта" };
+  if (offer.isOfferActive === false) return { closed: true, reason: "justjoin.it: the posting is closed" };
   if (typeof offer.applyUrl === "string" && /^https?:\/\//i.test(offer.applyUrl)) return { url: offer.applyUrl };
-  return { byHand: true, reason: "отклик принимает только форма justjoin.it" };
+  return { byHand: true, reason: "only justjoin.it's own form takes the application" };
 }
 
 /** The offer object in the page's flight data: the one starting with its slug that carries applyUrl (a listing card does not). */
@@ -1085,7 +1085,7 @@ async function recordInFunnel(args, applyUrl, vendor) {
  * in the chat report: on 2026-10-13 about 30 roles were attempted, 12 were
  * applied to, and 9 were left neither applied to nor hidden, with nothing on
  * record but screenshot file names. The dashboard lists open attempts as
- * "нужно вам". Never writes anything else to stdout.
+ * "needs you". Never writes anything else to stdout.
  */
 async function emit(result, pretty = false) {
   const outcome = { ...result, applyUrl: result.applyUrl ?? result.url ?? formUrl ?? positional[0] };
@@ -1274,7 +1274,7 @@ async function main() {
     // Was reported as a dry run with zero fields — and the page then offered to submit it.
     if (report.length === 0 && vendor !== "linkedin") {
       const file = await shot("noform");
-      await emit({ result: "no-form", reason: "на странице нет полей анкеты", url: page.url(), screenshot: file });
+      await emit({ result: "no-form", reason: "no form fields on the page", url: page.url(), screenshot: file });
       return 4;
     }
     if (flags["dry-run"]) {

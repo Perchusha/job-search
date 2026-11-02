@@ -62,12 +62,12 @@ process.stdin.on("end", () => {
     seniority: "senior",
     mainStack: [skip ? "Angular" : "React"],
     salary: "",
-    matches: skip ? [] : ["React и TypeScript"],
-    concerns: ["зарплата не указана"],
-    dealbreakers: skip ? ["основной стек — Angular: «Angular 17»"] : [],
+    matches: skip ? [] : ["React and TypeScript"],
+    concerns: ["no salary stated"],
+    dealbreakers: skip ? ["the main stack is Angular: “Angular 17”"] : [],
     verdict: skip ? "skip" : "apply",
     score: skip ? 10 : 90,
-    summary: skip ? "Angular, а не React." : "Подходит: React, удалённо.",
+    summary: skip ? "Angular, not React." : "Fits: React, remote.",
     hideReason: skip ? "не тот стек" : "",
   };
   reply(output);

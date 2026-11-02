@@ -27,7 +27,7 @@ node scripts/apply.mjs <applyUrl> --url <postingUrl> --company "<co>" --title "<
      [--location ".."] [--salary ".."] [--pay '<PayRange[] json>'] [--answers <json>] [--office-ok] [--dry-run] [--headed] [--debug]
 ```
 
-- `--office-ok`: the company is one of the giants in Настройки → «Мои условия»
+- `--office-ok`: the company is one of the giants in Settings → "My terms"
   (Google, Apple, Netflix, Meta, Microsoft, Amazon, Nvidia, …; `OFFICE_OK` in
   src/profile.ts reads them) and the office is in the city named there (Warsaw). Then LinkedIn's Hybrid/On-site tag does not stop the run.
 
@@ -72,7 +72,7 @@ It goes into `answers` in profile.json and is used on every later form
 has confirmed go in the bank; ask when unsure.
 
 Every outcome short of `applied` is recorded as an attempt (the dashboard's
-"нужно вам" list, `node scripts/funnel.mjs attempts`) until the job is applied
+"needs you" list, `node scripts/funnel.mjs attempts`) until the job is applied
 to or hidden — no need to keep a list in the chat.
 
 ## Boards

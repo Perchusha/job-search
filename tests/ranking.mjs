@@ -112,7 +112,7 @@ const lowPay = decide(
     eligibility: { level: "high", reason: "Remote, Polish board" } },
   buildContext([], []),
 );
-assert.ok(lowPay.flags.some((flag) => flag.startsWith("зарплата ниже порога")), JSON.stringify(lowPay.flags));
+assert.ok(lowPay.flags.some((flag) => flag.startsWith("pay below the floor")), JSON.stringify(lowPay.flags));
 assert.equal(lowPay.bucket, "apply", "a flag, not a hide");
 console.log("PASS  screening: published pay under the floor is flagged, not hidden");
 
@@ -192,7 +192,7 @@ const midFlag = decide(
     salary: "B2B 22.4k–26.5k PLN/mo", ...range(22400, 26500), eligibility: { level: "high", reason: "Remote, Polish board" } },
   buildContext([], []),
 );
-assert.ok(midFlag.flags.some((flag) => flag.startsWith("середина вилки ниже порога")), JSON.stringify(midFlag.flags));
+assert.ok(midFlag.flags.some((flag) => flag.startsWith("middle of the range below the floor")), JSON.stringify(midFlag.flags));
 console.log("PASS  pay: top under the floor is below, the middle under it is a doubt, as the criteria say");
 
 /* ---- an offer its board still lists stays in the month window ---- */
@@ -259,12 +259,12 @@ for (const iac of ["Senior Frontend Engineer (Terraform)", "Fullstack Developer 
 assert.equal(titled("Senior Backend Developer (.NET / AWS)").reason, "wrong stack: .NET / Java", "a foreign language still hides it");
 console.log("PASS  screening: AWS, Azure, GCP in the title pass; Terraform or Pulumi there is a DevOps role");
 
-/* ---- Настройки → Правила: a rule switched off, a card freed from the rules ---- */
+/* ---- Settings → Rules: a rule switched off, a card freed from the rules ---- */
 const php = { title: "Senior PHP Developer", company: "Example", url: "https://example.com/php", source: "linkedin", postedAt: null,
   eligibility: { level: "high", reason: "Poland" } };
 assert.equal(decide(php, buildContext([], [])).reason, "PHP-first role");
 assert.equal(decide(php, buildContext([], [], { rulesOff: ["PHP-first role"] })).bucket, "apply", "switched off, the rule hides nothing");
-assert.equal(decide(php, buildContext([], [], { overrides: ["example.com/php"] })).bucket, "apply", "«Правило ошиблось» frees the card");
+assert.equal(decide(php, buildContext([], [], { overrides: ["example.com/php"] })).bucket, "apply", "\"Rule was wrong\" frees the card");
 const oldPosting = { ...php, title: "Senior React Developer", url: "https://example.com/old", postedAt: "2026-06-01T00:00:00.000Z" };
 assert.match(decide(oldPosting, buildContext([], [])).reason, /^posting is \d+ days old$/);
 assert.equal(decide(oldPosting, buildContext([], [], { rulesOff: ["stale"] })).bucket, "apply", "the age rule switches off by its id");
@@ -276,13 +276,13 @@ const twin = { ...php, title: "Senior React Developer", url: "https://example.co
 assert.match(decide({ ...twin, title: "Senior React Developer" }, buildContext([], [{ ...hiddenTwin, title: "Senior React Developer" }])).reason, /^same role hidden earlier/);
 assert.equal(decide(twin, buildContext([], [{ ...hiddenTwin, title: "Senior React Developer" }], { overrides: ["example.com/php"] })).bucket, "apply",
   "and from the memory of earlier hides");
-for (const reason of ["вакансия неактуальна", "вакансия закрыта"]) {
+for (const reason of ["вакансия неактуальна", "вакансия закрыта"]) { // ids: "posting out of date", "posting closed"
   const repost = decide({ ...twin, title: "Senior React Developer", url: "https://example.com/repost" }, buildContext([], [{ ...hiddenTwin, title: "Senior React Developer", reason }]));
-  assert.notEqual(repost.bucket, "dismiss", `«${reason}» says the posting is gone, not the role: a repost is shown`);
+  assert.notEqual(repost.bucket, "dismiss", `"${reason}" says the posting is gone, not the role: a repost is shown`);
 }
 assert.equal(ruleOf("posting is 75 days old"), "stale");
 assert.equal(ruleOf("PHP-first role"), "PHP-first role");
-assert.equal(ruleOf("same role hidden earlier (01.10, без причины): X"), null, "memory rules are not switchable here");
+assert.equal(ruleOf("same role hidden earlier (01/10, no reason): X"), null, "memory rules are not switchable here");
 assert.ok(SCREEN_RULES.find((rule) => rule.id === "junior/intern level").words.includes("new-grad"), "a rule's words, without regex syntax");
 console.log("PASS  screening: rules switch off by id; a freed card meets no hiding rule, but its application still counts");
 
@@ -319,7 +319,7 @@ assert.equal(titled("Senior Software Engineer, Gemini Enterprise Mobile").reason
 assert.ok(SCREEN_RULES.find((rule) => rule.id === MID).words.includes("developer 2/ii"), "the shown words leave the lookahead out");
 console.log("PASS  screening: «Middle/Senior», «Regular/Senior», «Sr. … II» and «Developer 2.0» pass the mid rule; «Web + Mobile + Desktop» passes the mobile one");
 
-/* ---- Настройки → Компании и память: forget a hide, give a company back, a memory window ---- */
+/* ---- Settings → Companies & memory: forget a hide, give a company back, a memory window ---- */
 const memJob = { title: "Senior Frontend Engineer, Payments", company: "Memco", url: "https://example.com/mem-new", source: "linkedin",
   postedAt: null, eligibility: { level: "high", reason: "Poland" } };
 const memHide = { url: "https://example.com/mem-old", title: "Senior Frontend Engineer, Payments", company: "Memco", reason: "не remote",
@@ -327,17 +327,17 @@ const memHide = { url: "https://example.com/mem-old", title: "Senior Frontend En
 const remembered = decide(memJob, buildContext([], [memHide]));
 assert.match(remembered.reason, /^same role hidden earlier/);
 assert.deepEqual(remembered.memory, { kind: "hide", key: "example.com/mem-old" }, "a memory hit names the hide it stands on");
-assert.equal(decide(memJob, buildContext([], [memHide], { forgetHides: ["example.com/mem-old"] })).bucket, "apply", "«забыть»: the hide stops teaching");
+assert.equal(decide(memJob, buildContext([], [memHide], { forgetHides: ["example.com/mem-old"] })).bucket, "apply", "\"forget\": the hide stops teaching");
 assert.equal(decide(memJob, buildContext([], [memHide], { memoryDays: 90 })).bucket, "apply", "a hide older than the window is not memory");
 assert.match(decide(memJob, buildContext([], [memHide], { memoryDays: 180 })).reason, /^same role hidden earlier/, "one inside it is");
 const companyNo = { url: "https://example.com/blockco-1", title: "Anything", company: "Blockco", reason: "не интересна компания",
   dismissed_at: "2025-01-01T00:00:00.000Z" };
 const blockJob = { ...memJob, company: "Blockco", url: "https://example.com/blockco-2", title: "Senior React Developer" };
 const blockedHit = decide(blockJob, buildContext([], [companyNo], { memoryDays: 30 }));
-assert.equal(blockedHit.reason, "компания скрыта вручную", "a company I said no to stays blocked whatever the window");
+assert.equal(blockedHit.reason, "company hidden by hand", "a company I said no to stays blocked whatever the window");
 assert.deepEqual(blockedHit.memory, { kind: "company", key: "blockco" });
-assert.equal(decide(blockJob, buildContext([], [companyNo], { forgetCompanies: ["blockco"] })).bucket, "apply", "«вернуть» gives the company back");
-console.log("PASS  screening: «забыть» a hide, «вернуть» a company, a memory window that spares «не интересна компания»");
+assert.equal(decide(blockJob, buildContext([], [companyNo], { forgetCompanies: ["blockco"] })).bucket, "apply", "\"restore\" gives the company back");
+console.log("PASS  screening: forget a hide, restore a company, a memory window that spares \"company not of interest\"");
 
 /* ---- Polish above B1 is read in every common wording; as a plus it is not a requirement ---- */
 const polish = (text) => workSignals({ description: text }).polishRequired;

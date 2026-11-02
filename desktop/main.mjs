@@ -10,12 +10,13 @@
  *   - runs the server as a hidden child process (or uses one already running,
  *     e.g. from Job Hunt.bat) and restarts it if it dies;
  *   - shows the dashboard in its own window; closing the window keeps the app
- *     in the tray, "Выйти" stops everything;
- *   - notifies: "N новых вакансий" when a refresh finds postings, and a daily
- *     digest "За сутки появилось N новых вакансий" at a set time, both
+ *     in the tray, "Quit" stops everything;
+ *   - notifies: "N new postings" when a refresh finds postings, and a daily
+ *     digest "N new postings in the last 24 hours" at a set time, both
  *     outside quiet hours;
- *   - its settings sit in the dashboard's own Настройки (avatar menu), through
- *     preload.cjs.
+ *   - its settings sit in the dashboard's own Settings (avatar menu), through
+ *     preload.cjs;
+ *   - speaks the dashboard's language, which /api/new-count reports.
  *
  * Nothing about searching or applying lives here — the server does that,
  * exactly as before. The app needs the repo (node_modules, .venv) and Node on
@@ -42,6 +43,49 @@ const APP_ID = "com.perch.jobhunt";
 app.setAppUserModelId(APP_ID);
 
 /* ------------------------------------------------------------------ */
+/* Words                                                                */
+/* ------------------------------------------------------------------ */
+
+// The dashboard's language, as /api/new-count last said it. English until then, as there.
+let lang = "en";
+
+/** "1 новая вакансия, 2 новые вакансии, 5 новых вакансий". */
+const newPostingsRu = (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "новая вакансия" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? "новые вакансии" : "новых вакансий"}`;
+const newPostingsEn = (n) => `${n} new ${n === 1 ? "posting" : "postings"}`;
+
+const WORDS = () => (lang === "ru"
+  ? {
+      noNode: "Node.js не найден в PATH",
+      noRepo: (repo) => `не найден проект: ${repo}`,
+      noServer: (why) => `Сервер не запустился: ${why}.`,
+      tooltip: (n) => `Job Hunt — новых вакансий: ${n}`,
+      open: "Открыть Job Hunt",
+      fresh: (n) => `Новые вакансии (${n})`,
+      noFresh: "Новых вакансий нет",
+      refresh: "Обновить сейчас",
+      toastsOff: "⚠ Уведомления Windows выключены…",
+      quit: "Выйти",
+      postings: newPostingsRu,
+      digest: (n) => `За сутки появилось ${newPostingsRu(n)}`,
+      testNotification: "Так будут выглядеть уведомления о новых вакансиях.",
+    }
+  : {
+      noNode: "Node.js is not in PATH",
+      noRepo: (repo) => `project not found: ${repo}`,
+      noServer: (why) => `The server did not start: ${why}.`,
+      tooltip: (n) => `Job Hunt — new postings: ${n}`,
+      open: "Open Job Hunt",
+      fresh: (n) => `New postings (${n})`,
+      noFresh: "No new postings",
+      refresh: "Refresh now",
+      toastsOff: "⚠ Windows notifications are off…",
+      quit: "Quit",
+      postings: newPostingsEn,
+      digest: (n) => `${newPostingsEn(n)} in the last 24 hours`,
+      testNotification: "This is how notifications about new postings will look.",
+    });
+
+/* ------------------------------------------------------------------ */
 /* Settings and state                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -54,13 +98,13 @@ const DEFAULTS = {
   refreshHours: 6,
   /** LinkedIn's daily incremental refresh in the background. */
   linkedinBackground: true,
-  /** "N новых вакансий" as soon as a refresh finds some. */
+  /** "N new postings" as soon as a refresh finds some. */
   notifyNew: true,
   /** Do not notify for fewer new postings than this. */
   notifyMin: 1,
   quietFrom: "22:00",
   quietTo: "08:00",
-  /** "За сутки появилось N новых вакансий", once a day. */
+  /** "N new postings in the last 24 hours", once a day. */
   digest: true,
   digestTime: "09:00",
 };
@@ -124,9 +168,9 @@ async function startServer() {
   const node = process.env.JOBHUNT_NODE || (await findNode());
   const tsx = join(REPO, "node_modules", "tsx", "dist", "cli.mjs");
   if (!node || !existsSync(tsx)) {
-    const why = !node ? "Node.js не найден в PATH" : `не найден проект: ${REPO}`;
+    const why = !node ? WORDS().noNode : WORDS().noRepo(REPO);
     log(`cannot start the server: ${why}`);
-    if (!SMOKE) dialog.showErrorBox("Job Hunt", `Сервер не запустился: ${why}.`);
+    if (!SMOKE) dialog.showErrorBox("Job Hunt", WORDS().noServer(why));
     return false;
   }
   server = spawn(node, [tsx, join(REPO, "src", "dashboard.ts")], {
@@ -199,7 +243,7 @@ function showWindow(view) {
       icon: ICON(),
       autoHideMenuBar: true,
       show: false,
-      // The dashboard's Настройки edits this app's settings through this
+      // The dashboard's Settings edits this app's settings through this
       // bridge; preload.cjs exposes it only to the local dashboard.
       webPreferences: { preload: join(HERE, "preload.cjs"), contextIsolation: true, nodeIntegration: false },
     });
@@ -232,22 +276,22 @@ function showWindow(view) {
 function refreshTray() {
   if (!tray) return;
   tray.setImage(nativeImage.createFromPath(join(HERE, "assets", newCount > 0 ? "tray-new.png" : "tray.png")));
-  tray.setToolTip(newCount > 0 ? `Job Hunt — новых вакансий: ${newCount}` : "Job Hunt");
+  tray.setToolTip(newCount > 0 ? WORDS().tooltip(newCount) : "Job Hunt");
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Открыть Job Hunt", click: () => showWindow() },
-      { label: newCount > 0 ? `Новые вакансии (${newCount})` : "Новых вакансий нет", click: () => showWindow("search") },
-      { label: "Обновить сейчас", click: () => void refreshNow() },
+      { label: WORDS().open, click: () => showWindow() },
+      { label: newCount > 0 ? WORDS().fresh(newCount) : WORDS().noFresh, click: () => showWindow("search") },
+      { label: WORDS().refresh, click: () => void refreshNow() },
       { type: "separator" },
-      ...(toastsOff ? [{ label: "⚠ Уведомления Windows выключены…", click: () => void shell.openExternal("ms-settings:notifications") }] : []),
-      { label: "Выйти", click: () => quit() },
+      ...(toastsOff ? [{ label: WORDS().toastsOff, click: () => void shell.openExternal("ms-settings:notifications") }] : []),
+      { label: WORDS().quit, click: () => quit() },
     ]),
   );
 }
 
 async function refreshNow() {
   try {
-    // ↻ Обновить's own route: the fast boards now, LinkedIn on its pace.
+    // ↻ Refresh's own route: the fast boards now, LinkedIn on its pace.
     await fetch(`${base()}/api/search?refresh=1`, { signal: AbortSignal.timeout(120_000) });
   } catch (error) {
     log(`refresh failed: ${error.message}`);
@@ -307,7 +351,6 @@ async function newSince(since) {
   return response.json();
 }
 
-const plural = (n) => (n % 10 === 1 && n % 100 !== 11 ? "новая вакансия" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? "новые вакансии" : "новых вакансий");
 
 /**
  * Every few minutes: the tray badge (new since the Search tab was last
@@ -326,6 +369,7 @@ async function checkNew() {
   try {
     const sinceVisit = await newSince(null);
     newCount = sinceVisit.count ?? 0;
+    if (sinceVisit.language === "ru" || sinceVisit.language === "en") lang = sinceVisit.language;
     refreshTray();
 
     const now = new Date();
@@ -341,7 +385,7 @@ async function checkNew() {
         // and without moving lastNotifiedAt, so nothing waiting is skipped.
         const judging = fresh.pending > 0 && now - Date.parse(fresh.pendingSince) < 15 * 60_000;
         if (!judging && fresh.count >= Math.max(1, settings.notifyMin)) {
-          notify(`${fresh.count} ${plural(fresh.count)}`, fresh.top.join("\n"));
+          notify(WORDS().postings(fresh.count), fresh.top.join("\n"));
           state.lastNotifiedAt = now.toISOString();
           saveState();
         }
@@ -355,7 +399,7 @@ async function checkNew() {
       state.lastDigestDate = today;
       saveState();
       if (day.count > 0) {
-        notify(`За сутки появилось ${day.count} ${plural(day.count)}`, day.top.join("\n"));
+        notify(WORDS().digest(day.count), day.top.join("\n"));
       }
     }
   } catch (error) {
@@ -403,7 +447,7 @@ ipcMain.handle("settings:save", async (_event, next) => {
 });
 
 ipcMain.handle("settings:notifications", () => shell.openExternal("ms-settings:notifications"));
-ipcMain.handle("settings:test-notification", () => notify("Job Hunt", "Так будут выглядеть уведомления о новых вакансиях."));
+ipcMain.handle("settings:test-notification", () => notify("Job Hunt", WORDS().testNotification));
 ipcMain.handle("settings:open-log", () => shell.openPath(LOG_FILE()));
 
 /* ------------------------------------------------------------------ */

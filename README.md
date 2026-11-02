@@ -5,9 +5,8 @@ the ones you can't actually apply to, has Claude read every remaining posting an
 whether it fits, and tracks what happened to each application.
 
 I built it for my own search — a senior React / TypeScript engineer looking for remote
-work from Poland — so the defaults, the boards and the dashboard's language (Russian)
-follow from that. Everything runs on your machine: one SQLite file, no accounts, no cloud,
-no API keys.
+work from Poland — so the defaults and the boards follow from that. Everything runs on
+your machine: one SQLite file, no accounts, no cloud, no API keys.
 
 ## What it does
 
@@ -32,6 +31,9 @@ no API keys.
   works from Claude Desktop, Claude Code or Cursor.
 - **Optionally fills application forms** with Playwright (`scripts/apply.mjs`); the batch
   runner dry-runs unless told `--submit`.
+
+The dashboard speaks English, or Russian if you pick it under **Settings**; Claude writes its
+verdicts in the same language.
 
 There is also a small Electron tray app for Windows that keeps the server running, starts
 with the system and notifies you about new postings.
@@ -60,7 +62,7 @@ Then make it yours. Your personal files are gitignored; each has a template besi
 
 What to search for — queries, stack weights, the company watchlist, which boards — lives
 in [src/profile.ts](src/profile.ts). The pay floor, the companies whose office roles are
-fine and your Polish level are set in the dashboard under **Настройки → Мои условия**.
+fine and your Polish level are set in the dashboard under **Settings → My terms**.
 
 ```bash
 npm run dashboard   # http://localhost:4321
@@ -94,6 +96,7 @@ src/
   pipeline.ts        fetch → dedupe → score → filter → rank
   verdict.ts         Claude's verdict: the queue, the prompt, the schema
   dashboard.ts/.html the local web app
+  i18n.ts            its two languages; locale-ru.json has the Russian
   index.ts           the MCP server
   db.ts              SQLite schema and queries
 scripts/             form filling (Playwright), posting reader, funnel CLI
@@ -105,7 +108,6 @@ desktop/             Electron tray app
 
 - Built for one person's situation: living in Poland, remote-only, senior frontend /
   full-stack. The rules are easy to change, but they start out opinionated.
-- The dashboard's interface is in Russian.
 - Developed and used on Windows; the server and tests should run anywhere Node does,
   the tray app and launcher are Windows-only.
 - Board adapters read public pages and feeds and break when a site changes its markup.

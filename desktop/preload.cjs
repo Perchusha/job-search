@@ -1,5 +1,5 @@
 // The bridge between this app's settings (main process) and the page that
-// edits them: the dashboard's Настройки. Exposed to the local dashboard only —
+// edits them: the dashboard's Settings. Exposed to the local dashboard only —
 // the window never navigates elsewhere (main.mjs), and this is the second lock.
 const { contextBridge, ipcRenderer } = require("electron");
 

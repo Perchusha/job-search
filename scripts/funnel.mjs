@@ -106,7 +106,7 @@ function ageDays(postedAt) {
 /* ------------------------------------------------------------------ */
 
 async function loadContext() {
-  // «Мои условия» from the database the dashboard writes: the giants for officeOk, the floor, Polish.
+  // "My terms" from the database the dashboard writes: the giants for officeOk, the floor, Polish.
   loadPreferences();
   const [{ applications }, { dismissed }] = await Promise.all([
     api("GET", "/api/applications"),
@@ -169,8 +169,8 @@ async function cmdScreen(flags) {
   const decisions = [];
   result.jobs.forEach((job, index) => {
     // The dashboard's own decision when it sent one: it has the rules switched
-    // off in Настройки → Правила, the cards freed by «Правило ошиблось» and the
-    // saved «Мои условия», which this process does not read.
+    // off in Settings → Rules, the cards freed by "Rule was wrong" and the
+    // saved "My terms", which this process does not read.
     const decision = job.screen
       ? { bucket: job.screen.bucket, reason: job.screen.reason, flags: job.screen.flags ?? [] }
       : decide({ ...job, url: job.applyUrl }, context, decisions);
@@ -201,7 +201,7 @@ async function cmdScreen(flags) {
       url: job.applyUrl,
       location: job.location,
       salary: job.salary,
-      // What apply-batch needs to act like «Подать»: the low-pay stop, --pay, --office-ok.
+      // What apply-batch needs: the low-pay stop, --pay, --office-ok.
       pay: job.pay ?? null,
       belowSalaryFloor: Boolean(job.belowSalaryFloor),
       officeOk: officeAcceptable({ company: job.company, location: job.location, locationRestrictions: [] }),

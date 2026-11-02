@@ -1,6 +1,6 @@
 /**
- * preferences.ts — «Мои условия»: the candidate's terms that several layers
- * read, in one place, editable in Настройки.
+ * preferences.ts — "My terms": the candidate's terms that several layers
+ * read, in one place, editable in Settings.
  *
  * Each of these used to be written several times over in different forms: the
  * pay floor as a constant in profile.ts and as ten hand-converted numbers in
@@ -24,6 +24,7 @@
 import { getMeta, setMeta } from "./db.ts";
 
 export type PolishLevel = "A2" | "B1" | "B2" | "C1";
+export type Language = "en" | "ru";
 
 export type Preferences = {
   /** PLN net a month on B2B: under it published pay is "below the floor". */
@@ -41,21 +42,24 @@ export type Preferences = {
   /** My Polish: a required level above it is a stop. */
   polish: PolishLevel;
   /**
-   * Screening rules switched off in Настройки → Правила, by id
+   * Screening rules switched off in Settings → Rules, by id
    * (src/screening.ts SCREEN_RULES): they stop hiding cards. Not part of
    * Claude's criteria — the rules run before Claude, not inside it.
    */
   rulesOff: string[];
   /**
    * How many days a hide of mine teaches the screening ("same role hidden
-   * earlier", a company blocked for hides); 0 is for good. "Не интересна
-   * компания" is a choice, not evidence: it stays whatever this says.
+   * earlier", a company blocked for hides); 0 is for good. "Company not of
+   * interest" is a choice, not evidence: it stays whatever this says.
    */
   memoryDays: number;
+  /** The interface, the server's messages, and what Claude writes from now on (src/i18n.ts). */
+  language: Language;
 };
 
 const KEY = "preferences";
 const LEVELS: PolishLevel[] = ["A2", "B1", "B2", "C1"];
+const LANGUAGES: Language[] = ["en", "ru"];
 
 export function defaultPreferences(): Preferences {
   return {
@@ -71,6 +75,7 @@ export function defaultPreferences(): Preferences {
     polish: "B1",
     rulesOff: [],
     memoryDays: 0,
+    language: "en",
   };
 }
 
@@ -121,6 +126,10 @@ function validated(input: Record<string, unknown>, base: Preferences): Preferenc
     if (!LEVELS.includes(input["polish"] as PolishLevel)) throw new Error(`polish must be one of: ${LEVELS.join(", ")}`);
     next.polish = input["polish"] as PolishLevel;
   }
+  if ("language" in input) {
+    if (!LANGUAGES.includes(input["language"] as Language)) throw new Error(`language must be one of: ${LANGUAGES.join(", ")}`);
+    next.language = input["language"] as Language;
+  }
   if ("rulesOff" in input) {
     // Which ids exist is screening.ts's to say (the server checks before saving); here only the shape.
     const list = input["rulesOff"];
@@ -149,7 +158,7 @@ export function loadPreferences(): Preferences {
   return current;
 }
 
-/** Stores what Настройки sent; a value out of range is refused, nothing is stored then. */
+/** Stores what Settings sent; a value out of range is refused, nothing is stored then. */
 export function savePreferences(input: Record<string, unknown>): Preferences {
   const next = validated(input, current);
   setMeta(KEY, JSON.stringify(next));

@@ -65,7 +65,7 @@ function polishPattern(levels: string, good: string): RegExp {
   );
 }
 
-/** By my level in «Мои условия» (src/preferences.ts): what counts as "above it". */
+/** By my level in "My terms" (src/preferences.ts): what counts as "above it". */
 const POLISH_ABOVE: Record<PolishLevel, RegExp | null> = {
   A2: polishPattern("b1|b2|c1|c2", "dobr|"),
   B1: polishPattern("b2|c1|c2", "dobr|"),

@@ -33,7 +33,7 @@ console.log("PASS  reset times: today, tomorrow, a date, next year, none");
 
 /* ---- what stops the queue ---- */
 const session = limitStop({ is_error: true, api_error_status: 429 }, "You've hit your session limit · resets 11pm (Europe/Warsaw)");
-assert.ok(session && /^лимит Claude до \d\d:\d\d$/.test(session.message), "a session limit pauses the queue");
+assert.ok(session && /^Claude limit until \d\d:\d\d$/.test(session.message), "a session limit pauses the queue");
 assert.ok(limitStop({ is_error: true }, "You're out of usage credits · resets Oct 27, 3pm"), "out of credits pauses it too");
 assert.ok(limitStop({ is_error: true, api_error_status: 429 }, "API Error: 429"), "any 429 pauses it");
 const transient = limitStop({ is_error: true, api_error_status: 429 }, "API Error: Server is temporarily limiting requests (not your usage limit)");
@@ -45,10 +45,10 @@ console.log("PASS  limits: session, credits, any 429 pause; a transient 429 is s
 /* ---- what a discussion knows: the profile, by its full path, not the repo-relative one in the criteria ---- */
 const brief = await discussionBrief();
 assert.match(brief, /[\\/]\.claude[\\/]skills[\\/]job-apply[\\/]profile\.json/, "the brief names the profile's full path");
-assert.ok(/^[A-Za-z]:[\\/]|^\//.test(brief.match(/из (\S+profile\.json)/)?.[1] ?? ""), "an absolute one");
+assert.ok(/^[A-Za-z]:[\\/]|^\//.test(brief.match(/from (\S+profile\.json)/)?.[1] ?? ""), "an absolute one");
 assert.ok(brief.includes('"plnMonthlyB2BRange"') && brief.includes('"workAuthorisation"'), "with the profile itself in it");
 console.log("PASS  the discussion's CLAUDE.md carries the profile: salary, work permit, answers");
-assert.ok(brief.includes("максимум 3–4 предложения") && brief.includes("человеческим языком"), "open answers: short, in a person's words");
+assert.ok(brief.includes("3–4 sentences at most") && brief.includes("plain human language"), "open answers: short, in a person's words");
 console.log("PASS  and how a form's open answers are written: 3–4 sentences, plain words");
 
 /* ---- and the CV, as text from the PDF; a one-page stand-in, not the real one, which keeps changing ---- */
@@ -88,9 +88,9 @@ try {
   writeFileSync(cv, onePagePdf("Built a Google Maps event explorer with marker clustering"));
   const withCv = await discussionBrief(cv);
   assert.ok(withCv.includes("```text\nBuilt a Google Maps event explorer with marker clustering\n```"), "the CV's text, fenced");
-  assert.ok(withCv.includes(`текстом из ${cv}`), "and where it came from");
+  assert.ok(withCv.includes(`as text from ${cv}`), "and where it came from");
   const missing = await discussionBrief(join(dir, "gone.pdf"));
-  assert.ok(missing.includes("Резюме не прочиталось") && !missing.includes("```text"), "a missing CV is said, not left out");
+  assert.ok(missing.includes("The CV could not be read") && !missing.includes("```text"), "a missing CV is said, not left out");
   writeFileSync(cv, onePagePdf("+48 571, times from 10-15s to ~3s", { "+": 0xe09d, "-": 0xe088, "~": 0xe0a3 }));
   assert.ok((await discussionBrief(cv)).includes("```text\n+48 571, times from 10-15s to ~3s\n```"), "Inter's raised + - ~ read as + - ~");
 } finally {
@@ -98,7 +98,7 @@ try {
 }
 console.log("PASS  and the CV: its text from the PDF, Inter's raised punctuation as itself, or a word that it could not be read");
 
-/* ---- Настройки → «Не убирать, если единственная причина»: a policy over the stored verdict, no new run ---- */
+/* ---- Settings → "Keep a card if the only reason is…": a policy over the stored verdict, no new run ---- */
 const stored = (verdict, factors) => ({
   job_key: "k", url: "https://example.com/k", company: "Acme", title: "Frontend Engineer", verdict, score: 25,
   summary: "", session_id: null, model: "opus", criteria: "v1", requested: "auto", text_chars: 3000,
@@ -106,7 +106,7 @@ const stored = (verdict, factors) => ({
   details: JSON.stringify({ dealbreakers: factors.map((factor) => ({ factor, text: `${factor} says no` })) }),
 });
 const formatOnly = verdictView(stored("skip", ["format"]), "v1", undefined, ["format", "level"]);
-assert.equal(formatOnly.verdict, "maybe", "a skip on a softened kind shows in «Проверить»");
+assert.equal(formatOnly.verdict, "maybe", "a skip on a softened kind shows in \"Check\"");
 assert.deepEqual(formatOnly.softened, ["format"], "named by its kind");
 assert.deepEqual(formatOnly.dealbreakers, ["format says no"], "the stop factor itself stays on the card");
 assert.equal(verdictView(stored("skip", ["format", "stack"]), "v1", undefined, ["format"]).verdict, "skip", "one kind not softened keeps the skip");
@@ -116,6 +116,6 @@ assert.equal(verdictView(stored("skip", []), "v1", undefined, ["format"]).verdic
 const oldFormat = { ...stored("skip", []), details: JSON.stringify({ dealbreakers: ["remote only in the US"] }) };
 assert.equal(verdictView(oldFormat, "v1", undefined, ["format"]).verdict, "skip", "an untyped stop factor (before FORMAT 3) stays");
 assert.equal(verdictView(stored("apply", []), "v1", undefined, ["format"]).softened, null, "only skips are softened");
-console.log("PASS  softened stop factors: a skip on softened kinds reads «Проверить», any other kind keeps it");
+console.log("PASS  softened stop factors: a skip on softened kinds reads \"Check\", any other kind keeps it");
 
 console.log("\nVERDICT TESTS PASSED");

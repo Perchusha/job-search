@@ -63,7 +63,7 @@ function due(source: SourceName, force: boolean): SourceOutcome["status"] | "due
   const state = lastFetch(source);
   if (state.running) return "running";
   const slow = SLOW_SOURCES.includes(source);
-  // The desktop app's "LinkedIn в фоне" switch. Off: LinkedIn is not fetched
+  // The desktop app's "LinkedIn once a day" switch. Off: LinkedIn is not fetched
   // on any schedule, and its stored postings stay until they age out.
   if (slow && process.env["JOBHUNT_LINKEDIN_BACKGROUND"] === "0") return "off";
   // A pass cut short (recorded "partial, …: <error>") waits as long: retried
@@ -71,7 +71,7 @@ function due(source: SourceName, force: boolean): SourceOutcome["status"] | "due
   if (slow && state.lastError && /429|^partial/.test(state.lastError) && hoursSince(state.lastRunAt) < BACKOFF_HOURS) {
     return "backoff";
   }
-  // "Обновить" refreshes the fast boards on demand; LinkedIn keeps its own
+  // "Refresh" refreshes the fast boards on demand; LinkedIn keeps its own
   // pace whatever is clicked, because every click used to cost ~140 requests.
   if (force && !slow) return "due";
   const interval = slow || DAILY_SOURCES.includes(source) ? SLOW_INTERVAL_HOURS : refreshHours();

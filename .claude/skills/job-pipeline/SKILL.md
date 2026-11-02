@@ -41,9 +41,9 @@ Claude's verdict comes first — it read the whole posting against
 `src/verdict-criteria.md`; the rest are regexes over the same text:
 
 - `claude:skip` → not a candidate. Report it with its reason; do not hide it
-  (it waits in «Убрал Claude», and a criteria change may bring it back).
+  (it waits in "Skipped by Claude", and a criteria change may bring it back).
 - `claude:maybe`, `claude:…(old)` or `claude:—` → **needs-you**: something the
-  user should check, as in the «Проверить» stack.
+  user should check, as in the "Check" stack.
 - `claude:apply` → a candidate, unless the line says otherwise:
   - `!low-pay` → **needs-you** (pay under the floor is the user's call);
   - `!applied-before` → **needs-you** (a role like one already applied to);
@@ -72,7 +72,7 @@ answers) and send only what they approve:
 `--submit --only <idx,…>`. `--force <idx>` / `--accept-low-pay <idx>` only on
 their word. Applications go out in their name; nothing is sent unseen.
 Boards that e-mail a verification code (Greenhouse) run headed and need the
-user at the keyboard, so run those last and say so. The dashboard's «Подать»
+user at the keyboard, so run those last and say so. The dashboard's "Apply"
 fills no forms: it only opens the posting.
 
 Then clear the `missing-answers` rows: write `$S/answers/<idx>.json`, re-run
@@ -94,7 +94,7 @@ Four lists, one line each, nothing else:
 
 1. **Applied** — company, title, board, funnel id.
 2. **Needs you** — `node scripts/funnel.mjs attempts` (codes not typed, CAPTCHAs, account walls, missing answers — recorded by apply.mjs, also on the dashboard), plus hybrid-light roles and marketplaces (lemon.io, Jobgether, Proxify…) from the screen, with the URL.
-3. **Claude said no** — the `claude:skip` rows, one line each with Claude's reason (they stay in «Убрал Claude»).
+3. **Claude said no** — the `claude:skip` rows, one line each with Claude's reason (they stay in "Skipped by Claude").
 4. **Failed** — `submit-failed` rows with the error text and screenshot path.
 
 ## Cost rules

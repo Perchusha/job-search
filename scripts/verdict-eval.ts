@@ -9,7 +9,7 @@
  *
  * Labels and runs: src/verdict-eval.ts. Each run is saved under
  * ~/.job-hunt/eval/runs/. A run of the file as it is also shows in
- * Настройки → Claude; a draft's does not. Nothing is stored as a verdict.
+ * Settings → Claude; a draft's does not. Nothing is stored as a verdict.
  * Needs the claude CLI logged in, as the verdicts do; runs as many `claude -p`
  * as there are rows, outside the daily cap.
  */

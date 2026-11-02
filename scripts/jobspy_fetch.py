@@ -51,7 +51,7 @@ def keep_one_part_locations() -> None:
     "European Union", "EMEA", which on a remote search means "anywhere there" —
     becomes country "worldwide", and display_location() drops that: 185 of 723
     stored LinkedIn rows had no location though LinkedIn said Poland, and the
-    verdict read "Где: не указано". Keep the string as the location.
+    verdict read "Location: not stated". Keep the string as the location.
     """
     try:
         from jobspy.linkedin import LinkedIn

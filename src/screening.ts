@@ -6,7 +6,7 @@
  * against the database they would have caught 137 of the 277 jobs I had hidden
  * by hand without a reason. So the search applies them itself, at read time:
  * nothing is written to the dismissed table (hiding stays an explicit act), and
- * the page keeps every rule hit behind a "скрыто правилами" toggle with its
+ * the page keeps every rule hit behind a "Hidden by rules" toggle with its
  * reason, because the rules do misfire.
  *
  * The rule lists are personal and live in profile.ts. This file is mechanics:
@@ -23,6 +23,7 @@
  */
 
 import { payVsFloor } from "./boards-pl.ts";
+import { locale, quote, reasonWord, t } from "./i18n.ts";
 import { jobKey } from "./jobkey.ts";
 import { preferences } from "./preferences.ts";
 import { workSignals } from "./workmode.ts";
@@ -184,7 +185,7 @@ export type ScreenDismissal = {
  * Hide reasons a rule wrote, as opposed to a judgement about the role. They
  * are not evidence for the cross-reference rules (see the file header).
  */
-const MACHINE_REASON = /^(duplicate|same role|company hidden|already applied|auto:|компания[: ])/i;
+const MACHINE_REASON = /^(duplicate|same role|company[: ]|already applied|auto:|компания[: ])/i;
 
 const BACKEND_RULE = "backend-only role";
 const POLISH_RULE = "requires fluent Polish (per posting)";
@@ -212,8 +213,13 @@ function machineReason(reason: string | null): boolean {
   return MACHINE_REASON.test(reason) || RULE_REASONS.has(reason) || /^posting is \d+ days old$/.test(reason);
 }
 
-/** The explicit "не интересна компания" choice from the page's hide menu. */
+/** The explicit "company not of interest" choice from the page's hide menu; an id, like every hide reason (src/i18n.ts). */
 export const COMPANY_REASON = "не интересна компания";
+
+/** What a company I said no to is blocked with. */
+export function companyHiddenByHand(): string {
+  return t("company hidden by hand");
+}
 
 /**
  * Hides that say this posting is gone, not that the role is wrong: a repost of
@@ -222,7 +228,7 @@ export const COMPANY_REASON = "не интересна компания";
 const DEAD_POSTING_REASONS = new Set(["вакансия неактуальна", "вакансия закрыта"]);
 
 /* ------------------------------------------------------------------ */
-/* The rules Настройки → Правила can switch off                        */
+/* The rules Settings → Rules can switch off                            */
 /* ------------------------------------------------------------------ */
 
 export type ScreenRule = {
@@ -277,15 +283,15 @@ export const SCREEN_RULES: ScreenRule[] = [
     words: patternWords(pattern),
     note: "",
   })),
-  { id: POLISH_RULE, label: "Польский выше моего", words: [], note: "по тексту вакансии; мой уровень — в «Мои условия»" },
+  { id: POLISH_RULE, label: "Polish above mine", words: [], note: "by the posting's text; my level is in “My terms”" },
   {
     id: BACKEND_RULE,
-    label: "Только бэкенд",
+    label: "Backend only",
     words: patternWords(SCREEN_BACKEND_ONLY),
-    note: "когда в заголовке нет React, frontend, fullstack, web",
+    note: "when the title has no React, frontend, fullstack, web",
   },
-  { id: STALE_RULE, label: `Старше ${STALE_DAYS} дней`, words: [], note: "кроме тех, что площадка ещё показывает" },
-  { id: INDEED_ONSITE_RULE, label: "Офис или гибрид по Indeed", words: [], note: "формат помечает сам Indeed" },
+  { id: STALE_RULE, label: `Older than ${STALE_DAYS} days`, words: [], note: "except what the board still lists" },
+  { id: INDEED_ONSITE_RULE, label: "Office or hybrid per Indeed", words: [], note: "Indeed marks the format itself" },
 ];
 
 /** The rule behind a hit's reason; null for the memory rules and anything else. */
@@ -304,22 +310,22 @@ export type ScreenContext = {
   /** Companies hidden by explicit choice, or for 2+ distinct roles by hand. */
   blockedCompanies: Map<string, string>;
   appliedByCompany: Map<string, Keyed<ScreenApplication>[]>;
-  /** Rules switched off in Настройки → Правила (SCREEN_RULES ids). */
+  /** Rules switched off in Settings → Rules (SCREEN_RULES ids). */
   rulesOff: Set<string>;
   /** Cards I said a rule was wrong about (db.ts rule_overrides): no hiding rule applies to them. */
   freed: Set<string>;
 };
 
 export type ContextOptions = {
-  /** Keys of the cards freed by «Правило ошиблось». */
+  /** Keys of the cards freed by "Rule was wrong". */
   overrides?: string[];
-  /** Rules switched off; «Мои условия» `rulesOff` when not given. */
+  /** Rules switched off; "My terms" `rulesOff` when not given. */
   rulesOff?: string[];
-  /** Companies (companyKey) given back from a block in Настройки → Компании и память. */
+  /** Companies (companyKey) given back from a block in Settings → Companies & memory. */
   forgetCompanies?: string[];
-  /** Hides (their job keys) that no longer teach anything: «забыть». */
+  /** Hides (their job keys) that no longer teach anything: "forget". */
   forgetHides?: string[];
-  /** Only hides this recent count as memory; 0 is all. «Мои условия» `memoryDays` when not given. */
+  /** Only hides this recent count as memory; 0 is all. "My terms" `memoryDays` when not given. */
   memoryDays?: number;
 };
 
@@ -347,8 +353,8 @@ export function buildContext(
   }
 
   // What my hides teach: not what a rule wrote, not what I said to forget,
-  // and with a memory window only the recent ones — except "не интересна
-  // компания", a choice about the company rather than evidence.
+  // and with a memory window only the recent ones — except "company not of
+  // interest", a choice about the company rather than evidence.
   const forgotten = new Set(options.forgetHides ?? []);
   const days = options.memoryDays ?? preferences().memoryDays;
   const since = days > 0 ? Date.now() - days * 86_400_000 : null;
@@ -373,7 +379,7 @@ export function buildContext(
   for (const row of own) {
     if (!row.companyKey || givenBack.has(row.companyKey)) continue;
     if (row.reason === COMPANY_REASON) {
-      blockedCompanies.set(row.companyKey, "компания скрыта вручную");
+      blockedCompanies.set(row.companyKey, companyHiddenByHand());
       continue;
     }
     if (row.reason || !targetTitle(row.title) || chosenCompany(row.company ?? "")) continue;
@@ -384,7 +390,7 @@ export function buildContext(
   for (const [company, roles] of handRoles) {
     if (roles.length >= 2 && !appliedByCompany.has(company) && !blockedCompanies.has(company)) {
       const evidence = roles.slice(0, 2).map((role) => `${shortDate(role.dismissed_at)} ${role.title}`).join("; ");
-      blockedCompanies.set(company, `компания: скрыто ${roles.length} разных ролей без причины, откликов нет (${evidence})`);
+      blockedCompanies.set(company, t("company: {n} different roles hidden without a reason, no applications ({evidence})", { n: roles.length, evidence }));
     }
   }
 
@@ -416,7 +422,7 @@ function chosenCompany(company: string): boolean {
 }
 
 function shortDate(iso: string | null | undefined): string {
-  return iso ? new Date(iso).toLocaleDateString("ru", { day: "2-digit", month: "2-digit" }) : "?";
+  return iso ? new Date(iso).toLocaleDateString(locale(), { day: "2-digit", month: "2-digit" }) : "?";
 }
 
 export type Bucket = "apply" | "check" | "needs-you" | "dismiss" | "skip";
@@ -462,8 +468,8 @@ function companyFlags(context: ScreenContext, company: string): string[] {
     if (!sameCompany(company, key)) continue;
     const rejected = apps.filter((app) => app.status === "rejected");
     return [
-      `откликался сюда ${apps.length}× (${apps.map((app) => `#${app.id} ${app.status}`).join(", ")})` +
-        (rejected.length > 0 ? `, отказов: ${rejected.length}` : ""),
+      t("applied here {n}× ({list})", { n: apps.length, list: apps.map((app) => `#${app.id} ${app.status}`).join(", ") }) +
+        (rejected.length > 0 ? `, ${t("rejections: {n}", { n: rejected.length })}` : ""),
     ];
   }
   return [];
@@ -488,21 +494,21 @@ export function decide(
   // The middle under the floor is Claude's doubt in the criteria; said here
   // too, so the card and the verdict agree.
   const pay = job.payState !== undefined ? job.payState : job.belowSalaryFloor ? "below" : payVsFloor(job);
-  if (pay === "below") flags.push(`зарплата ниже порога: ${job.salary ?? "?"}`);
-  else if (pay === "midlow") flags.push(`середина вилки ниже порога: ${job.salary ?? "?"}`);
+  if (pay === "below") flags.push(t("pay below the floor: {pay}", { pay: job.salary ?? "?" }));
+  else if (pay === "midlow") flags.push(t("middle of the range below the floor: {pay}", { pay: job.salary ?? "?" }));
 
   if (job.dismissed) return { bucket: "skip", reason: "already hidden", flags };
   const keys = [jobKey(job.url), ...(job.aliasKeys ?? [])];
   if (keys.some((key) => context.appliedKeys.has(key))) {
     return { bucket: "skip", reason: "already in the funnel", flags };
   }
-  // «Правило ошиблось» on this card or a copy dedupe folded into it: nothing hides it again.
+  // "Rule was wrong" on this card or a copy dedupe folded into it: nothing hides it again.
   const freed = keys.some((key) => context.freed.has(key));
   const on = (rule: string) => !freed && !context.rulesOff.has(rule);
 
   // The same role applied to through another board: same company, same title
   // once listing tags are gone. Its link differs, so the check above misses
-  // it, and Xebia's and ElevenLabs' copies reached «Подходят» with apply 84
+  // it, and Xebia's and ElevenLabs' copies reached "Good fit" with apply 84
   // and 78. A rule hit, so neither the stacks nor Claude's queue take it. The
   // title must name the role — two "Senior Software Engineer" openings at one
   // company are not one job — and the application must be recent: after
@@ -513,7 +519,7 @@ export function decide(
       (app) => app.role === role && sameCompany(company, app.companyKey) && (ageDays(app.applied_at ?? null) ?? 0) <= REAPPLY_AFTER_DAYS,
     );
     if (applied) {
-      const on = applied.applied_at ? new Date(applied.applied_at).toLocaleDateString("ru", { day: "2-digit", month: "2-digit" }) : "?";
+      const on = shortDate(applied.applied_at);
       return {
         bucket: "dismiss",
         reason: `already applied to this role: #${applied.id} (${applied.status}, ${applied.source ?? "?"}, ${on})`,
@@ -525,7 +531,7 @@ export function decide(
   // The same role at a company I applied to: a flag, never a hide.
   for (const app of context.applications) {
     if (sameCompany(company, app.companyKey) && jaccard(tokens, app.tokens) >= 0.5) {
-      flags.unshift(`похоже на отклик #${app.id} (${app.status}): ${app.title}`);
+      flags.unshift(t("looks like application #{id} ({status}): {title}", { id: app.id, status: app.status, title: app.title ?? "?" }));
       break;
     }
   }
@@ -569,7 +575,7 @@ export function decide(
   const shape = shapeOf(title, company);
   for (const hidden of freed ? [] : context.roleHides) {
     if (sameCompany(company, hidden.companyKey) && sameRole(shape, hidden)) {
-      const why = hidden.reason ? `«${hidden.reason}»` : "без причины";
+      const why = hidden.reason ? quote(reasonWord(hidden.reason)) : t("no reason");
       return {
         bucket: "dismiss",
         reason: `same role hidden earlier (${shortDate(hidden.dismissed_at)}, ${why}): ${hidden.title}`,

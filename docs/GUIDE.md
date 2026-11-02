@@ -16,8 +16,8 @@ assistant or the browser.
 - **MCP server** — 8 tools your AI assistant can call (`find_jobs`, `log_found_jobs`,
   `dismiss_job`, `log_application`, `update_status`, `add_note`, `list_applications`,
   `get_stats`).
-- **Dashboard** — two tabs at <http://localhost:4321>: **Поиск**, a stack you go through one
-  posting at a time with Claude's verdict on each, and **Отклики** (where the applications
+- **Dashboard** — two tabs at <http://localhost:4321>: **Search**, a stack you go through one
+  posting at a time with Claude's verdict on each, and **Applications** (where the applications
   stand, and the list of them).
 - **Separate signals** — the profile match and the geography check still rank and filter the
   feed; Claude's verdict, read from the whole posting, decides which stack a card is in.
@@ -98,15 +98,15 @@ There is no build step; `tsx` runs the TypeScript directly.
 | `JOBHUNT_HOST`                 | `127.0.0.1`          | Bind address; use `0.0.0.0` for LAN   |
 | `JOBHUNT_REFRESH_HOURS`        | `6`                  | How often the fast boards are re-fetched in the background (LinkedIn: daily) |
 | `JOBHUNT_BACKGROUND`           | on                   | `0` turns off the dashboard's background refresh; searches then fill the table on demand |
-| `JOBHUNT_CLAUDE_AUTO`          | on                   | `0` stops Claude judging the Search tab's cards in the background; the card button still works. This and the next two are only defaults: **Настройки → Claude** overrides them |
+| `JOBHUNT_CLAUDE_AUTO`          | on                   | `0` stops Claude judging the Search tab's cards in the background; the card button still works. This and the next two are only defaults: **Settings → Claude** overrides them |
 | `JOBHUNT_CLAUDE_MODEL`         | `sonnet`             | Model for the verdicts (`opus` reads closer, counts heavier against the plan) |
 | `JOBHUNT_CLAUDE_EFFORT`        | `low`                | Effort for the verdicts (`low`…`max`); the user settings' `xhigh` is for coding sessions |
 | `JOBHUNT_CLAUDE_DAILY`         | `80`                 | Most verdicts the background queue makes in a day; manual ones are not counted |
 | `JOBHUNT_CLAUDE`               | `claude` on PATH     | Path to the Claude Code executable (a `.mjs` runs under Node — the tests' stand-in) |
 
 The Claude settings saved from the page live in the database (`meta.claude_settings`), so they
-survive restarts and win over the variables; **Настройки → Claude** also shows today's
-background runs and has **Оценить оставшиеся сейчас**, which queues every shown card without
+survive restarts and win over the variables; **Settings → Claude** also shows today's
+background runs and has **Judge the rest now**, which queues every shown card without
 a current verdict as a manual request — outside the daily cap.
 
 ### Desktop app (tray, autostart, notifications)
@@ -117,13 +117,13 @@ refresh keeps running without a terminal window:
 - starts with Windows straight into the tray (optional) and runs the dashboard server as a
   hidden child process — or uses one already running, e.g. from `Job Hunt.bat` — restarting it
   if it dies;
-- the dashboard opens in its own window; closing it keeps the app in the tray, **Выйти** stops
+- the dashboard opens in its own window; closing it keeps the app in the tray, **Quit** stops
   the app and the server;
-- notifications: "N новых вакансий" when a refresh finds postings (from `/api/new-count?since=`,
+- notifications: "N new postings" when a refresh finds postings (from `/api/new-count?since=`,
   counted the way the Search tab shows them — not hidden, not applied, not a rule hit), and a
-  daily digest "За сутки появилось N новых вакансий"; quiet hours; clicking one opens Search.
+  daily digest "N new postings in the last 24 hours"; quiet hours; clicking one opens Search.
   The tray icon gets a dot and the count while there is something new;
-- settings are in the dashboard's own **Настройки** (the avatar menu in the window): theme,
+- settings are in the dashboard's own **Settings** (the avatar menu in the window): theme,
   Claude, and — in the app only — autostart, refresh interval, LinkedIn in the background,
   notification threshold, quiet hours, digest time, port, Wi-Fi access. The app part goes
   through the preload bridge (`window.jobHunt`, exposed to the local dashboard only; the
@@ -143,7 +143,7 @@ The installed app does not carry a copy of the project: it starts `src/dashboard
 repo (the path is baked in by `build.mjs`; `JOBHUNT_REPO` overrides it) with the `node` on
 PATH, so moving the repo means rebuilding. The installer is unsigned, so SmartScreen asks once.
 Windows' own notification switch must be on (Settings → System → Notifications); the tray menu
-and Настройки say when it is off and open that page.
+and Settings say when it is off and open that page.
 
 ### Windows app (terminal)
 
@@ -241,16 +241,16 @@ A Polish city, metro area or voivodeship counts as Poland ("Wroclaw Metropolitan
 "European Union" or a city; JobSpy used to drop the one-part ones, so 185 of 723 rows had no
 place at all — `scripts/jobspy_fetch.py` keeps them now. Such a country-wide card is a remote
 role open to the whole country (14 of 22 judged ones remote by their text, none asking for an
-office); a card naming a city is where the office days were (17 of the 18 "не remote" skips).
-The verdict's «Где» takes the page's own place when the board gave none, and keeps it: the place
+office); a card naming a city is where the office days were (17 of the 18 "not remote" skips).
+The verdict's "Location" takes the page's own place when the board gave none, and keeps it: the place
 is saved with the page's text (`posting_texts.location`), so a re-judge from the saved text
 has it too — without it Kraken's remote role was doubted "open from Poland?" on 2026-10-25 —
-and the Search card shows it. For a LinkedIn posting the prompt adds that «Где» is where the
+and the Search card shows it. For a LinkedIn posting the prompt adds that "Location" is where the
 employer filed it, remote ones included, so a city there is no office: the format comes from
 the text. (LinkedIn's own "Remote" chip shows only to a logged-in session; the public page
 has no work mode, and its search does not keep to the remote filter.)
 
-One exception to remote-only: the giants listed in **Настройки → Мои условия** (Google,
+One exception to remote-only: the giants listed in **Settings → My terms** (Google,
 Apple, Netflix, Meta, Microsoft, Amazon, Nvidia, subsidiaries named; `OFFICE_OK` in
 src/profile.ts reads them). Their hybrid or onsite roles in the city named there
 (**Warsaw**) score `high`, are not demoted for office days, are not hidden by the Indeed
@@ -261,11 +261,11 @@ by hides without a reason, and `apply-batch.mjs` passes `--office-ok` so LinkedI
 not stop the script. LinkedIn is also asked for them by name once a day, beside the remote
 queries (`OFFICE_OK.linkedin`: one OR-query, Warsaw, not remote; rows that are not a giant's
 Warsaw office are dropped) — the remote queries let such roles through only by accident. The same giant in Kraków stays `medium`: no relocation. Claude's criteria get the
-same list from the same place (see «Мои условия» below).
+same list from the same place (see "My terms" below).
 
-### «Мои условия» — the terms the rules and Claude share
+### "My terms" — the terms the rules and Claude share
 
-**Настройки → Мои условия** ([src/preferences.ts](../src/preferences.ts), stored in DB meta
+**Settings → My terms** ([src/preferences.ts](../src/preferences.ts), stored in DB meta
 `preferences`): the pay floor (B2B net a month), the UoP↔B2B equivalence (how much gross on UoP
 equals how much net on B2B), paid hours in a month, the companies whose office roles are fine and
 the city, and my Polish level. They used to be written several times over: the floor as a
@@ -274,9 +274,9 @@ in the criteria and a line in profile.json, the Polish level as a regex that, un
 criteria, did not count B2 — the giants exception alone touched 13 files. Now the code reads
 them (the floor and the "below / middle below" flags, the office exception and LinkedIn's
 query for it, the Polish rule — B2 moves the stop to C1, C1 removes it), and
-src/verdict-criteria.md gets them as a generated last section, «Условия из Настроек», with
+src/verdict-criteria.md gets them as a generated last section, "Terms from Settings", with
 the floor in EUR, USD, per year and per hour. A save rebuilds the feed and changes the
-criteria version, so verdicts are redone as «После правки критериев» says. The dashboard,
+criteria version, so verdicts are redone as "After a criteria edit" says. The dashboard,
 the MCP server and `npm run refresh` read the stored values; anything without a database
 (the tests) works with the defaults — the values hard-coded before. The facts forms are
 filled from (the asks, notice, work permit) stay in `.claude/skills/job-apply/profile.json`.
@@ -356,7 +356,7 @@ ones were checked and are empty (jobs.devby.io: 6 vacancies in all; rabota.by is
 
 `SEARCH_DEFAULTS.sources` is **nofluffjobs, justjoin, watchlist, workable, jobicy, dou, indeed, linkedin, himalayas, hackernews**.
 
-Настройки → Поиск shows, per board, the cards on screen, how many of them Claude took (apply or
+Settings → Search shows, per board, the cards on screen, how many of them Claude took (apply or
 maybe), and how many are **only there**: every copy dedupe folded into the card came from that board.
 `DEFAULT_SOURCES` (`indeed` + `himalayas`) is only the fallback for a caller that names none.
 
@@ -423,7 +423,7 @@ with things you never applied to. Keeping it separate also makes un-dismissing a
 delete. The filter is applied in `searchForProfile()`, so both the dashboard and `find_jobs`
 honour it without each having to remember.
 
-**There is no pre-application stage.** A row in the funnel means you applied — `В воронку`
+**There is no pre-application stage.** A row in the funnel means you applied — `Add to funnel`
 inserts straight as `applied`, and so does `log_found_jobs`. The old `saved` bookmark stage
 is gone: it meant "have I applied to this?" needed two lookups, and every rate had to carve
 it back out of the denominator. Every tracked row is now a real application, so
@@ -442,7 +442,7 @@ is what feeds the response-rate and days-to-response stats. `dropped` is the exc
 
 | Route                                | Purpose                                                     |
 | ------------------------------------ | ----------------------------------------------------------- |
-| `GET /`                              | The page, src/dashboard.html (Поиск + Отклики)              |
+| `GET /`                              | The page, src/dashboard.html (Search + Applications)              |
 | `GET /fonts.css`                     | Onest and Unbounded, read from `node_modules` at boot      |
 | `GET /api/search`                    | `?includeDismissed=1`, `?hoursOld=N` and `?sources=a,b` optional — runs the profile search server-side and echoes the profile it actually used |
 | `POST /api/dismissed`                | `{ url, title?, company?, reason? }` → hide a job from every search |
@@ -456,21 +456,21 @@ is what feeds the response-rate and days-to-response stats. `dropped` is the exc
 | `GET /api/verdicts`                  | `?since=<iso>` optional — verdicts made after it, and what the queue is doing |
 | `POST /api/verdict/open`             | `{ key }` → open that verdict's session in Claude Desktop; this computer only |
 | `POST /api/verdicts/queue`           | Queue every shown card without a current verdict, as manual requests (202, `{ queued, status }`) |
-| `POST /api/verdict/feedback`         | `{ key, expected }` → «Верно» / «Мимо» on a verdict |
-| `GET /api/settings`                  | `{ claude, criteria, preferences }`: the Claude settings with today's background runs and the defaults, where the criteria stand, «Мои условия» |
+| `POST /api/verdict/feedback`         | `{ key, expected }` → "Right" / "Wrong" on a verdict |
+| `GET /api/settings`                  | `{ claude, criteria, preferences }`: the Claude settings with today's background runs and the defaults, where the criteria stand, "My terms" |
 | `POST /api/settings/claude`          | `{ auto, model, effort, daily, rejudge, soft, softenFactors }`, any of them → saved, then the queue re-checked; 400 on a bad value |
-| `POST /api/settings/preferences`     | «Мои условия» and `rulesOff`, any of them → saved, the feed rebuilt; 400 on a bad value or an unknown rule |
-| `GET` / `POST /api/criteria/check`   | The «Сверить» run: its state / start one (`{ set: "labels" \| "borderline" }`) |
+| `POST /api/settings/preferences`     | "My terms", `rulesOff` and `language`, any of them → saved, the feed rebuilt; 400 on a bad value or an unknown rule |
+| `GET` / `POST /api/criteria/check`   | The "Check" run: its state / start one (`{ set: "labels" \| "borderline" }`) |
 | `POST /api/criteria/restore`         | `{ version }` → write an older criteria text back into the file |
-| `GET /api/rules`                     | Настройки → Правила: each rule with its hits now, the freed cards, what the fit gate left out |
-| `POST` / `DELETE /api/rules/override` | `{ key, reason }` → «правило ошиблось» on a card; `{ key }` → give it back to the rules |
-| `GET /api/search-setup`              | Настройки → Поиск: the queries with their yield, the boards, the way from stored to shown |
-| `GET /api/memory`                    | Настройки → Компании и память: blocked companies, hides that hide copies, the forgotten, the company boards |
-| `POST` / `DELETE /api/memory/forget` | `{ kind: "company" \| "hide", key, label? }` → «вернуть» / «забыть»; DELETE takes it back |
+| `GET /api/rules`                     | Settings → Rules: each rule with its hits now, the freed cards, what the fit gate left out |
+| `POST` / `DELETE /api/rules/override` | `{ key, reason }` → "rule was wrong" on a card; `{ key }` → give it back to the rules |
+| `GET /api/search-setup`              | Settings → Search: the queries with their yield, the boards, the way from stored to shown |
+| `GET /api/memory`                    | Settings → Companies & memory: blocked companies, hides that hide copies, the forgotten, the company boards |
+| `POST` / `DELETE /api/memory/forget` | `{ kind: "company" \| "hide", key, label? }` → "restore" / "forget"; DELETE takes it back |
 
 `POST /api/applications` is idempotent on the job's key (below): re-adding returns `200` with
 `result: "already_tracked"` instead of an error, which is why the Search tab can safely show
-a card as "✓ В воронке" rather than failing.
+a card as "✓ In funnel" rather than failing.
 
 Binds to `127.0.0.1` by default (`Job Hunt.bat` binds `0.0.0.0`, for phones on the same
 Wi-Fi). There is no login by design — it is a single-user tool — so the guard is against
@@ -482,14 +482,39 @@ from the same host. Before this, a cross-site `text/plain` POST could write a di
 The page's assets come from `node_modules` over the same local server, so the dashboard
 works with the network down.
 
+### Two languages
+
+English is the source text and the default; [src/locale-ru.json](../src/locale-ru.json) holds
+the Russian for each English text, and Settings has the switch (at the foot of the sections
+list; it applies at once and reloads the page). The language is one setting for the whole app,
+stored with "My terms" as `language`, so three things follow it:
+
+- **The page.** The server replaces the markup's double-braced texts when it serves it and puts
+  the catalog into the script, whose `t()` and `tn()` read it.
+- **The server's own words** through the same functions in [src/i18n.ts](../src/i18n.ts): flags,
+  errors, the rules' names, what stops Claude's queue. The tray app asks `/api/new-count` for
+  the language and has its own short list of words; a built app needs rebuilding to get them.
+- **What Claude writes.** The system prompt, the schema's descriptions, the posting's labels and
+  the `Discuss` brief exist in both languages. Verdicts already written stay in the language
+  they were written in.
+
+Choosing another language re-judges nothing: the criteria version always hashes the Russian
+wording, so an edit to the fixed instructions goes into both and shows in the Russian one.
+**Hide reasons are ids that happen to be Russian** (`не remote`, `не тот стек`, …): the hides
+in the database, the verdict schema's enum and the screening rules hold those strings in either
+language, and `reasonWords()` says how each reads on screen. `test:i18n` checks the catalog
+against the code in both directions, and `test:ui` that the English page holds no Russian beyond
+those ids.
+
 ### The page
 
 [src/dashboard.html](../src/dashboard.html) — plain HTML with its CSS and script inline, read
-by the server at boot, which fills in `__STATUSES__` and `__SOURCES__`. It used to be a
+by the server at boot, which fills in `__STATUSES__`, `__SOURCES__` and the language's parts
+(see *Two languages*). It used to be a
 template literal inside `dashboard.ts`, where a stray backtick or an unescaped backslash
 blanked the whole page and `tsc` said nothing; restart the server after editing it.
 
-The look, «Глубина» (chosen 2026-10-27, after "Солнце"): dark only — the light theme and
+The look, "Depth" (chosen 2026-10-27, after "Sun"): dark only — the light theme and
 its switch went —, a near-black ground (`#07080D`) with one soft tangerine glow, layers of
 white at a few percent instead of solid panels, one tangerine accent (`#FF7A45`) with dark
 text on it (white on that orange would be 3.4:1), and two typefaces — **Unbounded** for the
@@ -498,9 +523,9 @@ few display lines, **Onest** for everything else, both with Cyrillic, served fro
 the top of the stylesheet. The desktop window opens at 1280×720, and the page fits it.
 
 It is laid out as an app window: the header across the top — the brand with ↻ and the
-boards' age, the stacks in the middle (on Отклики, its statuses in the same place), my
-links, Найти and the avatar on the right —, a rail down the left with the two sections and
-Настройки at its foot, and the view taking exactly the rest; every column scrolls inside
+boards' age, the stacks in the middle (on Applications, its statuses in the same place), my
+links, Find and the avatar on the right —, a rail down the left with the two sections and
+Settings at its foot, and the view taking exactly the rest; every column scrolls inside
 itself. No scrollbar is drawn anywhere: a list that goes on fades out at its foot instead (a
 mask moved by a scroll-driven animation, so the fade is gone at the end and when nothing
 scrolls). No native select or checkbox is drawn: a select is a button whose options open in
@@ -508,7 +533,7 @@ one shared listbox, placed by the script so neither the tracker's table nor the 
 dialog clips it (arrows, Home/End, Enter, Esc); a checkbox keeps its real input under a
 drawn box. Under 900 px the page scrolls as a whole and the columns stack.
 
-On **Отклики** a click on a row opens that application in a drawer on the right: its status
+On **Applications** a click on a row opens that application in a drawer on the right: its status
 (changeable there or in the row), when it went out and when the reply came,
 what went with it, the company's other applications and postings, the posting's link. The
 right column sums up: reply and silence rates, days to a reply, the last reply, this week.
@@ -535,10 +560,10 @@ finishing and Indeed finishing used to keep missing Indeed until the next pass.
 
 | Board | Refresh |
 | --- | --- |
-| nofluffjobs, justjoin, workable, jobicy, dou, indeed, himalayas | a full month-wide pass every 6 h (`JOBHUNT_REFRESH_HOURS`), ~2–5 s each. ↻ Обновить runs it now |
+| nofluffjobs, justjoin, workable, jobicy, dou, indeed, himalayas | a full month-wide pass every 6 h (`JOBHUNT_REFRESH_HOURS`), ~2–5 s each. ↻ Refresh runs it now |
 | watchlist | daily, ~10 s for 16 boards |
 | hackernews | daily, ~2 s: the latest "Who is hiring?" thread |
-| linkedin | at most once a day, only what is new since its last success (`hoursOld`), one query at a time; a day off after HTTP 429. ↻ Обновить does not force it |
+| linkedin | at most once a day, only what is new since its last success (`hoursOld`), one query at a time; a day off after HTTP 429. ↻ Refresh does not force it |
 
 The dashboard runs it at start and checks what is due every 15 minutes; the very
 first search on an empty table waits for each board's first pass. While the
@@ -554,7 +579,7 @@ it, so the funnel stays applications-only (the removed `npm run harvest` filed
 finds into the funnel; this does not). It keeps `first_seen` per posting: boards
 re-stamp their dates on every renewal (Himalayas every 30 days, justjoin.it on
 each refresh), so a card's age is the earlier of the board's date and when this
-tool first saw it, a later board date shows as "перевыложена", and **новая**
+tool first saw it, a later board date shows as "reposted", and **new**
 marks what appeared since the Search tab was last opened — also counted in the
 browser tab title, "(N) Job Hunt". A posting a fully fetched board stops listing
 is dropped three days after that board's last good pass; LinkedIn's age out
@@ -565,14 +590,13 @@ top of the stored feed, so none of them asks a board.
 
 ## Using the Search tab
 
-The page opens on **Поиск**, and it is not a grid: it is a stack you go through one posting
+The page opens on **Search**, and it is not a grid: it is a stack you go through one posting
 at a time — a strip of Claude's scores on the left, the posting in the middle with a dock of
 four actions floating over its foot, and on the right what is known around the posting.
 
-1. **The stacks** are Claude's verdicts: **Подходят**, **Проверить**, **Все** (everything
-   Claude did not take away, unjudged ones included), **Почти подошли** (Claude's skips scored
-   20 or more — all six disputable skips of the 2026-10-24 audit were among them) and **Убрал
-   Claude** (every skip, those included). They sit in the middle of the header, each with its count; the strip's foot says where you are (`3 / 13`).
+1. **The stacks** are Claude's verdicts: **Good fit**, **Check**, **All** (everything
+   Claude did not take away, unjudged ones included), **Near misses** (Claude's skips scored
+   20 or more — all six disputable skips of the 2026-10-24 audit were among them) and **Skipped by Claude** (every skip, those included). They sit in the middle of the header, each with its count; the strip's foot says where you are (`3 / 13`).
 2. **The card** has the verdict and score, the title, company and place, the posting's age
    and board, a link to the posting on its board, and four facts — pay, work mode (quoted
    from the text), level, whether it can be done from Poland — then the role's stack as tags
@@ -582,50 +606,49 @@ four actions floating over its foot, and on the right what is known around the p
    office days or Polish above B1 (B2, C1, "fluency", "biegle", "płynna", "swobodnie" — not
    when the sentence makes it a plus) in the text, a re-post, a rule hit, pay under the floor.
    **The right column** has the rest: the history with the company (my applications there,
-   or the server's "откликался сюда" when it matched them through a copy; its other postings
-   in the feed — a click opens one, «Все N вакансий компании» lists them in Найти), the copies
-   dedupe folded into this card, by board, and what the rules did. The «Верно / Мимо» marks
-   went on 2026-10-27; the ones made stay labels for «Сверка с эталоном».
-3. **The dock**, in three tiers of emphasis — **Скрыть** the quietest, **В воронку** and
-   **Обсудить** tinted, **Подать** solid: **Скрыть** opens the reasons over it — Claude's own first for a skip —, one
-   click hides; **В воронку** records an application (`applied`, there is no bookmark
-   stage); **Обсудить** opens the verdict's session in Claude Desktop; **Подать** opens the
-   posting in the browser, where I apply myself, and the card stays (see *«Подать»* below). Keys, on purpose few (2026-10-27): `Enter` is **Подать**, `↑` `↓`
+   or the server's "applied here" when it matched them through a copy; its other postings
+   in the feed — a click opens one, "All N postings of the company" lists them in Find), the copies
+   dedupe folded into this card, by board, and what the rules did. The "Right / Wrong" marks
+   went on 2026-10-27; the ones made stay labels for "Check against known answers".
+3. **The dock**, in three tiers of emphasis — **Hide** the quietest, **Add to funnel** and
+   **Discuss** tinted, **Apply** solid: **Hide** opens the reasons over it — Claude's own first for a skip —, one
+   click hides; **Add to funnel** records an application (`applied`, there is no bookmark
+   stage); **Discuss** opens the verdict's session in Claude Desktop; **Apply** opens the
+   posting in the browser, where I apply myself, and the card stays (see *"Apply"* below). Keys, on purpose few (2026-10-27): `Enter` is **Apply**, `↑` `↓`
    walk the queue without deciding, `Esc` closes what is open — nothing else, and no key
-   is drawn on the page. Enter on a focused button or link is that button's. «Потом» is
+   is drawn on the page. Enter on a focused button or link is that button's. "Later" is
    gone: `↓` does the same without marking anything.
 4. Every decision moves to the next undecided card, which slides in. A decided card keeps
-   its tile in the strip for the rest of the page session, dimmed and named *в
-   воронке* or *скрыто*, so the queue shows progress instead of shrinking; the next search leaves out
+   its tile in the strip for the rest of the page session, dimmed and named *in funnel* or *hidden*, so the queue shows progress instead of shrinking; the next search leaves out
    what is hidden or applied to. When a stack is done the card says so, with what happened
    and a button to the next stack.
-5. Hidden means hidden from every search, here and in `find_jobs`; **Вернуть** on a hidden
-   card (with *скрытые мной* on) brings it back.
-6. **Фильтры** (the icon at the top of the strip) holds the rest: a text filter over the loaded postings, the date window, the
-   boards, *прятать отклики*, *скрытые мной*, *скрытые правилами*, and the queue's order
+5. Hidden means hidden from every search, here and in `find_jobs`; **Restore** on a hidden
+   card (with *Hidden by me* on) brings it back.
+6. **Filters** (the icon at the top of the strip) holds the rest: a text filter over the loaded postings, the date window, the
+   boards, *Hide applied*, *Hidden by me*, *Hidden by rules*, and the queue's order
    (Claude's score — the default —, profile match, newest, company). A dot on the button says
    a filter is on.
 7. **↻** next to the brand asks the fast boards again; its own text says how fresh they are
-   (`5 ч назад`), with every board's age in the tooltip. A badge on **Поиск** in the rail counts what is new
+   (`5 h ago`), with every board's age in the tooltip. A badge on **Search** in the rail counts what is new
    since the tab was last opened, and so does the browser tab's title.
 
-   **The rail** switches between **Поиск** and **Отклики**, with **Настройки** at its foot;
-   the boards are narrowed under **Фильтры** only. The strip is always folded (2026-10-27:
+   **The rail** switches between **Search** and **Applications**, with **Settings** at its foot;
+   the boards are narrowed under **Filters** only. The strip is always folded (2026-10-27:
    less to read): each tile is Claude's score itself, in the verdict's colour — green fits,
    amber check, grey skip — pulsing while Claude reads and a dash before; a short rule parts
-   «Подходит» from the rest; the title shows on hover and is the tile's name for a screen
-   reader. The queue goes best to worst by that score unless **Фильтры → Порядок** says
+   "Fits" from the rest; the title shows on hover and is the tile's name for a screen
+   reader. The queue goes best to worst by that score unless **Filters → Order** says
    otherwise. My LinkedIn, GitHub and portfolio links sit in the header: a click copies one,
-   and its button turns into a tick with «… скопирован» under it. The avatar
-   (`src/assets/avatar.jpg`, served at `/avatar.jpg`) opens Настройки.
+   and its button turns into a tick with "… copied" under it. The avatar
+   (`src/assets/avatar.jpg`, served at `/avatar.jpg`) opens Settings.
 
-   **Найти** (the magnifier in the header; Ctrl K is no longer a key) jumps anywhere: type
+   **Find** (the magnifier in the header; Ctrl K is no longer a key) jumps anywhere: type
    part of a title or a company, `#` for a stack, `@` for a company's postings and
    applications; in the dialog `↑` `↓` and `Enter` pick, `Esc` closes. Opening a posting
    takes you to its own stack. **Right-click** on a tile (or the menu key) gives the card's
-   actions for it — Подать, В воронку, Обсудить, Спросить Claude, Скрыть ▸ with the reasons,
+   actions for it — Apply, Add to funnel, Discuss, Ask Claude, Hide ▸ with the reasons,
    copy the link; an action opens the tile's card and runs on it, as its button would.
-8. **The date window** (сутки / 3 дня / неделя / 2 недели / месяц) narrows by posting age.
+8. **The date window** (a day / 3 days / a week / 2 weeks / a month) narrows by posting age.
    A month is both the default and the ceiling — it is `SEARCH_DEFAULTS.hoursOld`, and the
    server clamps anything wider back down to it, so a hand-edited URL cannot widen the
    window either.
@@ -719,33 +742,31 @@ Claude, ask "does this fit me?". Now every card the Search tab shows gets that a
 itself, in the background, within minutes of the posting appearing
 ([src/verdict.ts](../src/verdict.ts)):
 
-- **The verdict decides the stack** — **Подходят** (apply), **Проверить** (maybe: worth a
-  look, something is unclear), **Убрал Claude** (skip) — and the card shows it: the verdict
+- **The verdict decides the stack** — **Good fit** (apply), **Check** (maybe: worth a
+  look, something is unclear), **Skipped by Claude** (skip) — and the card shows it: the verdict
   and score, Claude's summary, the stop factors with a quote from the posting, the doubts,
   what matches, and the pay / work mode / level / Poland facts it read. A dashed chip was
   judged under criteria that have changed since; the background queue redoes it (the card
   says so only where the queue will).
 - **A skip is not hidden for good.** Nothing is written to the hidden list: it waits in
-  **Убрал Claude**, and **Скрыть** there offers Claude's own reason first (taken from the
+  **Skipped by Claude**, and **Hide** there offers Claude's own reason first (taken from the
   page's one-click reasons, so it teaches the screening rules like a hand-picked one). A job
-  already hidden or applied to stays out of the stacks whatever Claude said. **спросить
-  заново** asks again; a card without a verdict says **Спросить Claude**.
+  already hidden or applied to stays out of the stacks whatever Claude said. **ask
+  again** asks again; a card without a verdict says **Ask Claude**.
 - **Which stop factors remove a card is mine to say.** Each stop factor comes typed —
-  format, Poland, citizenship, level, stack, role, language, closed. **Настройки → Claude →
-  «Не убирать, если единственная причина — …»** ticks the kinds that alone do not take a card
+  format, Poland, citizenship, level, stack, role, language, closed. **Settings → Claude → "Keep a card if the only reason is…"** ticks the kinds that alone do not take a card
   away (format, level, stack, role, language; Poland, citizenship and a closed posting always
-  do): a skip whose every stop factor is a ticked kind reads «Проверить», with a note naming
+  do): a skip whose every stop factor is a ticked kind reads "Check", with a note naming
   them. It is applied to the stored verdicts when the page asks for them — no run, no stale
   verdicts, unticking puts the cards back. Verdicts made before stop factors were typed stay
   skips.
 - **Pay under the floor is a doubt, not a stop factor** — "maybe", score at most 55 — the
   same rule as the screening: such a card is flagged, never hidden, because some of those
   were applied to on purpose. The code reads a range as the criteria do (`payVsFloor` in
-  boards-pl.ts): its top under the floor is `below` (red «Вилка», demoted, «Всё равно
-  подать?»), the floor inside it with the middle under it is `midlow` (amber, a flag, nothing
+  boards-pl.ts): its top under the floor is `below` (red "Pay range", demoted, apply-batch stops at it), the floor inside it with the middle under it is `midlow` (amber, a flag, nothing
   else). The prompt states the board's figures and that reading, in PLN a month B2B-equivalent;
   the card shows that figure too beside hourly, yearly and foreign ones.
-- **Обсудить с Claude** opens that verdict's own conversation in Claude Desktop, with the
+- **Discuss with Claude** opens that verdict's own conversation in Claude Desktop, with the
   posting and the verdict already in it — ask about the stack, the money, a cover letter. It
   is the deep link `claude --desktop --resume` uses (`claude://resume?session=<id>`;
   Desktop imports the CLI session and focuses it). Without Desktop, a console window runs
@@ -760,11 +781,11 @@ itself, in the background, within minutes of the posting appearing
   problem" — are answered from its projects and numbers, not from the profile's one-line
   job summaries. Verdict runs are `--safe-mode` and never read that file; a resumed
   session, old ones included, does.
-- **лучшие по Claude**, the queue's default order (Фильтры → Порядок), sorts by verdict, then
+- **best by Claude**, the queue's default order (Filters → Order), sorts by verdict, then
   score; the profile's ranking breaks ties. The line
-  next to the stacks says what the verdict queue is doing (`Claude оценивает 2, ждут 30`, or
+  next to the stacks says what the verdict queue is doing (`Claude is judging 2, 30 waiting`, or
   why it is paused).
-- The tray app's "N новых вакансий" leaves out postings Claude has called "skip" and names
+- The tray app's "N new postings" leaves out postings Claude has called "skip" and names
   the ones it liked first, marked `✓`. `/api/new-count` also says how many new postings
   Claude is still judging (`pending`); a tray app built from this checkout waits for those,
   up to 15 minutes, so a posting about to be skipped is not announced (`cd desktop && npm run
@@ -791,7 +812,7 @@ call, and each verdict is a real session on disk that Desktop can open.
 - **At most two `claude` processes and one page read at a time** (LinkedIn answers parallel
   reads with 429). The background queue takes only the cards the Search tab shows by
   default — default boards, month window, not hidden, not applied, not a rule hit — newest
-  first, at most the daily cap from **Настройки → Claude** (80) **runs** a day, redone and failed ones
+  first, at most the daily cap from **Settings → Claude** (80) **runs** a day, redone and failed ones
   included. A queued card that gets hidden or applied to leaves the queue.
 - **What stops the whole queue stops it, not a posting**: the plan's limit (Claude Code
   2.1.287 says `You've hit your session limit · resets 11pm` with `api_error_status` 429 —
@@ -810,35 +831,32 @@ call, and each verdict is a real session on disk that Desktop can open.
 - **The criteria file is the thing to edit**: who I am, what I want, the stop factors, the
   fine print ("no salary in the text is normal — do not lower the verdict for it"). It is
   re-read on change, and every verdict made under the old text goes stale. What the
-  background then redoes is **Настройки → Claude → «После правки критериев»**: every shown
-  card, only «Подходят» and «Проверить», or nothing (new postings only; «Оценить оставшиеся
-  сейчас» redoes the rest by hand, past the cap). Redoing never takes the last quarter of the
+  background then redoes is **Settings → Claude → "After a criteria edit"**: every shown
+  card, only "Good fit" and "Check", or nothing (new postings only; "Judge the rest now" redoes the rest by hand, past the cap). Redoing never takes the last quarter of the
   daily cap — that stays for postings appearing later the same day; on 2026-10-24 two edits
   used 193 of 200 runs. The same section says how many shown cards are judged under older
   criteria and how long redoing them would take, and keeps every version's text
-  (`criteria_versions`): «что изменилось» shows the lines an edit removed and added,
-  «вернуть этот текст» writes an older one back into the file.
+  (`criteria_versions`): "what changed" shows the lines an edit removed and added,
+  "restore this text" writes an older one back into the file.
   The facts in it mirror `.claude/skills/job-apply/profile.json`; change both.
 - **Checking criteria before they re-judge everything** ([src/verdict-eval.ts](../src/verdict-eval.ts)).
-  Claude's verdict on each card carried **«Верно» / «Мимо»** until 2026-10-27; «Мимо» asked
-  which verdict it should have been (`verdict_feedback`, still read, no longer written by the page). Every hide, restore and «В воронку» is also kept with
+  Claude's verdict on each card carried **"Right" / "Wrong"** until 2026-10-27; "Wrong" asked
+  which verdict it should have been (`verdict_feedback`, still read, no longer written by the page). Every hide, restore and "Add to funnel" is also kept with
   the verdict it answered (`decisions`). From these — and the 28 postings decided by hand for
   the 2026-10-23 calibration — comes a set of postings whose right answer is known: a mark is
-  the verdict itself; a hide with a reason the text carries (не remote, не тот стек, …) means
+  the verdict itself; a hide with a reason the text carries (not remote, wrong stack, …) means
   "skip"; an application means "not skip"; hides for reasons outside the text (applied
-  elsewhere, the company, pay — a "maybe" by design) are no labels. **Настройки → Claude →
-  «Сверить с твоими решениями»** runs the current criteria on that set from the saved texts,
+  elsewhere, the company, pay — a "maybe" by design) are no labels. **Settings → Claude → "Check against your decisions"** runs the current criteria on that set from the saved texts,
   two at a time, outside the daily cap, nothing overwritten, and lists where Claude and the
-  label differ; «Пересчитать пограничные» runs the current verdicts scored 20–70 again — the
+  label differ; "Re-judge the borderline ones" runs the current verdicts scored 20–70 again — the
   ones an edit tends to flip. A draft is checked before it goes into the file:
   `npm run eval:verdicts -- --criteria draft.md` (`--set borderline`, `--limit N`); every run is
-  saved under `~/.job-hunt/eval/runs/`. A good routine for an edit: «После правки критериев:
-  ничего», edit, check, then «Оценить оставшиеся сейчас». The criteria of 2026-10-24 evening
+  saved under `~/.job-hunt/eval/runs/`. A good routine for an edit: "After a criteria edit: nothing", edit, check, then "Judge the rest now". The criteria of 2026-10-24 evening
   agreed with the calibration on 22 of 28 (the first criteria: 20); of the six misses, four
-  were hidden for reasons outside the text. With the DevOps/architecture and «ты» edits: 24.
+  were hidden for reasons outside the text. With the DevOps/architecture and "you" edits: 24.
 - Sessions live in their own folder, `~/.job-hunt/verdicts`, so they are one project in
   Claude Code's session list instead of hundreds of entries in this repo's. Claude Code
-  deletes sessions after 30 days (`cleanupPeriodDays`); **обсудить** on an older verdict
+  deletes sessions after 30 days (`cleanupPeriodDays`); **Discuss** on an older verdict
   says so, and **↻** makes a new one.
 
 **Measured** on 2026-10-23 against 28 postings already decided by hand — 14 applied to, 14
@@ -856,7 +874,7 @@ carry — another role at the same company already applied to (the card's flag s
 no text at all. Two things the first pass got wrong and the criteria now say: Polish above
 B1 as a requirement is a stop factor, and "do not invent checks the text is silent about"
 (it asked about citizenship and contracts that no posting mentioned). A page that answers
-with a bot check is now an error on the card ("не удалось прочитать вакансию"), not a
+with a bot check is now an error on the card ("could not read the posting"), not a
 verdict on 338 characters of Cloudflare.
 
 ## Tuning what gets found
@@ -868,7 +886,7 @@ Everything personal is in [src/profile.ts](../src/profile.ts):
 | `TARGET_QUERIES` | The searches the Refresh button runs. Fourteen since 2026-10-30: "product engineer", "ui engineer", and two AI ones that name TypeScript ("ai engineer typescript", "llm typescript") so the boards return LLM work in my stack. Many, because no single keyword covers everything a frontend role gets titled — the same job is "Frontend Developer" at one company and "Web Engineer" at the next. Each line's measured marginal yield is in the comment above it; order is not a ranking signal |
 | **The emphasis** | Currently **frontend**, with AI/LLM as a bonus rather than a target. Frontend terms carry the highest weights, fullstack counts less, and a backend-titled role is penalised. Shift it by editing the weights |
 | `SEARCH_DEFAULTS` | Location, remote-only, how far back to look, which boards, how many results, and `maxFitTier` |
-| «Мои условия» (Настройки) | The pay floor, the UoP↔B2B equivalence, hours a month, the giants whose office roles in the named city are fine, my Polish level — read by the rules and written into Claude's criteria |
+| "My terms" (Settings) | The pay floor, the UoP↔B2B equivalence, hours a month, the giants whose office roles in the named city are fine, my Polish level — read by the rules and written into Claude's criteria |
 | `SEARCH_DEFAULTS.sources` | Which boards to query — and, one-for-one, the boards the Search tab's filters offer. The filter can only narrow this list |
 | `STACK_WEIGHTS` | What counts as a good match. Taken from the CV; title matches count double, and available posting descriptions supply additional evidence |
 | `FOREIGN_STACK` | What sinks a posting: .NET, Java, Angular, ML/data-science, backend-only titles, plus non-engineering roles like recruiter or designer. A title match counts triple |
@@ -876,14 +894,14 @@ Everything personal is in [src/profile.ts](../src/profile.ts):
 
 Nothing else in the codebase encodes any of it.
 
-The **Отклики** tab opens on a headline ("91 отклик, 21 ответ" and how quickly replies
+The **Applications** tab opens on a headline ("91 applications, 21 replies" and how quickly replies
 come), six figures, and a bar of where the applications stand — waiting, in talks, offer,
 rejected, silent, dropped. Below, the list: each row carries one status control — the
-coloured dropdown *is* the status display, in words ("ждём ответа", "тишина") — and no
+coloured dropdown *is* the status display, in words ("awaiting reply", "no reply") — and no
 notes column: notes are still stored and still written by `add_note`, they are just not
 what the list is for. The pills above it filter by status, with one grouped shortcut:
 
-- **В работе** — still alive: `applied`, `responded`, `screening`, `interview`
+- **Open** — still alive: `applied`, `responded`, `screening`, `interview`
 
 No single status answers that, which is why it is its own pill.
 
@@ -892,6 +910,7 @@ No single status answers that, which is why it is its own pill.
 ```bash
 npm test          # everything: typecheck, scorer checks, MCP, dashboard UI
 npm run sanity    # eligibility + stack-fit scoring (fast, offline)
+npm run test:i18n # the Russian catalog against the code (fast, offline)
 npm run test:mcp  # drives the real MCP server over stdio
 npm run test:ui   # runs the real dashboard page JS against a real server
 npm run eval:verdicts  # Claude's verdicts against the known answers (real claude -p runs; see above)
@@ -930,13 +949,15 @@ src/
   pipeline.ts     searchJobs(): the ONE search pipeline both callers use
   index.ts        MCP server: 8 tools over StdioServerTransport
   dashboard.ts    node:http server on :4321
-  dashboard.html  the page: Поиск (one posting at a time) + Отклики
-  verdict.ts      Claude's verdict on a posting: `claude -p`, the queue, "обсудить в Claude"
+  dashboard.html  the page: Search (one posting at a time) + Applications
+  i18n.ts         the two languages: t(), tn(), how a hide reason reads
+  locale-ru.json  the Russian for each English text
+  verdict.ts      Claude's verdict on a posting: `claude -p`, the queue, "Discuss with Claude"
   verdict-criteria.md  WHAT I WANT, in words: the brief Claude judges postings by. Edit this
-  verdict-eval.ts the criteria against postings whose right answer is known («Сверить»)
-  preferences.ts  «Мои условия»: the floor, the offices, Polish, rules off, the memory window
+  verdict-eval.ts the criteria against postings whose right answer is known ("Check")
+  preferences.ts  "My terms": the floor, the offices, Polish, rules off, the memory window
   screening.ts    my screening rules: titles, Polish, age, the memory of my hides
-  screen-context.ts  the screening context as the database has it (funnel, hides, Настройки)
+  screen-context.ts  the screening context as the database has it (funnel, hides, Settings)
 scripts/
   jobspy_fetch.py the Python half of the JobSpy bridge
 tests/
@@ -981,22 +1002,22 @@ once and both surfaces follow.
   — it used to compare monthly and foreign figures with an annual number.
 - **Screening rules run inside the search** ([src/screening.ts](../src/screening.ts), lists in
   profile.ts): the same rules as `funnel.mjs screen`, applied at read time against the funnel
-  and the hidden list. Hits stay out of the stacks unless *скрытые правилами* is on (Фильтры), with their reason;
+  and the hidden list. Hits stay out of the stacks unless *Hidden by rules* is on (Filters), with their reason;
   nothing is written to `dismissed`. Hides written by a rule never count as evidence. The same
   role already applied to through another board (same company, same title once tags like
   "(m/f/d)" are gone, applied in the last 60 days — `REAPPLY_AFTER_DAYS`) is a rule hit; a
-  role that is only similar is a flag on the card, not a hide. "скрыть ▾" takes a
-  one-click reason; "не интересна компания" hides that company everywhere.
-- **Настройки → Правила** lists every rule that hides a card for what the posting says —
+  role that is only similar is a flag on the card, not a hide. "Hide ▾" takes a
+  one-click reason; "company not of interest" hides that company everywhere.
+- **Settings → Rules** lists every rule that hides a card for what the posting says —
   the title rules, Polish above my level, backend-only, older than 60 days, Indeed's
   onsite/hybrid — with its words, how many cards it hides in the feed right now and a few of
   them by name, and a switch. A rule switched off stops hiding from the next request (stored
-  as `rulesOff` with «Мои условия»); the list still says what it would hide again. The same
+  as `rulesOff` with "My terms"); the list still says what it would hide again. The same
   switches are how AI-only titles or PHP stop being hidden — no code change. On a card a rule
-  hid, the reason carries **«правило ошиблось»** (the right-click menu too): that card meets
+  hid, the reason carries **"rule was wrong"** (the right-click menu too): that card meets
   no hiding rule again, memory rules included, and goes to the stacks and Claude's queue — an
   application still keeps it out. Such cards are kept in `rule_overrides`, listed in the panel
-  with «вернуть правилам», and every one is in `decisions` as `rule-wrong` against its rule.
+  with "give back to the rules", and every one is in `decisions` as `rule-wrong` against its rule.
   Under them, read-only, what the fit gate left out before any rule ran — junior titles, a
   foreign stack in the title (with the term), a foreign stack outweighing the target one in
   the text — counted over the month with examples. `funnel.mjs screen` takes the dashboard's
@@ -1012,8 +1033,7 @@ once and both surfaces follow.
   nofluffjobs and justjoin.it, which store no text: every title that names no stack,
   "Senior Software Engineer" at Asana or Sezzle. Those used to be dropped unread. Now an
   engineering title, open to Poland for sure, that no rule removes is read by Claude in the
-  background, after the shown cards and within a quarter of the daily cap (Настройки → Claude
-  → «Дочитывать общие заголовки»); it shows only when Claude says apply or maybe, with a note
+  background, after the shown cards and within a quarter of the daily cap (Settings → Claude → "Read generic titles in full"); it shows only when Claude says apply or maybe, with a note
   that it came this way. A criteria edit re-judges only those that fit last time.
   Company boards (watchlist) keep such roles too instead of dropping them on fetch.
 - **What hides teach** is checked after what the posting itself says, so a card shows the
@@ -1024,21 +1044,20 @@ once and both surfaces follow.
   titles that name no role ("Senior Software Engineer") are never one. A company is blocked
   without an explicit reason only after two different *frontend or fullstack* roles there
   were hidden with none, and never a WATCHLIST company or an OFFICE_OK giant. The card says
-  which hides and when: «same role hidden earlier (07.09, без причины): …». On the
+  which hides and when: "same role hidden earlier (07/09, no reason): …". On the
   2026-10-24 data: 14 blocked companies instead of 30, 2 same-role hits instead of 26.
-- **Настройки → Компании и память** shows that memory and lets me correct it: the blocked
+- **Settings → Companies & memory** shows that memory and lets me correct it: the blocked
   companies (said by me, or the two hides with their dates) and the hides that hide a copy of
-  their role right now, each with how many cards it stands behind. **вернуть** gives a
-  company back, **забыть** stops a hide from teaching — the posting itself stays hidden;
-  both go to `memory_forget` and are listed under «Забытое» with **вспомнить**. **Помнить мои
-  скрытия** (`memoryDays` in «Мои условия»: always, 30 days … a year) lets old hides lapse;
-  «не интересна компания» is a choice, not evidence, and stays. «вакансия неактуальна» and
-  Claude's «вакансия закрыта» teach nothing: the posting is gone, a repost of it is live. Below, the company boards I
+  their role right now, each with how many cards it stands behind. **restore** gives a
+  company back, **forget** stops a hide from teaching — the posting itself stays hidden;
+  both go to `memory_forget` and are listed under "Forgotten" with **remember**. **Remember my hides** (`memoryDays` in "My terms": always, 30 days … a year) lets old hides lapse;
+  "company not of interest" is a choice, not evidence, and stays. "posting out of date" and
+  Claude's "posting closed" teach nothing: the posting is gone, a repost of it is live. Below, the company boards I
   read (WATCHLIST): for each, how many roles are stored, still open on the board, shown in the
   stacks, judged apply or maybe by Claude, and how many applications went there — a board
   that never brings anything is easy to spot. The dashboard and find_jobs build this context
   from the database in one place, [src/screen-context.ts](../src/screen-context.ts).
-- **Настройки → Поиск** is read only: what is searched and what comes of it. The way from
+- **Settings → Search** is read only: what is searched and what comes of it. The way from
   the stored postings to the screen, step by step (stored → without cross-board copies → in
   the window → open to Poland → by stack, plus the titles without a stack Claude reads → minus
   my hides, the rules, the applications → on screen, with Claude's split); each query with
@@ -1048,7 +1067,7 @@ once and both surfaces follow.
   filled by the refresh; `foundBy` on a fetched job, never stored with the posting) — the
   query table in profile.ts was trimmed by measured marginal yield once, and this keeps the
   measurement running. Queries and boards are still edited in src/profile.ts.
-- **Фильтры survive a reload**: the date window, the boards switched off, the three toggles
+- **Filters survive a reload**: the date window, the boards switched off, the three toggles
   and the order are kept in the browser (`localStorage`, per browser — the text search is
   not). A stored value the page no longer offers is ignored, and a board added to the profile
   later starts on.
@@ -1070,13 +1089,13 @@ not seen in a dry run. They are thin wrappers over four scripts:
 | `scripts/apply.mjs` | Fills and submits one application with Playwright on the installed Chrome; records it via `POST /api/applications`; exit codes for missing answers, account walls, CAPTCHAs, e-mailed verification codes |
 | `scripts/apply-batch.mjs` | Runs `apply.mjs` over a list, one result line per job. Dry runs unless `--submit`; no current Claude `apply`, pay under the floor or a role like one applied to is skipped with the reason (`--force` / `--accept-low-pay` per index); it passes `--pay`, `--contract` and `--office-ok` |
 
-**«Подать» in the dashboard fills no forms** (since 2026-10-26, at my request: the
+**"Apply" in the dashboard fills no forms** (since 2026-10-26, at my request: the
 filled forms did not work out). It opens the posting in the browser — in the click, so no
-popup blocker stops it — and I apply there myself. The card stays as it was: **В воронку**
+popup blocker stops it — and I apply there myself. The card stays as it was: **Add to funnel**
 records the application, `↓` walks on without a mark. From 2026-10-26 it also found whom to
 write to and drafted a LinkedIn note and a letter in the middle of the page (src/outreach.ts);
 that went on 2026-11-02, at my request, unused. Applications it noted keep their
-`outreach: <kind> <label>` line, shown in the drawer's «Что ушло с откликом».
+`outreach: <kind> <label>` line, shown in the drawer's "What went with the application".
 
 **A board's posting is not the employer's form**, and `apply.mjs` asks the board first.
 justjoin.it renders each offer's `applyUrl` into its page: the employer's form (traffit,
@@ -1085,9 +1104,9 @@ like any other, short links followed so Greenhouse is still recognised; `null` m
 justjoin's own form. NoFluffJobs gates both its own form and its redirect to the
 employer's behind a CAPTCHA, and Himalayas hides the employer's link behind Cloudflare.
 Those, and a justjoin offer without a link, come back at once as `board-form`
-(«только через площадку») with the posting to open, without starting Chrome; a removed
+("through the board only") with the posting to open, without starting Chrome; a removed
 offer comes back as `closed`. Before this, a justjoin card was "dry run" on the board's own
-page, with zero fields filled and «Отправить отклик» offered anyway. A dry run that fills
+page, with zero fields filled and "Submit application" offered anyway. A dry run that fills
 nothing is now `no-form`, and the server refuses to submit one.
 
 **Salary fields ask for the posting's top when it beats the target.** `apply-batch.mjs` passes the
@@ -1096,7 +1115,7 @@ in its currency is above profile.json's figure, the field gets that top instead 
 published B2B 5.8k–8.3k USD and its form used to get $7,000, now $8,300 (≈ $100k / year).
 Hourly, daily and yearly ranges are converted to a month; a range with no contract
 (Himalayas) counts as B2B; another currency is never converted. A lower range, or none,
-leaves the answers exactly as they were. The «Обсудить» brief carries the same rule.
+leaves the answers exactly as they were. The "Discuss" brief carries the same rule.
 
 Facts the forms ask for live in `.claude/skills/job-apply/profile.json`. Chrome
 profiles: `~/.job-hunt/chrome-profile` (LinkedIn, log in once with

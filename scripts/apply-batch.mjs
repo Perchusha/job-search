@@ -18,7 +18,7 @@
  *   - Claude's verdict is a current "apply". maybe, skip, an old verdict or
  *     none is skipped with the reason; --force <idx> attempts it anyway.
  *   - Published pay is not under the floor; --accept-low-pay <idx> is the
- *     batch's «Всё равно подать».
+ *     batch's own stop for low pay.
  *   - No earlier application looks like this role; --force <idx> again.
  * Everything else is reported as skipped with the reason.
  *
@@ -59,6 +59,9 @@ const acceptLowPay = indexes(flags["accept-low-pay"]);
 const submit = flags.submit === true;
 if (!submit) console.log("dry run: forms are filled, nothing is sent (--submit sends)");
 
+/** The screening's flag for a role I may have applied to, in either language (src/screening.ts). */
+const SIMILAR_APPLICATION = /^(?:looks like application|похоже на отклик) #/;
+
 /** Why this row is not sent unasked, or null. */
 function stop(row) {
   const v = row.verdict;
@@ -67,7 +70,7 @@ function stop(row) {
     if (v.stale) return `Claude's verdict is from older criteria (${v.verdict}/${v.score}) — --force to send anyway`;
     if (v.verdict === "skip") return `Claude: skip/${v.score}${v.hideReason ? ` «${v.hideReason}»` : ""}`;
     if (v.verdict === "maybe") return `Claude: maybe/${v.score} — something to check by hand first; --force to send`;
-    const earlier = (row.flags ?? []).find((flag) => /похоже на отклик/.test(flag));
+    const earlier = (row.flags ?? []).find((flag) => SIMILAR_APPLICATION.test(flag));
     if (earlier) return `${earlier} — --force to apply again`;
   }
   if (row.belowSalaryFloor && !acceptLowPay.has(row.index)) {
