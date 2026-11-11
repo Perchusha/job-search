@@ -269,6 +269,7 @@
   "Nothing here; the filters may be in the way.": "Здесь пусто — может, мешают фильтры.",
   "Nothing here.": "Здесь пусто.",
   "Nothing to show": "Ничего нет",
+  "{n} boards failed": ["сбой: {n} площадка", "сбой: {n} площадки", "сбой: {n} площадок"],
   "Claude is paused": "Claude на паузе",
   "in the queue: {n}": "в очереди {n}",
   "Claude is judging {running}, {queued} waiting": "Claude оценивает {running}, ждут {queued}",

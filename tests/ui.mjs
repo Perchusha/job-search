@@ -614,6 +614,15 @@ async function main() {
   check("with \"Hide applied\" off, an applied job is in its stack", page.stackJobs("good").some((j) => j.company === "Bolt"));
   registry.get("hideApplied")._handlers.change({ target: { checked: true } });
   check("with it on, it is not — unless decided in this session", !page.stackJobs("good").some((j) => j.company === "Bolt"));
+  const showFreshness = page.getVar("showFreshness");
+  showFreshness({ refreshing: false, sources: {
+    indeed: { lastSuccessAt: today, lastError: null }, himalayas: { lastSuccessAt: today, lastError: "HTTP 503" } } });
+  check("a failed board turns the refresh button red, a count where the age was",
+    registry.get("searchbtn").classList.contains("has-failed") && registry.get("freshness").textContent === "1 board failed",
+    registry.get("freshness").textContent);
+  showFreshness({ refreshing: false, sources: { indeed: { lastSuccessAt: today, lastError: null } } });
+  check("and back to the age once every board answers",
+    !registry.get("searchbtn").classList.contains("has-failed") && registry.get("freshness").textContent === "just now");
 
   /* ---- Claude's verdict: asked from the card, made by the stand-in ---- */
   const posting = (id, title, text) => ({

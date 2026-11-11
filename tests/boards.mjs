@@ -19,6 +19,10 @@ import {
 } from "../src/boards-pl.ts";
 import { normalizeJobicy, normalizeWorkable, parseHackerNewsPost } from "../src/boards-intl.ts";
 import { ashby, recruitee, workable } from "../src/watchlist.ts";
+import { venvState } from "../src/jobspy.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { normalizeDou, parseDouFeed } from "../src/boards-ua.ts";
 import { scoreEligibility } from "../src/eligibility.ts";
 
@@ -223,6 +227,26 @@ const zoned = (place) => scoreEligibility({ ...ashbyJobs[0], locationRestriction
 check("watchlist: a time-zone range that takes in Poland is open to it; Eastern Time is not",
   zoned("Remote (UTC-3 to UTC+3)") === "high" && zoned("Remote, GMT+1 ± 1h") === "high"
     && zoned("Remote (UTC-8 to UTC-5)") === "low" && zoned("Eastern Time zone") === "low");
+
+/* ---- JobSpy's venv: is the Python it was made from still there? ---- */
+
+{
+  const root = mkdtempSync(join(tmpdir(), "jobhunt-venv-"));
+  const home = join(root, "Python311");
+  mkdirSync(home);
+  writeFileSync(join(home, "python.exe"), "");
+  const venv = (name, cfgHome) => {
+    mkdirSync(join(root, name, "Scripts"), { recursive: true });
+    writeFileSync(join(root, name, "pyvenv.cfg"), `home = ${cfgHome}\r\ninclude-system-site-packages = false\r\nversion = 3.11.8\r\n`);
+    return join(root, name, "Scripts", "python.exe");
+  };
+  const healthy = venvState(venv("good", home));
+  const gone = venvState(venv("gone", join(root, "pyenv", "3.11.8")));
+  check("jobspy: a venv whose Python is there is fine; one whose Python is gone is not, with its version",
+    healthy?.ok === true && gone?.ok === false && gone?.version === "3.11.8" && gone?.home.endsWith("3.11.8"), JSON.stringify({ healthy, gone }));
+  check("jobspy: no pyvenv.cfg, nothing to say", venvState(join(root, "none", "Scripts", "python.exe")) === null);
+  rmSync(root, { recursive: true, force: true });
+}
 
 /* ---- pay ---- */
 

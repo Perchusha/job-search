@@ -14,12 +14,13 @@
  * alone still gives a working tool.
  */
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import type { Job, PayRange } from "./sources.ts";
 
@@ -126,18 +127,138 @@ export function isJobSpyAvailable(): boolean {
   return resolvePython() !== null && existsSync(SCRIPT_PATH);
 }
 
-type RawJob = Record<string, unknown>;
+/*
+ * A venv belongs to the Python it was made from: .venv/pyvenv.cfg names that
+ * interpreter's folder (`home`). When it goes, .venv/Scripts/python.exe is
+ * still there but only answers "No Python at …". On 2026-11-09 pyenv-win left
+ * this PC, and LinkedIn and Indeed failed every 15 minutes for two days as
+ * "scraper produced no output", seen only in the log. So before a scrape the
+ * venv's Python is checked, and a venv whose Python is gone is moved onto
+ * another one of the same minor version (`python -m venv --upgrade`): the
+ * packages in it are built for that version, so nothing is downloaded.
+ */
+export type VenvState = { home: string; version: string; ok: boolean };
 
-function runScraper(options: JobSpyOptions): Promise<{ jobs: RawJob[]; partial: string | null }> {
+/** What .venv/pyvenv.cfg says beside this venv interpreter, and whether its Python is still there. */
+export function venvState(venvPython: string): VenvState | null {
+  const cfg = join(dirname(dirname(venvPython)), "pyvenv.cfg");
+  if (!existsSync(cfg)) return null;
+  const fields = new Map<string, string>();
+  for (const line of readFileSync(cfg, "utf8").split(/\r?\n/)) {
+    const at = line.indexOf("=");
+    if (at > 0) fields.set(line.slice(0, at).trim().toLowerCase(), line.slice(at + 1).trim());
+  }
+  const home = fields.get("home");
+  const version = fields.get("version") ?? fields.get("version_info");
+  if (!home || !version) return null;
+  const ok = ["python.exe", "python3", "python"].some((name) => existsSync(join(home, name)));
+  return { home, version, ok };
+}
+
+const run = promisify(execFile);
+const REPAIR_EVERY_MS = 10 * 60_000;
+let lastRepair: { at: number; error: string | null } | null = null;
+let repairing: Promise<void> | null = null;
+
+/** "3.11" of "3.11.8". */
+const minorOf = (version: string) => version.split(".").slice(0, 2).join(".");
+
+/** Interpreters that might be installed, the Windows launcher's pick first. */
+function pythonCandidates(minor: string, venvDir: string): Array<[file: string, args: string[]]> {
+  const found: Array<[string, string[]]> = [];
+  if (process.platform === "win32") found.push(["py", [`-${minor}`]]);
+  const names = process.platform === "win32" ? ["python.exe"] : [`python${minor}`, "python3", "python"];
+  const same = (path: string) => (process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path));
+  for (const dir of (process.env["PATH"] ?? "").split(delimiter)) {
+    // The Store's python.exe is a stub that opens the Store; the venv is the broken one.
+    if (!dir || /WindowsApps/i.test(dir) || same(dir).startsWith(same(venvDir))) continue;
+    for (const name of names) if (existsSync(join(dir, name))) found.push([join(dir, name), []]);
+  }
+  if (process.platform === "win32") {
+    const folder = `Python${minor.replace(".", "")}`;
+    for (const root of [join(process.env["LOCALAPPDATA"] ?? "", "Programs", "Python"), process.env["ProgramFiles"] ?? ""]) {
+      if (root && existsSync(join(root, folder, "python.exe"))) found.push([join(root, folder, "python.exe"), []]);
+    }
+  }
+  return found;
+}
+
+/** The first installed Python of this minor version, as its own executable path. */
+async function findPython(minor: string, venvDir: string): Promise<string | null> {
+  const probe = "import sys; print('%d.%d' % sys.version_info[:2]); print(sys.executable)";
+  for (const [file, args] of pythonCandidates(minor, venvDir)) {
+    try {
+      const { stdout } = await run(file, [...args, "-c", probe], { timeout: 15_000, windowsHide: true });
+      const [version, executable] = stdout.trim().split(/\r?\n/);
+      if (version === minor && executable) return executable.trim();
+    } catch {
+      // not installed, or not a working interpreter: the next one
+    }
+  }
+  return null;
+}
+
+async function repairVenv(python: string, state: VenvState): Promise<void> {
+  const venvDir = dirname(dirname(python));
+  const minor = minorOf(state.version);
+  const base = await findPython(minor, venvDir);
+  if (!base) {
+    throw new JobSpyUnavailable(
+      `the Python .venv was made from is gone (${state.home}), and no other Python ${minor} is installed — `
+        + `install Python ${minor}, or run \`npm run setup:jobspy\``,
+    );
+  }
+  console.error(`.venv: its Python (${state.home}) is gone; moving it onto ${base}`);
+  await run(base, ["-m", "venv", "--upgrade", venvDir], { timeout: 120_000, windowsHide: true });
+  try {
+    await run(python, ["-c", "import jobspy"], { timeout: 60_000, windowsHide: true });
+  } catch (error) {
+    throw new JobSpyUnavailable(`.venv moved onto ${base}, but JobSpy does not load in it — run \`npm run setup:jobspy\` (${(error as Error).message.split("\n")[0]})`);
+  }
+  console.error(`.venv: repaired on ${base}`);
+}
+
+/**
+ * The interpreter to scrape with, its venv repaired first if its Python is
+ * gone. One repair at a time (LinkedIn and Indeed scrape side by side), and a
+ * failed one is not retried for 10 minutes: the refresh asks every 15.
+ */
+async function scraperPython(): Promise<string> {
   const python = resolvePython();
   if (python === null) {
-    throw new JobSpyUnavailable(
-      "no Python found — run `npm run setup:jobspy` (or set JOBHUNT_PYTHON)",
-    );
+    throw new JobSpyUnavailable("no Python found — run `npm run setup:jobspy` (or set JOBHUNT_PYTHON)");
   }
   if (!existsSync(SCRIPT_PATH)) {
     throw new JobSpyUnavailable(`bridge script missing at ${SCRIPT_PATH}`);
   }
+  // An interpreter named by hand is the user's own: used as it is.
+  if (process.env["JOBHUNT_PYTHON"]?.trim()) return python;
+  const state = venvState(python);
+  if (state === null || state.ok) return python;
+  if (!repairing) {
+    if (lastRepair?.error && Date.now() - lastRepair.at < REPAIR_EVERY_MS) throw new JobSpyUnavailable(lastRepair.error);
+    repairing = repairVenv(python, state)
+      .then(() => {
+        lastRepair = { at: Date.now(), error: null };
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        lastRepair = { at: Date.now(), error: message };
+        console.error(`.venv: repair failed: ${message}`);
+        throw new JobSpyUnavailable(message);
+      })
+      .finally(() => {
+        repairing = null;
+      });
+  }
+  await repairing;
+  return python;
+}
+
+type RawJob = Record<string, unknown>;
+
+async function runScraper(options: JobSpyOptions): Promise<{ jobs: RawJob[]; partial: string | null }> {
+  const python = await scraperPython();
 
   const workDir = mkdtempSync(join(tmpdir(), "jobhunt-"));
   const outPath = join(workDir, `${randomUUID()}.json`);

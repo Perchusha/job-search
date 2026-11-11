@@ -136,6 +136,10 @@
            border-radius: 999px; background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
   .fresh:hover { background: var(--soft); color: var(--ink); }
   .fresh[disabled] { cursor: wait; }
+  .fresh { position: relative; }
+  .fresh.has-failed { color: var(--bad); }
+  .fresh.has-failed::after { content: ""; position: absolute; left: 23px; top: 9px; width: 7px; height: 7px; border-radius: 50%;
+                             background: var(--bad); box-shadow: 0 0 0 2px var(--bg); }
   .fresh.is-spinning svg { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .center { display: flex; justify-content: center; min-width: 0; }
@@ -1921,14 +1925,26 @@ function stopSearchProgress() {
   $("searchbtn").classList.remove("is-spinning");
 }
 
-/** "2 h ago" on the refresh button, with every board's age in its tooltip. */
+/** How long ago the freshest board was read: "just now", "2 h ago", "3 days ago"; "" when none was. */
+function freshnessWords(freshness) {
+  const latest = Object.values(freshness.sources).map((state) => Date.parse(state.lastSuccessAt || 0) || 0).reduce((a, b) => Math.max(a, b), 0);
+  const hours = latest ? Math.floor((Date.now() - latest) / 3600000) : null;
+  return hours === null ? "" : hours < 1 ? t("just now") : hours < 48 ? t("{n} h ago", { n: hours }) : t("{n} days ago", { n: Math.floor(hours / 24) });
+}
+
+/*
+ * "2 h ago" on the refresh button, with every board's age in its tooltip. A
+ * board whose last attempt failed turns it red, with a count instead of the
+ * age: on 2026-11-09 LinkedIn and Indeed failed for two days while it said
+ * "just now", because the other boards were fresh.
+ */
 function showFreshness(freshness) {
   if (!freshness || !freshness.sources) return;
   const entries = Object.entries(freshness.sources);
-  const latest = entries.map(([, state]) => Date.parse(state.lastSuccessAt || 0) || 0).reduce((a, b) => Math.max(a, b), 0);
-  const hours = latest ? Math.floor((Date.now() - latest) / 3600000) : null;
+  const failed = entries.filter(([, state]) => state.lastError).length;
+  $("searchbtn").classList.toggle("has-failed", failed > 0 && !freshness.refreshing);
   $("freshness").textContent = freshness.refreshing ? t("refreshing…")
-    : hours === null ? "" : hours < 1 ? t("just now") : hours < 48 ? t("{n} h ago", { n: hours }) : t("{n} days ago", { n: Math.floor(hours / 24) });
+    : failed ? tn(failed, "{n} board failed", "{n} boards failed") : freshnessWords(freshness);
   $("searchbtn").title = t("Refresh the boards") + ". " + entries.map(([source, state]) => {
     if (!state.lastSuccessAt) return (SOURCE_NAME[source] || source) + ": " + (state.lastError ? t("error") : t("not loaded yet"));
     const h = Math.floor((Date.now() - Date.parse(state.lastSuccessAt)) / 3600000);
