@@ -345,6 +345,25 @@
   .empty h1 { font: 600 24px/1.2 var(--display); }
   .empty p { margin: 0; font-size: 16px; color: var(--muted); }
   .empty .row { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 6px; }
+  .empty .row:empty { display: none; }
+  .empty p { max-width: 520px; text-wrap: balance; }
+  /*
+   * An empty stack still has somewhere to go: the first postings of the next
+   * one, under the message. No dock then, so the scroller keeps no room for it.
+   */
+  #view-search .scroller:has(.empty) { padding-bottom: 24px; }
+  .empty.has-next { padding: 44px 22px 14px; }
+  .empty .rule { align-self: stretch; margin: 14px 12px 0; }
+  .nextup { align-self: stretch; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+  .nextup .k { padding: 2px 12px 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .uprow { display: flex; align-items: center; gap: 14px; width: 100%; min-width: 0; padding: 10px 12px; border: 0; border-radius: 16px;
+           background: transparent; color: var(--ink); text-align: left; transition: background-color .15s; }
+  .uprow:hover { background: var(--soft); }
+  .uprow .what { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .uprow b, .uprow small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .uprow b { font-size: 15px; font-weight: 600; line-height: 1.35; }
+  .uprow small { font-size: 13px; line-height: 1.35; color: var(--muted); }
+  .uprow .when { flex: 0 0 auto; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 18px; border: 0;
          border-radius: 999px; background: transparent; color: var(--ink-2); font-size: 14px; font-weight: 600; white-space: nowrap; }
@@ -383,6 +402,8 @@
   .box li { display: flex; align-items: baseline; gap: 10px; }
   .box li > span:first-child { flex: 1 1 auto; min-width: 0; }
   .box li small { flex: 0 0 auto; font-size: 12px; color: var(--muted); }
+  .box li small.bad { color: var(--bad); }
+  .box .linkbtn { align-self: flex-start; }
   .box .pick { display: flex; align-items: center; gap: 10px; width: 100%; padding: 4px; margin: 0 -4px; border: 0; border-radius: 12px;
                background: transparent; text-align: left; font-size: 13.5px; color: var(--ink-2); }
   .box .pick:hover { background: var(--soft); color: var(--ink); }
@@ -1327,11 +1348,7 @@ function renderSearch() {
     $("dock").hidden = !dock;
     lastDockHtml = dock;
   }
-  const side = job ? sideHtml(job) : "";
-  if (side !== lastSideHtml) {
-    $("side").innerHTML = side;
-    lastSideHtml = side;
-  }
+  renderSide(job);
 
   const dismissedTotal = lastSearchPayload.dismissedCount || 0;
   $("dismissedCount").textContent = dismissedTotal ? String(dismissedTotal) : "";
@@ -1630,6 +1647,66 @@ function sideHtml(job) {
   return companyBox(job) + copiesBox(job) + rulesBox(job);
 }
 
+/*
+ * The right column with no posting on the card. It used to stay blank, and an
+ * empty "Good fit" (the stack the page opens on) left half the window dark.
+ * Now it says what is around the search: what came since my last visit, how
+ * fresh the boards are and which of them failed, and where the funnel stands.
+ */
+function homeSideHtml() {
+  return newBox() + boardsBox() + funnelBox();
+}
+
+/** Postings first seen since my last visit, best first; Claude's skips are not news. */
+function newBox() {
+  if (!pageNewSince) return "";
+  const fresh = orderJobs(visibleJobs().filter((job) => isNewJob(job) && !isClaudeSkip(job) && !decided.has(job.key)));
+  const shown = fresh.slice(0, 4);
+  return '<section class="box"><span class="k">' + t("Since your last visit") + "</span>"
+    + (fresh.length
+      ? '<span class="name">' + tn(fresh.length, "{n} new posting", "{n} new postings") + "</span>"
+        + shown.map((job) => '<button type="button" class="pick" data-pick="' + esc(job.key) + '">'
+          + scoreTile(job) + "<span>" + esc(job.title) + "</span></button>").join("")
+        + (fresh.length > shown.length ? '<p class="small">' + t("and {n} more", { n: fresh.length - shown.length }) + "</p>" : "")
+      : "<p>" + t("No new postings.") + "</p>")
+    + "</section>";
+}
+
+/** When the boards were last read, and the ones whose last attempt failed, by name. */
+function boardsBox() {
+  const freshness = lastSearchPayload.freshness;
+  if (!freshness || !freshness.sources) return "";
+  const entries = Object.entries(freshness.sources);
+  const when = freshnessWords(freshness);
+  const failed = entries.filter(([, state]) => state.lastError || !state.lastSuccessAt);
+  return '<section class="box"><span class="k">' + t("Boards") + "</span><p>"
+    + esc(freshness.refreshing ? t("Refreshing the boards…") : when ? t("Refreshed {when}.", { when }) : t("not loaded yet")) + "</p>"
+    + (failed.length
+      ? "<ul>" + failed.map(([source, state]) => '<li title="' + esc(state.lastError || "") + '"><span>' + esc(SOURCE_NAME[source] || source)
+        + '</span><small class="bad">' + (state.lastError ? t("error") : t("not loaded yet")) + "</small></li>").join("") + "</ul>"
+      : '<p class="small">' + t("Every board answered.") + "</p>")
+    + "</section>";
+}
+
+/** The funnel in two lines, and the way to it. */
+function funnelBox() {
+  if (!stats || !stats.total) return "";
+  const waiting = (stats.funnel || {}).applied || 0;
+  return '<section class="box"><span class="k">' + t("Applications") + '</span><span class="name">'
+    + tn(stats.total, "{n} application", "{n} applications") + ", " + tn(stats.responded || 0, "{n} reply", "{n} replies") + "</span>"
+    + '<p class="small">' + tn(waiting, "{n} application is awaiting a reply.", "{n} applications are awaiting a reply.") + "</p>"
+    + '<button type="button" class="linkbtn" data-view-go="tracker">' + t("Open applications") + "</button></section>";
+}
+
+/** The right column: around the posting on the card, or around the search when there is none. */
+function renderSide(job) {
+  const side = job ? sideHtml(job) : searchLoaded ? homeSideHtml() : "";
+  if (side !== lastSideHtml) {
+    $("side").innerHTML = side;
+    lastSideHtml = side;
+  }
+}
+
 /** The reasons to hide a job with, in order: Claude's own first when it said skip. */
 function hideReasons(job) {
   const suggested = job.verdict && job.verdict.verdict === "skip" ? job.verdict.hideReason : "";
@@ -1654,20 +1731,41 @@ function emptyHtml(jobs, counts) {
   if (!searchLoaded) {
     return '<section class="card empty"><span class="big soft" aria-hidden="true">…</span><h1>' + t("Loading postings") + "</h1></section>";
   }
+  const nextUp = nextBtn ? nextUpHtml(next) : "";
+  const open = '<section class="card empty' + (nextUp ? " has-next" : "") + '">';
   if (jobs.length > 0) {
     const tally = (kind) => jobs.filter((j) => decided.get(j.key) === kind).length;
-    return '<section class="card empty"><span class="big" aria-hidden="true">'
+    return open + '<span class="big" aria-hidden="true">'
       + '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></span>'
       + "<h1>" + t("This stack is done") + "</h1><p>" + t("In funnel: {funnel} · hidden: {hidden}", { funnel: tally("funnel"), hidden: tally("hidden") }) + "</p>"
-      + '<div class="row">' + nextBtn + "</div></section>";
+      + '<div class="row">' + nextBtn + "</div>" + nextUp + "</section>";
   }
-  const why = claudeBusy() && (stack === "good" || stack === "maybe")
+  const filtered = Boolean(jobQuery) || maxAgeDays !== 30;
+  const busy = claudeBusy() && (stack === "good" || stack === "maybe");
+  // "Good fit" is where the page opens, and most days it is empty: it says why, and where the closest ones are.
+  const noFits = stack === "good" && !busy && !filtered;
+  const why = busy
     ? t("Claude is still judging postings: {n} in progress. The ones that fit will show here.",
       { n: (claudeStatus.queued || []).length + (claudeStatus.running || []).length })
-    : jobQuery || maxAgeDays !== 30 ? t("Nothing here; the filters may be in the way.") : t("Nothing here.");
-  return '<section class="card empty"><span class="big soft" aria-hidden="true">'
+    : filtered ? t("Nothing here; the filters may be in the way.")
+      : noFits && nextBtn ? t("Claude found no clear fit. The closest ones are in {stack}.", { stack: quote(next.label) })
+        : t("Nothing here.");
+  return open + '<span class="big soft" aria-hidden="true">'
     + '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span>'
-    + "<h1>" + t("Nothing to show") + "</h1><p>" + esc(why) + '</p><div class="row">' + nextBtn + "</div></section>";
+    + "<h1>" + (noFits ? t("No clear fits right now") : t("Nothing to show")) + "</h1><p>" + esc(why) + '</p><div class="row">' + nextBtn + "</div>"
+    + nextUp + "</section>";
+}
+
+/** The first postings of the stack "Next" leads to, each one click away. */
+function nextUpHtml(next) {
+  const rows = stackJobs(next.id).filter((job) => !decided.has(job.key)).slice(0, 3);
+  if (rows.length === 0) return "";
+  return '<div class="rule"></div><div class="nextup"><span class="k">' + esc(t("Top of {stack}", { stack: quote(next.label) })) + "</span>"
+    + rows.map((job) => '<button type="button" class="uprow" data-pick="' + esc(job.key) + '">' + scoreTile(job)
+      + '<span class="what"><b>' + esc(job.title) + "</b><small>"
+      + esc([job.company, SOURCE_NAME[job.source] || job.source].filter(Boolean).join(" · ")) + "</small></span>"
+      + '<span class="when">' + esc(ageLabel(job.postedAt)) + "</span></button>").join("")
+    + "</div>";
 }
 
 /** Claude's line next to the stack: what the verdict queue is doing. */
@@ -3255,6 +3353,10 @@ function bindChrome() {
     if (!target) return;
     const go = target.closest("[data-stack-go]");
     if (go) return pickStack(go.dataset.stackGo);
+    // An empty stack lists the first postings of the next one.
+    const pick = target.closest("[data-pick]");
+    const picked = pick && (lastSearchPayload.jobs || []).find((j) => j.key === pick.dataset.pick);
+    if (picked) return goToJob(picked);
     const button = target.closest("[data-act]");
     if (button && !button.disabled) act(button.dataset.act, button.dataset.reason);
   });
@@ -3273,7 +3375,9 @@ function bindChrome() {
     const job = pick && (lastSearchPayload.jobs || []).find((j) => j.key === pick.dataset.pick);
     if (job) return goToJob(job);
     const company = target.closest("[data-company]");
-    if (company) openJump("@" + company.dataset.company);
+    if (company) return openJump("@" + company.dataset.company);
+    const view = target.closest("[data-view-go]");
+    if (view) showView(view.dataset.viewGo);
   });
 
   // The date window goes to the server: recency is not the first sort key,
@@ -3434,6 +3538,8 @@ async function load() {
     trackedUrls = new Set(applications.map((a) => a.url_key).filter(Boolean));
     renderStats(s);
     renderRows();
+    // With no posting on the card, the right column shows the funnel: redraw it with these numbers.
+    if (searchLoaded) renderSearch();
     const { attempts } = await fetch("/api/attempts").then((r) => r.json());
     renderAttempts(attempts || []);
   } catch (error) {

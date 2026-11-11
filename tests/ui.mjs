@@ -614,6 +614,26 @@ async function main() {
   check("with \"Hide applied\" off, an applied job is in its stack", page.stackJobs("good").some((j) => j.company === "Bolt"));
   registry.get("hideApplied")._handlers.change({ target: { checked: true } });
   check("with it on, it is not — unless decided in this session", !page.stackJobs("good").some((j) => j.company === "Bolt"));
+
+  /* ---- An empty "Good fit": why, the top of "Check", and a right column that is not blank ---- */
+  const newSinceBefore = page.getVar("pageNewSince");
+  page.setVar("pageNewSince", new Date(Date.now() - 86_400_000).toISOString());
+  page.setPayload({
+    jobs: [job("c", "Cirrus", "Fullstack Engineer", { verdict: verdict("maybe", 60) }), job("f", "Foxtrot", "Senior Web Engineer")],
+    counts: {}, profile: { hoursOld: 720 },
+    freshness: { refreshing: false, sources: {
+      indeed: { lastSuccessAt: today, lastError: null }, himalayas: { lastSuccessAt: today, lastError: "HTTP 503" } } },
+  });
+  const textOf = (html) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300);
+  check("an empty \"Good fit\" says Claude found no clear fit, and lists the top of \"Check\"",
+    page.stack === "good" && focus().includes("No clear fits right now") && focus().includes("Top of “Check”")
+      && focus().includes('class="uprow" data-pick="example.com/stack/c"') && !focus().includes("example.com/stack/f"), textOf(focus()));
+  check("the right column says what is around the search: new postings, a failed board by name, the applications",
+    side().includes("Since your last visit") && side().includes("2 new postings")
+      && /Himalayas<\/span><small class="bad">error/.test(side()) && side().includes('data-view-go="tracker"'), textOf(side()));
+  clickIn(registry, "focus", { pick: "example.com/stack/c" });
+  check("a posting listed there opens in its own stack", page.stack === "maybe" && page.currentKey === "example.com/stack/c");
+  page.setVar("pageNewSince", newSinceBefore);
   const showFreshness = page.getVar("showFreshness");
   showFreshness({ refreshing: false, sources: {
     indeed: { lastSuccessAt: today, lastError: null }, himalayas: { lastSuccessAt: today, lastError: "HTTP 503" } } });
