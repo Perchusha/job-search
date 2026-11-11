@@ -18,7 +18,7 @@ import {
   payB2bPlnMonth,
 } from "../src/boards-pl.ts";
 import { normalizeJobicy, normalizeWorkable, parseHackerNewsPost } from "../src/boards-intl.ts";
-import { recruitee, workable } from "../src/watchlist.ts";
+import { ashby, recruitee, workable } from "../src/watchlist.ts";
 import { normalizeDou, parseDouFeed } from "../src/boards-ua.ts";
 import { scoreEligibility } from "../src/eligibility.ts";
 
@@ -206,6 +206,23 @@ const rcJobs = recruitee(rtg, { offers: [
 ] });
 check("watchlist/recruitee: published offers only, with pay", rcJobs.length === 1 && rcJobs[0]?.pay?.[0]?.max === 150000 && rcJobs[0]?.description?.includes("React") && rcJobs[0]?.description?.includes("5 years"));
 check("watchlist/recruitee: remote within the US is not open to Poland", scoreEligibility(rcJobs[0]).level === "low");
+
+/* ---- the watchlist's Ashby boards: remote said only in the place ---- */
+
+const supabase = { vendor: "ashby", board: "supabase", company: "Supabase" };
+const ashbyJobs = ashby(supabase, { jobs: [
+  { id: "a", title: "Software Engineer - Branching", jobUrl: "https://jobs.ashbyhq.com/supabase/a", location: "Remote, Global", isRemote: null, workplaceType: null },
+  { id: "b", title: "Software Engineer - AI Tooling", jobUrl: "https://jobs.ashbyhq.com/supabase/b", location: "Remote, Global", isRemote: true, workplaceType: "Remote" },
+  { id: "c", title: "Platform Engineer", jobUrl: "https://jobs.ashbyhq.com/supabase/c", location: "Remote, Berlin", isRemote: false, workplaceType: "Hybrid" },
+] });
+check("watchlist/ashby: no remote field set, \"Remote, Global\" is remote, as the flagged one is",
+  ashbyJobs[0]?.remote === true && ashbyJobs[1]?.remote === true && scoreEligibility(ashbyJobs[0]).level === scoreEligibility(ashbyJobs[1]).level
+    && scoreEligibility(ashbyJobs[0]).level !== "low");
+check("watchlist/ashby: a field that is set wins over the place", ashbyJobs[2]?.remote === false && ashbyJobs[2]?.workMode === "hybrid");
+const zoned = (place) => scoreEligibility({ ...ashbyJobs[0], locationRestrictions: [place, "Madrid", "Sofia"], remote: true }).level;
+check("watchlist: a time-zone range that takes in Poland is open to it; Eastern Time is not",
+  zoned("Remote (UTC-3 to UTC+3)") === "high" && zoned("Remote, GMT+1 ± 1h") === "high"
+    && zoned("Remote (UTC-8 to UTC-5)") === "low" && zoned("Eastern Time zone") === "low");
 
 /* ---- pay ---- */
 

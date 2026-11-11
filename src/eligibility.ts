@@ -405,10 +405,30 @@ function scorePolishBoard(job: Job): Eligibility {
  */
 const GENERIC_REMOTE = /^(?:remote|anywhere|worldwide|global|distributed)(?:[\s,()-]*(?:remote|global|worldwide|anywhere))*$/i;
 
+/**
+ * The UTC offsets a place names — "Remote (UTC-3 to UTC+3)" is [-3, 3] — and
+ * whether they take in Poland's UTC+1: a range that spans it, or one offset
+ * within an hour of it. Checkly's EU product role said only this, and was out.
+ */
+export function zoneCoversPoland(text: string): { from: number; to: number } | null {
+  const zones = [...text.matchAll(/\b(?:utc|gmt)\s*([+\-−–])\s*(\d{1,2})(?:[:.](\d{2}))?/gi)]
+    .map(([, sign, hours, minutes]) => (sign === "+" ? 1 : -1) * (Number(hours) + Number(minutes ?? 0) / 60));
+  if (zones.length === 0) return null;
+  const from = Math.min(...zones);
+  const to = Math.max(...zones);
+  const covers = zones.length > 1 ? from <= 1 && to >= 1 : Math.abs(from - 1) <= 1;
+  return covers ? { from, to } : null;
+}
+
 function scoreWatchlist(job: Job): Eligibility {
   const places = job.locationRestrictions.join("; ");
   const hit = firstFriendly(places);
   if (hit) return { eligible: true, level: "high", reason: `Company board lists "${hit}" (${places})` };
+  const zone = zoneCoversPoland(places);
+  if (zone) {
+    const utc = (n: number) => `UTC${n >= 0 ? "+" : ""}${n}`;
+    return { eligible: true, level: "high", reason: `Company board hires in ${utc(zone.from)}…${utc(zone.to)} (${places}) — Poland is UTC+1/+2` };
+  }
   const generic = job.locationRestrictions.every((place) => GENERIC_REMOTE.test(place.trim()));
   if (job.remote && generic) {
     return { eligible: true, level: "medium", reason: `Remote, region not stated ("${places || "—"}") — check the posting` };

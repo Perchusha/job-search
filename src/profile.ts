@@ -239,6 +239,21 @@ export const WATCHLIST: WatchedBoard[] = [
   { vendor: "workable", board: "modash", company: "Modash" },
   { vendor: "smartrecruiters", board: "InPost", company: "InPost" },
   { vendor: "recruitee", board: "resourcefultalentgroup", company: "Resourceful Talent Group" },
+  /*
+   * Added on 2026-11-11: 150 product companies tried on the six ATS APIs, 95
+   * boards found, these 8 with frontend, fullstack or product roles that pass
+   * the filters for Poland. Most boards lost everything to geography (US-only
+   * remote, or offices in London, Paris, Stockholm); most Polish product
+   * companies have their own careers pages, not one of these ATSes.
+   */
+  { vendor: "greenhouse", board: "canonical", company: "Canonical" },
+  { vendor: "ashby", board: "resend", company: "Resend" },
+  { vendor: "ashby", board: "chromatic", company: "Chromatic" },
+  { vendor: "lever", board: "metabase", company: "Metabase" },
+  { vendor: "ashby", board: "lemlist", company: "lemlist" },
+  { vendor: "ashby", board: "attio", company: "Attio" },
+  { vendor: "ashby", board: "railway", company: "Railway" },
+  { vendor: "ashby", board: "docplanner", company: "Docplanner" },
 ];
 
 /**
@@ -520,22 +535,47 @@ const FOREIGN_STACK: Array<[term: string, penalty: number]> = [
   ["support specialist", 8],
 ];
 
+/*
+ * Spellings of one stack, penalised once per posting however many of them it
+ * writes. Modash's product role wrote "Vue" in one place and "Vue.js" in
+ * another and paid -12; a fullstack posting with "backend" and "back-end", -8.
+ */
+const SAME_STACK: string[][] = [["vue", "vue.js", "vuejs"], ["angular", "angularjs"], ["backend", "back-end", "back end"]];
+const FOREIGN_GROUPS: Array<Array<[term: string, penalty: number]>> = (() => {
+  const groups = new Map<string, Array<[string, number]>>();
+  for (const entry of FOREIGN_STACK) {
+    const head = SAME_STACK.find((group) => group.includes(entry[0]))?.[0] ?? entry[0];
+    groups.set(head, [...(groups.get(head) ?? []), entry]);
+  }
+  return [...groups.values()];
+})();
+
 /** The non-engineering roles above: in a company's own text they may be its product (stackFit). */
 const ROLE_WORDS = new Set(FOREIGN_STACK.slice(FOREIGN_STACK.findIndex(([term]) => term === "recruiter")).map(([term]) => term));
 
 /**
  * Whole-word term test. Terms ending in a symbol (".net", "c#", "c++") get no
  * trailing boundary, because a word boundary never fires after a symbol.
+ *
+ * A term that is also listed with a dotted ending ("vue" and "vue.js", "node"
+ * and "node.js") does not match where that longer spelling is written: one
+ * mention is one term. "Vue.js" in a posting used to count as both, -12
+ * instead of -6, which cut Modash's and Checkly's product engineer roles.
  */
 const TERM_PATTERNS = new Map<string, RegExp>();
+const escapeTerm = (term: string) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const DOTTED_TERMS = [...STACK_WEIGHTS, ...FOREIGN_STACK].map(([term]) => term).filter((term) => /^[a-z0-9]+\./.test(term));
 
 function hasTerm(haystack: string, term: string): boolean {
   // Compiled once per term: stackFit runs every term over every posting, and
   // building ~250 RegExps per call was most of a search's CPU time.
   let pattern = TERM_PATTERNS.get(term);
   if (!pattern) {
-    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const trailing = /[a-z0-9]$/.test(term) ? "(?![a-z0-9])" : "";
+    const escaped = escapeTerm(term);
+    const longer = DOTTED_TERMS.filter((other) => other.startsWith(term + ".")).map((other) => escapeTerm(other.slice(term.length)));
+    const trailing = /[a-z0-9]$/.test(term)
+      ? `(?![a-z0-9]${longer.length ? `|(?:${longer.join("|")})(?![a-z0-9])` : ""})`
+      : "";
     pattern = new RegExp(`(?<![a-z0-9])${escaped}${trailing}`, "i");
     TERM_PATTERNS.set(term, pattern);
   }
@@ -662,10 +702,11 @@ function computeStackFit(job: Job): number {
   // product, not the job; a foreign stack still counts. Dropping every body
   // penalty there instead kept 97 roles rather than 30, mostly Go and Java.
   const roleWordsCount = job.source !== "watchlist";
-  for (const [term, penalty] of FOREIGN_STACK) {
+  for (const spellings of FOREIGN_GROUPS) {
+    const penalty = spellings[0]![1];
     // A foreign stack named in the title is close to disqualifying.
-    if (hasTerm(title, term)) score -= penalty * 3;
-    else if (bodyPenalties && (roleWordsCount || !ROLE_WORDS.has(term)) && hasTerm(rest, term)) score -= penalty;
+    if (spellings.some(([term]) => hasTerm(title, term))) score -= penalty * 3;
+    else if (bodyPenalties && spellings.some(([term]) => (roleWordsCount || !ROLE_WORDS.has(term)) && hasTerm(rest, term))) score -= penalty;
   }
 
   // A junior/intern opening is as poor a fit for an 8-year senior as a foreign

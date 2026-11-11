@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { inDateWindow, presentJob, rankFetched, rankJobs } from "../src/pipeline.ts";
-import { seniorityBucket } from "../src/profile.ts";
+import { seniorityBucket, stackFit } from "../src/profile.ts";
 import { scoreEligibility } from "../src/eligibility.ts";
 import { SCREEN_RULES, buildContext, decide, ruleOf } from "../src/screening.ts";
 import { dedupeJobs } from "../src/sources.ts";
@@ -353,3 +353,17 @@ for (const fine of ["Polish is a plus.", "Knowledge of Polish (B2) is nice to ha
   assert.ok(!polish(fine), fine);
 }
 console.log("PASS  workmode: Polish above B1 in its usual wordings is a requirement; as a plus it is not");
+
+/* ---- one mention is one term: "Vue.js" is not also "Vue", "Node.js" not also "Node" ---- */
+{
+  const fitOf = (description, title = "Senior Product Engineer") => stackFit({ ...job(title, "high"), description });
+  assert.equal(fitOf("We use Vue.js on the front."), fitOf("We use Vue on the front."));
+  assert.equal(fitOf("We use Vue.js on the front."), -6);
+  assert.equal(fitOf("Node.js services"), fitOf("Node services"));
+  // One stack is penalised once, however many spellings the posting uses; React.js keeps React.
+  assert.equal(fitOf("Vue 3 now, a Vue.js 2 migration later, some vuejs plugins"), -6);
+  assert.equal(fitOf("Fullstack: backend in Node, plus back-end on-call"), fitOf("Fullstack: backend in Node"));
+  assert.equal(fitOf("Angular", "Senior Vue.js Engineer"), -18 - 6);
+  assert.equal(fitOf("React.js and TypeScript"), 4 + 3);
+}
+console.log("PASS  stack fit: a foreign stack costs once however it is spelled; \"Node.js\" gives what \"Node\" does");

@@ -91,7 +91,10 @@ export function ashby(board: WatchedBoard, payload: Raw): Job[] {
             gross: false,
           }]
         : [];
-    const remote = raw["isRemote"] === true || raw["workplaceType"] === "Remote";
+    // Some boards set neither field and say it in the place: Supabase's "Remote, Global"
+    // (isRemote null on 14 of its 41 engineering roles, 2026-11-11). A field that is set wins.
+    const unset = raw["isRemote"] == null && raw["workplaceType"] == null;
+    const remote = raw["isRemote"] === true || raw["workplaceType"] === "Remote" || (unset && REMOTE.test(locations.join(" ")));
     return [job(board, {
       externalId: str(raw["id"]) ?? url,
       title,
